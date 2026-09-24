@@ -6,8 +6,9 @@ import { useSettings } from '../stores/settings'
 import { useLibrary } from '../stores/library'
 import { isTextLike } from '../services/format'
 import { convertToEpub, TEXT_EPUB_LAYOUT } from '../services/textToEpub'
-import { getReaderCSS, resolveReaderColors, READER_THEME_CHOICES, FONT_FAMILIES, HIGHLIGHT_COLORS } from '../services/readerTheme'
+import { getReaderCSS, resolveReaderColors, resolveReaderTheme, READER_THEME_CHOICES, FONT_FAMILIES, HIGHLIGHT_COLORS } from '../services/readerTheme'
 import { resolvedTheme } from '../services/appearance'
+import { setPageBarsDark } from '../services/systemBars'
 import { listSystemFonts, importFontFile, injectFontIntoDoc, resolveFontFamily } from '../services/fonts'
 import { isTauri } from '../storage/types'
 import { listVoicesSorted, speakText, ssmlToText, stopSpeech, pauseSpeech, resumeSpeech, resetEdgeFailure } from '../services/tts'
@@ -252,6 +253,12 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined
 
 const appDark = computed(() => resolvedTheme.value === 'dark')
 const themeColors = computed(() => resolveReaderColors(settings.reader.theme, appDark.value))
+// 正文主题铺满全屏 (含状态栏下方), 安卓系统栏图标按正文深浅切换
+watch(
+  () => resolveReaderTheme(settings.reader.theme, appDark.value) === 'dark',
+  dark => setPageBarsDark(dark),
+  { immediate: true },
+)
 
 /** 当前选中的自定义字体 (settings.reader.fontFamily 为 custom:Name 时) */
 function selectedCustomFont() {
@@ -1015,6 +1022,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  setPageBarsDark(null)
   window.removeEventListener('keydown', handleKeydown)
   document.removeEventListener('fullscreenchange', syncFullscreenState)
   // 回藏书页时恢复窗口状态
@@ -1469,8 +1477,8 @@ onBeforeUnmount(() => {
 .reader {
   /* 底栏高度: 浮层 (自动阅读 / 听书胶囊) 在工具栏显示时让到它上方 */
   --footer-h: 50px;
-  --safe-top: env(safe-area-inset-top);
-  --safe-bottom: env(safe-area-inset-bottom);
+  --safe-top: var(--lr-safe-top);
+  --safe-bottom: var(--lr-safe-bottom);
   position: relative;
   height: 100%;
   display: flex;
@@ -1485,7 +1493,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px max(14px, env(safe-area-inset-right)) 8px max(14px, env(safe-area-inset-left));
+  padding: 8px max(14px, var(--lr-safe-right)) 8px max(14px, var(--lr-safe-left));
   background: color-mix(in srgb, var(--card) 86%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -1600,7 +1608,7 @@ onBeforeUnmount(() => {
 .content {
   flex: 1;
   height: 100%;
-  padding: var(--safe-top) env(safe-area-inset-right) var(--safe-bottom) env(safe-area-inset-left);
+  padding: var(--safe-top) var(--lr-safe-right) var(--safe-bottom) var(--lr-safe-left);
 }
 .state {
   position: absolute;
@@ -2182,7 +2190,7 @@ onBeforeUnmount(() => {
   }
   .bar {
     gap: 4px;
-    padding-inline: max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-right));
+    padding-inline: max(8px, var(--lr-safe-left)) max(8px, var(--lr-safe-right));
   }
   .bar.top {
     padding-top: calc(6px + var(--safe-top));
@@ -2260,7 +2268,7 @@ onBeforeUnmount(() => {
     max-height: 78%;
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     border-bottom: none;
-    padding: 18px max(16px, env(safe-area-inset-right)) calc(16px + var(--safe-bottom)) max(16px, env(safe-area-inset-left));
+    padding: 18px max(16px, var(--lr-safe-right)) calc(16px + var(--safe-bottom)) max(16px, var(--lr-safe-left));
     box-shadow: var(--shadow-lg);
     animation: sheet-up var(--dur-slow) var(--ease);
   }

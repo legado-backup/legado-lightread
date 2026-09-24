@@ -27,6 +27,7 @@ import {
 } from '../services/paperAgent.ts'
 
 const settings = useSettings()
+const isAndroid = /Android/i.test(navigator.userAgent)
 const library = useLibrary()
 
 const storageKind = ref('')
@@ -604,7 +605,7 @@ const APPEARANCE_OPTIONS = [
           <div class="app-name">
             LightRead 轻阅
             <span class="version-chip">v{{ CURRENT_VERSION }}</span>
-            <span class="env-chip">{{ isTauri() ? t('settings.desktopVersion') : t('settings.webVersion') }}</span>
+            <span class="env-chip">{{ !isTauri() ? t('settings.webVersion') : isAndroid ? t('settings.androidVersion') : t('settings.desktopVersion') }}</span>
           </div>
           <div class="app-tagline">{{ t('settings.tagline') }}</div>
         </div>
@@ -696,7 +697,7 @@ const APPEARANCE_OPTIONS = [
 
 <style scoped>
 .settings {
-  padding: 24px 28px calc(40px + env(safe-area-inset-bottom));
+  padding: 24px 28px calc(40px + var(--lr-safe-bottom));
   max-width: 820px;
   margin: 0 auto;
 }
@@ -1054,7 +1055,7 @@ h2 {
 }
 @media (max-width: 600px) {
   .settings {
-    padding: 16px 14px calc(28px + env(safe-area-inset-bottom));
+    padding: 16px 14px calc(28px + var(--lr-safe-bottom));
   }
   .section {
     padding: 14px 14px;

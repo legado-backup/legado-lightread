@@ -746,7 +746,7 @@ async function removeSource(s: CatalogSourceRec) {
 
 <style scoped>
 .catalog {
-  padding: 24px 28px calc(40px + env(safe-area-inset-bottom));
+  padding: 24px 28px calc(40px + var(--lr-safe-bottom));
   min-height: 100%;
 }
 .toolbar {
@@ -1295,7 +1295,7 @@ async function removeSource(s: CatalogSourceRec) {
 
 @media (max-width: 720px) {
   .catalog {
-    padding: 16px 16px calc(28px + env(safe-area-inset-bottom));
+    padding: 16px 16px calc(28px + var(--lr-safe-bottom));
   }
   .source-grid {
     grid-template-columns: 1fr;

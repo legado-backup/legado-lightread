@@ -208,6 +208,7 @@ export default {
   'settings.resetDone': 'Defaults restored',
   'settings.about': 'About',
   'settings.desktopVersion': 'Desktop',
+  'settings.androidVersion': 'Android',
   'settings.webVersion': 'Web',
   'settings.tagline': 'An open-source local reader for people who love books. All your data stays on your own device.',
   'settings.aboutFormats': 'Supports EPUB / MOBI / AZW / AZW3 / FB2 / CBZ / CBR / DjVu / PDF / TXT / HTML / Markdown, plus library management, online book sources and cloud backup.',

@@ -5,6 +5,13 @@
 :root {
   color-scheme: light;
 
+  /* 系统栏安全区: 默认取 env(); 安卓旧 WebView 在 edge-to-edge 下 env() 恒为 0,
+     由 services/safeArea.ts 按原生 MainActivity 上报的尺寸覆盖 */
+  --lr-safe-top: env(safe-area-inset-top);
+  --lr-safe-right: env(safe-area-inset-right);
+  --lr-safe-bottom: env(safe-area-inset-bottom);
+  --lr-safe-left: env(safe-area-inset-left);
+
   /* 品牌 */
   --brand: #1664ff;
   --brand-hover: #0e4fd1;
@@ -563,7 +570,7 @@ input[type='range'] {
     width: 100%;
     max-height: 88vh;
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-    padding: var(--space-5) var(--space-4) calc(var(--space-5) + env(safe-area-inset-bottom));
+    padding: var(--space-5) var(--space-4) calc(var(--space-5) + var(--lr-safe-bottom));
     animation-name: sheet-in;
   }
   @keyframes sheet-in {
@@ -581,7 +588,7 @@ input[type='range'] {
 /* ---- 消息提示 ---- */
 .toast-wrap {
   position: fixed;
-  top: calc(16px + env(safe-area-inset-top));
+  top: calc(16px + var(--lr-safe-top));
   left: 50%;
   transform: translateX(-50%);
   z-index: 200;

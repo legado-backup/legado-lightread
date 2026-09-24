@@ -2,6 +2,7 @@
 import { ref, watchEffect, onScopeDispose } from 'vue'
 import { useSettings } from '../stores/settings'
 import { isTauri } from '../storage/types'
+import { setAppBarsDark } from './systemBars'
 
 export type ResolvedTheme = 'light' | 'dark'
 
@@ -26,6 +27,7 @@ function systemPrefersDark(): boolean {
 export function applyTheme(theme: ResolvedTheme) {
   if (typeof document === 'undefined') return
   resolvedTheme.value = theme
+  setAppBarsDark(theme === 'dark')
   const root = document.documentElement
   if (root.dataset.theme === theme) return
   root.dataset.theme = theme

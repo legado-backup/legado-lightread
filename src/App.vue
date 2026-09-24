@@ -187,9 +187,9 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
 /* 安卓 edge-to-edge / iOS 刘海屏: 网页铺到系统栏下, 普通页面让出状态栏与横屏两侧;
    阅读页 (immersive) 自行处理, 背景色可延伸到状态栏下 */
 .shell:not(.immersive) {
-  padding-top: env(safe-area-inset-top);
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
+  padding-top: var(--lr-safe-top);
+  padding-left: var(--lr-safe-left);
+  padding-right: var(--lr-safe-right);
 }
 .sidebar {
   width: 208px;
@@ -200,7 +200,7 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  padding: 18px 12px calc(16px + env(safe-area-inset-bottom));
+  padding: 18px 12px calc(16px + var(--lr-safe-bottom));
   transition: width var(--dur) var(--ease);
 }
 .logo {
@@ -409,7 +409,7 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
     width: 100%;
     flex-direction: row;
     align-items: stretch;
-    padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
+    padding: 4px 6px calc(4px + var(--lr-safe-bottom));
     border-right: none;
     border-top: 1px solid var(--border);
     box-shadow: 0 -1px 0 color-mix(in srgb, var(--border) 50%, transparent);

@@ -208,6 +208,7 @@ export default {
   'settings.resetDone': '已恢复默认',
   'settings.about': '关于',
   'settings.desktopVersion': '桌面版',
+  'settings.androidVersion': '安卓版',
   'settings.webVersion': '网页版',
   'settings.tagline': '开源本地阅读器, 给爱读书的人。所有数据保存在你自己的设备上。',
   'settings.aboutFormats': '支持 EPUB / MOBI / AZW / AZW3 / FB2 / CBZ / CBR / DjVu / PDF / TXT / HTML / Markdown，还能管理藏书、在线找书和云端备份。',

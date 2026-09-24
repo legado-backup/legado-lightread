@@ -176,6 +176,13 @@ jobs:
           sed -i -E 's|(<string name="(app_name\|main_activity_title)">)[^<]*(</string>)|\1轻阅\3|' "$RES/values/strings.xml"
           grep -q '>轻阅<' "$RES/values/strings.xml"
 
+      # 自定义 MainActivity: 向前端上报系统栏尺寸, 修复旧版 WebView 下内容顶到状态栏 / 被手势条遮挡
+      - name: 写入 MainActivity
+        run: |
+          DST=src-tauri/gen/android/app/src/main/java/com/yzfly/lightread/MainActivity.kt
+          test -f "$DST"
+          cp src-tauri/android/MainActivity.kt "$DST"
+
       # 固定签名: 每个版本的 APK 签名一致, 手机上才能直接覆盖升级 (保留藏书与进度)。
       # 未配置密钥时退回 runner 临时生成的签名, 这样的 APK 无法覆盖安装旧版
       - name: 写入签名密钥

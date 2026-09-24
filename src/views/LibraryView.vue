@@ -879,7 +879,7 @@ async function batchClearTags() {
 <style scoped>
 .library {
   min-height: 100%;
-  padding: 0 28px calc(40px + env(safe-area-inset-bottom));
+  padding: 0 28px calc(40px + var(--lr-safe-bottom));
   position: relative;
 }
 /* 顶栏吸顶: 长书架滚动时搜索 / 导入随手可及 */
@@ -1365,7 +1365,7 @@ async function batchClearTags() {
 }
 .batch-bar {
   position: sticky;
-  bottom: calc(16px + env(safe-area-inset-bottom));
+  bottom: calc(16px + var(--lr-safe-bottom));
   margin-top: 20px;
   display: flex;
   align-items: center;
@@ -1417,7 +1417,7 @@ async function batchClearTags() {
 
 @media (max-width: 720px) {
   .library {
-    padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+    padding: 0 16px calc(24px + var(--lr-safe-bottom));
   }
   .toolbar {
     margin: 0 -16px 14px;
@@ -1496,7 +1496,7 @@ async function batchClearTags() {
     grid-row: 2;
   }
   .batch-bar {
-    bottom: calc(8px + env(safe-area-inset-bottom));
+    bottom: calc(8px + var(--lr-safe-bottom));
     padding: 8px 10px;
   }
   .drop-hint {

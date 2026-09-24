@@ -4608,7 +4608,7 @@ onBeforeUnmount(() => {
 .fullscreen-exit,
 .fullscreen-toc-toggle {
   position: fixed;
-  top: max(18px, env(safe-area-inset-top));
+  top: max(18px, var(--lr-safe-top));
   z-index: 92;
   min-width: 42px;
   height: 42px;
@@ -4629,10 +4629,10 @@ onBeforeUnmount(() => {
   transition: opacity 160ms ease, background-color 160ms ease, transform 120ms ease;
 }
 .fullscreen-exit {
-  right: max(18px, env(safe-area-inset-right));
+  right: max(18px, var(--lr-safe-right));
 }
 .fullscreen-toc-toggle {
-  left: max(18px, env(safe-area-inset-left));
+  left: max(18px, var(--lr-safe-left));
 }
 .fullscreen-exit:hover,
 .fullscreen-exit:focus-visible,
@@ -4660,7 +4660,7 @@ onBeforeUnmount(() => {
 }
 .presentation-controls {
   position: fixed;
-  bottom: max(18px, env(safe-area-inset-bottom));
+  bottom: max(18px, var(--lr-safe-bottom));
   left: 50%;
   z-index: 91;
   display: flex;
@@ -4774,7 +4774,7 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 50;
   flex: 0 0 auto;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  padding: var(--lr-safe-top) var(--lr-safe-right) 0 var(--lr-safe-left);
   background: var(--card);
 }
 .paper-bar {
@@ -5227,11 +5227,11 @@ onBeforeUnmount(() => {
 }
 /* 连续滚动: 末页不压在手势条下; 全屏隐藏顶栏后首页不压在状态栏下 (只加纵向留白, 不影响适宽计算) */
 .pane-left:is(.is-fit-width, .is-fit-height) {
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: var(--lr-safe-bottom);
 }
 .paper.is-fullscreen .pane-left:is(.is-fit-width, .is-fit-height) {
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-top: var(--lr-safe-top);
+  padding-bottom: var(--lr-safe-bottom);
 }
 .pane-left:is(.is-fit-width, .is-fit-height) .p-holder,
 .paged-box:is(.is-fit-width, .is-fit-height) .p-holder,
