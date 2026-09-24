@@ -21,9 +21,6 @@ jobs:
           - platform: macos-latest
             args: '--target x86_64-apple-darwin'
             rust-targets: x86_64-apple-darwin
-          - platform: ubuntu-22.04
-            args: ''
-            rust-targets: ''
           - platform: windows-latest
             # WiX/MSI 在包含多种文件关联时会稳定失败；NSIS 同样是原生安装器且兼容这些关联。
             args: '--bundles nsis'
@@ -32,13 +29,6 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: 安装 Linux 依赖
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
-            librsvg2-dev patchelf libasound2-dev cmake
 
       - uses: actions/setup-node@v4
         with:
@@ -78,6 +68,46 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+  # Linux 最后打包: 等 macOS / Windows / Android 先出包 (安卓失败也照常继续)
+  desktop-linux:
+    needs: [desktop, android]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Linux 依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libasound2-dev cmake
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-targets: false
+
+      - run: npm ci
+
+      - name: 构建并上传到 Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'LightRead 轻阅 ${{ github.ref_name }}'
+          releaseBody: |
+            ${{ github.event.head_commit.message }}
+          releaseDraft: false
+          prerelease: false
+
   rust-floor:
     runs-on: ubuntu-22.04
     steps:
@@ -111,7 +141,10 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # v3 默认安装已下架的 `tools` 包, 新版 runner 上会直接失败 (v1.1.17 的 APK 因此缺失)
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: 安装 NDK
         run: sdkmanager "ndk;26.3.11579264"
@@ -142,6 +175,19 @@ jobs:
           ls "$RES"/mipmap-xxxhdpi
           sed -i -E 's|(<string name="(app_name\|main_activity_title)">)[^<]*(</string>)|\1轻阅\3|' "$RES/values/strings.xml"
           grep -q '>轻阅<' "$RES/values/strings.xml"
+
+      # 固定签名: 每个版本的 APK 签名一致, 手机上才能直接覆盖升级 (保留藏书与进度)。
+      # 未配置密钥时退回 runner 临时生成的签名, 这样的 APK 无法覆盖安装旧版
+      - name: 写入签名密钥
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::未配置 ANDROID_KEYSTORE_B64, APK 使用临时签名, 无法覆盖升级"
+            exit 0
+          fi
+          mkdir -p ~/.android
+          echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
 
       - name: 构建 APK (debug 签名, 可直接安装)
         env:
