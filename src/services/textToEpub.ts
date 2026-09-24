@@ -5,6 +5,7 @@
 import { zipSync, strToU8 } from 'fflate'
 import { marked } from 'marked'
 import { CHAPTER_RE } from './smartToc'
+import { looksHardWrapped, packSections, toParagraphs } from './txtParagraphs'
 
 /** TXT 常见 GBK 编码, 优先严格 UTF-8, 失败回退 GB18030 */
 export async function decodeText(blob: Blob): Promise<string> {
@@ -41,6 +42,9 @@ interface Chapter {
 /** TXT 按章节标题切分; 无标题命中时按段落数均匀切块, 避免单章过大 */
 function splitTxtChapters(text: string, fallbackTitle: string): Chapter[] {
   const lines = text.split(/\r\n?|\n/)
+  // 整本判定一次: 固定列宽硬换行的 TXT 合并段内断行
+  const wrapped = looksHardWrapped(lines)
+  const finishTxt = (c: { title: string; lines: string[] }) => finishTxtChapter(c, wrapped)
   const chapters: Chapter[] = []
   let current: { title: string; lines: string[] } | null = null
   let preface: string[] = []
@@ -60,23 +64,21 @@ function splitTxtChapters(text: string, fallbackTitle: string): Chapter[] {
 
   if (chapters.length === 0) {
     // 无章节结构: 每 300 段切一块
-    const paras = lines.filter(l => l.trim())
+    const paras = toParagraphs(lines, wrapped)
     const CHUNK = 300
     for (let i = 0; i < paras.length; i += CHUNK) {
-      chapters.push(finishTxt({
+      chapters.push(finishTxtChapter({
         title: chapters.length === 0 ? fallbackTitle : `${fallbackTitle} (${chapters.length + 1})`,
         lines: paras.slice(i, i + CHUNK),
-      }))
+      }, false))
     }
   }
   if (chapters.length === 0) chapters.push({ title: fallbackTitle, html: '<p>(空文件)</p>' })
   return chapters
 }
 
-function finishTxt(c: { title: string; lines: string[] }): Chapter {
-  const paras = c.lines
-    .map(l => l.trim())
-    .filter(Boolean)
+function finishTxtChapter(c: { title: string; lines: string[] }, wrapped: boolean): Chapter {
+  const paras = toParagraphs(c.lines, wrapped)
     .map(l => `<p>${escapeXml(l)}</p>`)
     .join('\n')
   return {
@@ -114,11 +116,16 @@ function splitMdChapters(md: string, fallbackTitle: string): Chapter[] {
 
 const CSS = `
 html { font-family: inherit; line-height: 1.8; }
+/* 一个分节装多章: 翻页模式每章另起一页, 滚动模式章间留白 */
+.chapter + .chapter { break-before: column; margin-top: 3em; }
 p { margin: 0 0 0.8em; text-indent: 2em; }
 h1, h2, h3 { line-height: 1.4; }
 img { max-width: 100%; }
 pre { white-space: pre-wrap; background: #f5f6f7; padding: 0.8em; border-radius: 6px; }
 `
+
+/** 内存 EPUB 的版式版本; 变化会让旧的阅读位置 CFI 失效 (阅读页据此改按进度比例恢复) */
+export const TEXT_EPUB_LAYOUT = '2'
 
 function chapterXhtml(title: string, body: string): string {
   return `<?xml version="1.0" encoding="utf-8"?>
@@ -150,12 +157,16 @@ export async function convertToEpub(
     chapters = [{ title, html: body || '<p>(空文件)</p>' }]
   }
 
-  const manifest = chapters
-    .map((_, i) => `<item id="ch${i}" href="ch${i}.xhtml" media-type="application/xhtml+xml"/>`)
+  // 章 → 分节: 目录项指向分节内的章锚点 (foliate 按片段判定当前章节)
+  const sections = packSections(chapters.map((c, i) => ({ ...c, id: `c${i}` })))
+  const hrefOf = new Map<string, string>()
+  sections.forEach((sec, j) => sec.forEach(c => hrefOf.set(c.id, `s${j}.xhtml#${c.id}`)))
+  const manifest = sections
+    .map((_, j) => `<item id="s${j}" href="s${j}.xhtml" media-type="application/xhtml+xml"/>`)
     .join('\n    ')
-  const spine = chapters.map((_, i) => `<itemref idref="ch${i}"/>`).join('\n    ')
+  const spine = sections.map((_, j) => `<itemref idref="s${j}"/>`).join('\n    ')
   const navList = chapters
-    .map((c, i) => `<li><a href="ch${i}.xhtml">${escapeXml(c.title)}</a></li>`)
+    .map((c, i) => `<li><a href="${hrefOf.get(`c${i}`)}">${escapeXml(c.title)}</a></li>`)
     .join('\n      ')
 
   const opf = `<?xml version="1.0" encoding="utf-8"?>
@@ -195,17 +206,20 @@ export async function convertToEpub(
   </rootfiles>
 </container>`
 
-  const files: Record<string, [Uint8Array, { level: 0 | 6 }]> = {
-    mimetype: [strToU8('application/epub+zip'), { level: 0 }],
-    'META-INF/container.xml': [strToU8(container), { level: 6 }],
-    'OEBPS/content.opf': [strToU8(opf), { level: 6 }],
-    'OEBPS/nav.xhtml': [strToU8(nav), { level: 6 }],
-    'OEBPS/style.css': [strToU8(CSS), { level: 6 }],
+  // EPUB 只在内存里交给 foliate, 不落盘: 用 store (不压缩), 省掉每次开书的
+  // deflate 和 foliate 读每一章时的 inflate (2MB 的 TXT 约省 200ms+ 主线程)
+  const files: Record<string, Uint8Array> = {
+    mimetype: strToU8('application/epub+zip'),
+    'META-INF/container.xml': strToU8(container),
+    'OEBPS/content.opf': strToU8(opf),
+    'OEBPS/nav.xhtml': strToU8(nav),
+    'OEBPS/style.css': strToU8(CSS),
   }
-  chapters.forEach((c, i) => {
-    files[`OEBPS/ch${i}.xhtml`] = [strToU8(chapterXhtml(c.title, c.html)), { level: 6 }]
+  sections.forEach((sec, j) => {
+    const body = sec.map(c => `<section class="chapter" id="${c.id}">\n${c.html}\n</section>`).join('\n')
+    files[`OEBPS/s${j}.xhtml`] = strToU8(chapterXhtml(sec[0].title, body))
   })
 
-  const zipped = zipSync(files)
+  const zipped = zipSync(files, { level: 0 })
   return { epub: new Blob([zipped.buffer as ArrayBuffer], { type: 'application/epub+zip' }), title }
 }

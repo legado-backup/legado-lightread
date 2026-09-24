@@ -119,9 +119,15 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
     <aside v-if="!immersive" class="sidebar">
       <div class="logo" aria-hidden="true">
         <svg viewBox="0 0 48 48" width="30" height="30">
-          <rect width="48" height="48" rx="10" fill="#1664FF" />
-          <path d="M14 12h9c2.2 0 4 1.8 4 4v20c0-1.7-1.3-3-3-3H14V12z" fill="#fff" opacity=".95" />
-          <path d="M34 12h-7c-2.2 0-4 1.8-4 4v20c0-1.7 1.3-3 3-3h8V12z" fill="#fff" opacity=".7" />
+          <defs>
+            <linearGradient id="logo-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3B82FF" /><stop offset="1" stop-color="#0F4FE3" /></linearGradient>
+          </defs>
+          <rect width="48" height="48" rx="11" fill="url(#logo-bg)" />
+          <g transform="translate(24 25.6) scale(1.5) translate(-12 -12.4)">
+            <path d="M11.25 6.2C9.3 4.9 6.6 4.4 3 4.6v13.9c3.5-.2 6.2.3 8.25 1.6z" fill="#fff" />
+            <path d="M12.75 6.2c1.95-1.3 4.65-1.8 8.25-1.6v13.9c-3.5-.2-6.2.3-8.25 1.6z" fill="#fff" fill-opacity=".78" />
+          </g>
+          <path d="M37 7.2c0 2.6.9 3.5 3.5 3.5-2.6 0-3.5.9-3.5 3.5 0-2.6-.9-3.5-3.5-3.5 2.6 0 3.5-.9 3.5-3.5z" fill="#FFC53D" />
         </svg>
         <span class="logo-text">{{ t('app.name') }}</span>
       </div>
@@ -177,6 +183,13 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
 .shell {
   display: flex;
   height: 100%;
+}
+/* 安卓 edge-to-edge / iOS 刘海屏: 网页铺到系统栏下, 普通页面让出状态栏与横屏两侧;
+   阅读页 (immersive) 自行处理, 背景色可延伸到状态栏下 */
+.shell:not(.immersive) {
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 .sidebar {
   width: 208px;

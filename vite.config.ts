@@ -22,8 +22,8 @@ export default defineConfig({
       maximumFileSizeToCacheInBytes: 16 * 1024 * 1024,
     },
     manifest: {
-      name: 'Lights 阅读器',
-      short_name: 'Lights',
+      name: 'LightRead 轻阅',
+      short_name: '轻阅',
       description: '开源本地阅读器 · 支持 EPUB / MOBI / AZW3 / FB2 / CBZ / PDF / TXT 等格式，藏书管理与 OPDS 书源',
       theme_color: '#1664FF',
       background_color: '#F7F8FA',
@@ -31,6 +31,8 @@ export default defineConfig({
       icons: [
         { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
         { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
+        // 安卓桌面自适应图标: 字形在安全区内, 满版底色可被任意形状裁切
+        { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
       ],
     },
   }),

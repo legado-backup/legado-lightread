@@ -437,36 +437,7 @@ async function removeSource(s: CatalogSourceRec) {
           {{ t('catalog.add') }}
         </button>
       </header>
-      <p class="intro">
-        {{ t('catalog.intro') }}
-      </p>
-      <div class="source-grid">
-        <div
-          v-for="s in sources"
-          :key="s.id"
-          class="source-card card"
-          role="button"
-          tabindex="0"
-          @click="openSource(s)"
-          @keydown.enter.prevent="openSource(s)"
-          @keydown.space.prevent="openSource(s)"
-        >
-          <div class="source-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1.5" fill="currentColor" stroke="none"/></svg>
-          </div>
-          <div class="source-body">
-            <div class="source-title">{{ s.title }}</div>
-            <div class="source-url">{{ s.url }}</div>
-            <div class="source-foot">
-              <span v-if="s.builtin" class="tag">{{ t('catalog.builtin') }}</span>
-              <button v-else class="btn btn-sm btn-danger" @click.stop="removeSource(s)" @keydown.stop>{{ t('common.delete') }}</button>
-            </div>
-          </div>
-          <svg class="source-chevron" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M9.3 6.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4L13.58 12 9.3 7.7a1 1 0 0 1 0-1.4z"/></svg>
-        </div>
-      </div>
-
-      <!-- 统一搜书 -->
+      <!-- 统一搜书: 找书是这一页的主要任务, 放在书源列表之前 -->
       <section class="uni-section card">
         <h2>{{ t('catalog.uniTitle') }}</h2>
         <div class="gh-search-row">
@@ -535,6 +506,35 @@ async function removeSource(s: CatalogSourceRec) {
           </div>
         </template>
       </section>
+
+      <p class="intro">
+        {{ t('catalog.intro') }}
+      </p>
+      <div class="source-grid">
+        <div
+          v-for="s in sources"
+          :key="s.id"
+          class="source-card card"
+          role="button"
+          tabindex="0"
+          @click="openSource(s)"
+          @keydown.enter.prevent="openSource(s)"
+          @keydown.space.prevent="openSource(s)"
+        >
+          <div class="source-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1.5" fill="currentColor" stroke="none"/></svg>
+          </div>
+          <div class="source-body">
+            <div class="source-title">{{ s.title }}</div>
+            <div class="source-url">{{ s.url }}</div>
+            <div class="source-foot">
+              <span v-if="s.builtin" class="tag">{{ t('catalog.builtin') }}</span>
+              <button v-else class="btn btn-sm btn-danger" @click.stop="removeSource(s)" @keydown.stop>{{ t('common.delete') }}</button>
+            </div>
+          </div>
+          <svg class="source-chevron" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M9.3 6.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4L13.58 12 9.3 7.7a1 1 0 0 1 0-1.4z"/></svg>
+        </div>
+      </div>
 
       <!-- GitHub 书源列表 (社区共建) -->
       <section class="gh-section">
@@ -1197,7 +1197,7 @@ async function removeSource(s: CatalogSourceRec) {
 }
 
 .uni-section {
-  margin-top: 24px;
+  margin-bottom: 24px;
   padding: 16px 18px;
   max-width: 760px;
 }

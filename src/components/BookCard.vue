@@ -71,6 +71,10 @@ function onOutsidePointerDown(e: PointerEvent) {
 }
 function toggleMenu() {
   if (menuOpen.value) return closeMenu()
+  openMenu()
+}
+function openMenu() {
+  if (menuOpen.value) return
   menuOpen.value = true
   setTimeout(() => document.addEventListener('pointerdown', onOutsidePointerDown, true))
 }
@@ -79,6 +83,12 @@ function menuAction(event: 'remove' | 'togglePin' | 'addToBooklist') {
   if (event === 'remove') emit('remove')
   else if (event === 'togglePin') emit('togglePin')
   else emit('addToBooklist')
+}
+/* 触屏长按封面: 与点「更多」一样展开操作 (系统的长按菜单无意义, 拦掉) */
+function onContextMenu(e: Event) {
+  if (props.selectable || !window.matchMedia('(hover: none)').matches) return
+  e.preventDefault()
+  openMenu()
 }
 onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutsidePointerDown, true))
 
@@ -101,6 +111,7 @@ function onKeydown(e: KeyboardEvent) {
     tabindex="0"
     @click="activate"
     @keydown="onKeydown"
+    @contextmenu="onContextMenu"
   >
     <div class="cover">
       <span v-if="selectable" class="select-mark" :class="{ on: selected }" aria-hidden="true">
@@ -386,14 +397,30 @@ function onKeydown(e: KeyboardEvent) {
 }
 /* 触屏设备: 点「更多」展开 */
 @media (hover: none) {
+  .book-card {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
   .action {
     width: 32px;
     height: 32px;
   }
+  /* 「更多」常驻但不抢封面: 小圆点按钮, 热区靠透明外扩补足 */
   .action.more {
     display: flex;
     opacity: 1;
     transform: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    position: relative;
+    background: rgba(17, 20, 26, 0.38);
+  }
+  .action.more::before {
+    content: '';
+    position: absolute;
+    inset: -8px;
   }
   .actions.open .action {
     opacity: 1;

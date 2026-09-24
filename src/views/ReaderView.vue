@@ -5,7 +5,7 @@ import { getStorage, type AnnotationRec, type BookMeta } from '../storage'
 import { useSettings } from '../stores/settings'
 import { useLibrary } from '../stores/library'
 import { isTextLike } from '../services/format'
-import { convertToEpub } from '../services/textToEpub'
+import { convertToEpub, TEXT_EPUB_LAYOUT } from '../services/textToEpub'
 import { getReaderCSS, resolveReaderColors, READER_THEME_CHOICES, FONT_FAMILIES, HIGHLIGHT_COLORS } from '../services/readerTheme'
 import { resolvedTheme } from '../services/appearance'
 import { listSystemFonts, importFontFile, injectFontIntoDoc, resolveFontFamily } from '../services/fonts'
@@ -66,6 +66,38 @@ function hideBars() {
 }
 
 const cancelBarsTimer = () => clearTimeout(barsTimer)
+
+// ---- 面板开关: 同一时间只开一个浮层 (手机端它们都是底部抽屉, 叠在一起会互相遮挡) ----
+type PanelName = 'toc' | 'annotations' | 'search' | 'ai'
+
+function closeOverlays() {
+  panel.value = 'none'
+  settingsOpen.value = false
+  ttsPanel.value = false
+  autoPanel.value = false
+  activeAnnotation.value = null
+}
+
+function togglePanel(name: PanelName) {
+  const next = panel.value === name ? 'none' : name
+  closeOverlays()
+  panel.value = next
+}
+
+function toggleSettings() {
+  const next = !settingsOpen.value
+  closeOverlays()
+  settingsOpen.value = next
+}
+
+function toggleAutoPanel() {
+  const next = !autoPanel.value
+  closeOverlays()
+  autoPanel.value = next
+}
+
+/** 手机端抽屉打开时显示遮罩 (桌面端遮罩由 CSS 隐藏) */
+const sheetOpen = computed(() => panel.value !== 'none' || settingsOpen.value || ttsPanel.value)
 
 // ---- 一键全屏沉浸 ----
 const isFullscreen = ref(false)
@@ -235,6 +267,8 @@ function applyPrefs() {
     view.renderer.setAttribute('flow', prefs.flow)
     view.renderer.setAttribute('gap', `${prefs.gap}%`)
     view.renderer.setAttribute('max-column-count', String(prefs.maxColumnCount))
+    // 页眉页脚带 (章节名 / 进度) 的高度; 手机屏幕矮, 收窄些把空间留给正文
+    view.renderer.setAttribute('margin', window.innerWidth <= 600 ? '36px' : '48px')
     view.renderer.setStyles?.(getReaderCSS({ ...prefs, fontFamily: resolveFontFamily(prefs.fontFamily) }, appDark.value))
     const custom = selectedCustomFont()
     if (custom) {
@@ -290,10 +324,26 @@ function onRelocate(e: CustomEvent) {
   currentTocHref.value = tocItem?.href
   currentCfi.value = cfi ?? ''
   if (tocAuto.value) syncSmartTocPosition()
+  updateMarginals()
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
     if (cfi) library.saveProgress(bookId, cfi, frac ?? 0)
   }, 600)
+}
+
+/**
+ * 翻页模式的页眉页脚: 淡色显示章节名与阅读进度, 工具栏收起时也知道读到哪。
+ * foliate 每次重排都会重建这些节点, 所以随 relocate 一起刷新。
+ */
+function updateMarginals() {
+  const r = view?.renderer
+  if (!r?.heads?.length || !r?.feet?.length) return
+  r.heads.forEach((el: HTMLElement, i: number) => {
+    el.textContent = i === 0 ? (chapterLabel.value || meta.value?.title || '') : ''
+  })
+  r.feet.forEach((el: HTMLElement, i: number) => {
+    el.textContent = i === r.feet.length - 1 ? `${(fraction.value * 100).toFixed(1)}%` : ''
+  })
 }
 
 /** 智能目录不经 foliate 的 TOC 进度, 按当前 CFI 自行判定所在章节 */
@@ -456,8 +506,9 @@ async function auditionLocal() {
 }
 
 async function openTTSPanel() {
-  ttsPanel.value = !ttsPanel.value
-  if (ttsPanel.value) autoPanel.value = false
+  const next = !ttsPanel.value
+  closeOverlays()
+  ttsPanel.value = next
   if (ttsPanel.value) refreshLocalStatus()
   if (ttsPanel.value && !ttsVoices.value.length) {
     ttsVoices.value = (await listVoicesSorted()).map(v => ({ name: v.name, lang: v.lang }))
@@ -572,11 +623,42 @@ function onSectionLoad(e: CustomEvent) {
   // 触屏轻点: 触摸设备上合成 click 与 foliate 的 touch 吸附赛跑, 时有丢失/弹回
   // (Windows 触屏的"点击翻不动/翻了又弹回")。轻点在 touchend 直接判定并翻页,
   // 与滑动走同一条触摸管线; 之后的合成 click 一律吞掉。
-  let touchStart: { x: number; y: number; t: number } | null = null
+  let touchStart: { x: number; y: number; t: number; atTop: boolean; atBottom: boolean; crossed?: boolean } | null = null
   doc.addEventListener('touchstart', (e: TouchEvent) => {
     const t0 = e.changedTouches[0]
-    touchStart = t0 ? { x: t0.clientX, y: t0.clientY, t: Date.now() } : null
+    // 滚动模式下记下起手时是否已停在本节顶 / 底: 只有停稳后再滑才跨章, 避免惯性一滑到底就跳走
+    const r = view?.renderer
+    const scrolled = settings.reader.flow === 'scrolled' && r
+    touchStart = t0
+      ? {
+          x: t0.clientX,
+          y: t0.clientY,
+          t: Date.now(),
+          atTop: !!scrolled && r.start <= 1,
+          atBottom: !!scrolled && r.viewSize - r.end <= 2,
+        }
+      : null
     pointerTs = Date.now()
+  }, { passive: true })
+  // 滚动模式: foliate 只在一节内滚动, 滑到头就停住。停在节尾继续上滑 (手指不用抬起)
+  // 即进入下一节, 停在节首继续下滑回到上一节末尾; renderer.next / prev 在边界处切换分节
+  doc.addEventListener('touchmove', (e: TouchEvent) => {
+    const st = touchStart
+    const t0 = e.changedTouches[0]
+    if (!st || !t0 || st.crossed || settings.reader.flow !== 'scrolled') return
+    const dy = t0.clientY - st.y
+    if (Math.abs(dy) < 48 || Math.abs(dy) < Math.abs(t0.clientX - st.x) * 1.5) return
+    const sel = doc.getSelection()
+    if (sel && !sel.isCollapsed) return
+    if (dy < 0 && st.atBottom) {
+      st.crossed = true
+      interruptTTSForReposition()
+      view?.renderer?.next()
+    } else if (dy > 0 && st.atTop) {
+      st.crossed = true
+      interruptTTSForReposition()
+      view?.renderer?.prev()
+    }
   }, { passive: true })
   // 捕获阶段先于 foliate 的 touchend 监听: 轻点时阻断其"吸附回当前页"动画,
   // 否则吸附动画与我们的翻页动画并发抢写滚动位置, 随机弹回 (Windows 触屏的病根)
@@ -596,6 +678,15 @@ function onSectionLoad(e: CustomEvent) {
       e.stopImmediatePropagation()
       suppressClickUntil = Date.now() + 700
       turnPage(dy < 0 ? 'right' : 'left')
+      return
+    }
+    if (st.crossed) return
+    // 滚动模式也能「翻页」: 明显的左右横滑按一屏滚动 (左滑下一屏 / 右滑上一屏)
+    if (settings.reader.flow === 'scrolled' && Math.abs(dx) >= 60 && Math.abs(dx) >= Math.abs(dy) * 1.5) {
+      const sel = doc.getSelection()
+      if (sel && !sel.isCollapsed) return
+      suppressClickUntil = Date.now() + 700
+      turnPage(dx < 0 ? 'right' : 'left')
       return
     }
     // 有位移是滑动, 长按是选字, 都交给原有流程
@@ -634,12 +725,7 @@ function onContentClick(clientX: number, doc: Document, target?: Element | null)
   }
   // 开书未就绪时点击会被 view.init 的落点覆盖, 表现为翻过去又弹回
   if (loading.value) return
-  // 滚动模式点击不翻页, 只切换工具栏
-  if (settings.reader.flow !== 'paginated') {
-    barsVisible.value ? hideBars() : showBars()
-    return
-  }
-  // 正在选字或点了链接时不翻页
+  // 正在选字或点了链接时不翻页 (滚动模式下左右区同样生效: 按一屏平滑滚动)
   if (selection.value) return
   const sel = doc.getSelection()
   if (sel && !sel.isCollapsed) return
@@ -652,6 +738,26 @@ function onContentClick(clientX: number, doc: Document, target?: Element | null)
   if (x < contentRect.width / 3) turnPage('left')
   else if (x > contentRect.width * 2 / 3) turnPage('right')
   // 中间 1/3: 呼出 / 隐藏工具栏 (沉浸式)
+  else barsVisible.value ? hideBars() : showBars()
+}
+
+/**
+ * 页眉页脚 (章节名 / 进度那条带) 在正文 iframe 之外, 点这里的事件落在 foliate-view 上,
+ * 原本什么也不发生; 手机上拇指常点到页面最下沿, 按同样的左/中/右分区处理
+ */
+function onMarginClick(e: MouseEvent) {
+  if (e.target !== view || loading.value) return
+  if (panel.value !== 'none' || settingsOpen.value || activeAnnotation.value) {
+    panel.value = 'none'
+    settingsOpen.value = false
+    activeAnnotation.value = null
+    return
+  }
+  const rect = container.value?.getBoundingClientRect()
+  if (!rect) return
+  const x = e.clientX - rect.left
+  if (x < rect.width / 3) turnPage('left')
+  else if (x > rect.width * 2 / 3) turnPage('right')
   else barsVisible.value ? hideBars() : showBars()
 }
 
@@ -797,6 +903,25 @@ async function navigateToc(href: string) {
   view?.goTo(href).catch(() => toast(t('reader.cantGoto'), 'error'))
 }
 
+/** 上一章 / 下一章: 按目录条目跳转; 书无目录时退回按分节跳 */
+function gotoChapter(dir: -1 | 1) {
+  interruptTTSForReposition()
+  const flat = flattenToc(toc.value).filter(item => item.href)
+  const i = flat.findIndex(item => item.href === currentTocHref.value)
+  if (flat.length && i >= 0) {
+    const target = flat[i + dir]
+    if (target) view?.goTo(target.href).catch(() => toast(t('reader.cantGoto'), 'error'))
+    return
+  }
+  // 当前位置在首个目录项之前 (如扉页): 下一章即第一项
+  if (flat.length && dir > 0 && !currentTocHref.value) {
+    view?.goTo(flat[0].href).catch(() => toast(t('reader.cantGoto'), 'error'))
+    return
+  }
+  if (dir < 0) view?.renderer?.prevSection?.()
+  else view?.renderer?.nextSection?.()
+}
+
 function onSlide(e: Event) {
   const value = parseFloat((e.target as HTMLInputElement).value)
   interruptTTSForReposition()
@@ -845,6 +970,7 @@ onMounted(async () => {
     container.value!.append(view)
 
     view.addEventListener('relocate', onRelocate)
+    view.addEventListener('click', onMarginClick)
     view.addEventListener('load', onSectionLoad)
     view.addEventListener('create-overlay', () => drawStoredAnnotations())
     view.addEventListener('draw-annotation', (e: CustomEvent) => {
@@ -862,7 +988,22 @@ onMounted(async () => {
     await view.open(file)
     toc.value = view.book?.toc ?? []
     applyPrefs()
-    await view.init({ lastLocation: meta.value.location })
+    // 文本类书籍的内存 EPUB 版式变过 (v2: 多章合为一个分节), 旧版式下存的 CFI 指向别处;
+    // 这类书首次用新版式打开时按阅读进度比例定位, 之后照常用 CFI
+    const layoutKey = `lightread-text-layout:${bookId}`
+    let staleTextLocation = false
+    if (isTextLike(meta.value.format) && meta.value.location) {
+      try { staleTextLocation = localStorage.getItem(layoutKey) !== TEXT_EPUB_LAYOUT } catch { /* 存储不可用时按新版式处理 */ }
+    }
+    if (staleTextLocation) {
+      await view.init({})
+      if (meta.value.progress) await view.goToFraction(meta.value.progress)
+    } else {
+      await view.init({ lastLocation: meta.value.location })
+    }
+    if (isTextLike(meta.value.format)) {
+      try { localStorage.setItem(layoutKey, TEXT_EPUB_LAYOUT) } catch { /* 忽略 */ }
+    }
     loading.value = false
     if (flattenToc(toc.value).length <= 1) void applySmartToc()
   } catch (e: any) {
@@ -887,7 +1028,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="reader" :style="{ background: themeColors.bg, color: themeColors.fg }">
+  <div class="reader" :class="{ 'bars-on': barsVisible }" :style="{ background: themeColors.bg, color: themeColors.fg }">
     <!-- 工具栏隐藏时: 鼠标移到上下边缘呼出 -->
     <div v-if="!barsVisible" class="bar-peek top" @mouseenter="showBars()" />
     <div v-if="!barsVisible" class="bar-peek bottom" @mouseenter="showBars()" />
@@ -912,10 +1053,10 @@ onBeforeUnmount(() => {
         <span v-if="chapterLabel" class="chapter">{{ chapterLabel }}</span>
       </div>
       <div class="bar-actions">
-        <button class="icon-btn" :title="t('reader.toc')" @click="panel = panel === 'toc' ? 'none' : 'toc'">
+        <button class="icon-btn desk-only" :title="t('reader.toc')" @click="togglePanel('toc')">
           <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M4 6a1 1 0 0 1 1-1h1a1 1 0 0 1 0 2H5a1 1 0 0 1-1-1zm5 0a1 1 0 0 1 1-1h9a1 1 0 1 1 0 2h-9a1 1 0 0 1-1-1zM4 12a1 1 0 0 1 1-1h1a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1zm5 0a1 1 0 0 1 1-1h9a1 1 0 1 1 0 2h-9a1 1 0 0 1-1-1zM4 18a1 1 0 0 1 1-1h1a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1zm5 0a1 1 0 0 1 1-1h9a1 1 0 1 1 0 2h-9a1 1 0 0 1-1-1z"/></svg>
         </button>
-        <button class="icon-btn" :title="t('reader.annotationsBookmarks')" @click="panel = panel === 'annotations' ? 'none' : 'annotations'">
+        <button class="icon-btn desk-only" :title="t('reader.annotationsBookmarks')" @click="togglePanel('annotations')">
           <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19a1 1 0 0 1 1 1v15a2 2 0 0 1-2 2H6.5A2.5 2.5 0 0 1 4 18.5v-13zM6.5 5a.5.5 0 0 0-.5.5v11.34c.16-.05.33-.08.5-.08H18V5H6.5z"/></svg>
         </button>
         <button
@@ -929,27 +1070,27 @@ onBeforeUnmount(() => {
             <path v-else fill="currentColor" d="M6 3h12a1 1 0 0 1 1 1v16.2a.8.8 0 0 1-1.24.67L12 17.6l-5.76 3.27A.8.8 0 0 1 5 20.2V4a1 1 0 0 1 1-1zm1 2v13.48l4.5-2.55a1 1 0 0 1 .99 0l4.51 2.55V5H7z"/>
           </svg>
         </button>
-        <button class="icon-btn" :class="{ 'auto-on': ttsState !== 'stopped' }" :title="t('tts.title')" @click="openTTSPanel">
+        <button class="icon-btn desk-only" :class="{ 'auto-on': ttsState !== 'stopped' }" :title="t('tts.title')" @click="openTTSPanel">
           <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 3a7 7 0 0 0-7 7v1.1A3.5 3.5 0 0 0 3 14.5v2A3.5 3.5 0 0 0 6.5 20H8a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-.9A5 5 0 0 1 12 5a5 5 0 0 1 4.9 6H16a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h1.5a3.5 3.5 0 0 0 3.5-3.5v-2a3.5 3.5 0 0 0-2-3.16V10a7 7 0 0 0-7-7z"/></svg>
         </button>
-        <button class="icon-btn" :class="{ 'auto-on': panel === 'ai' }" :title="t('ai.title')" @click="panel = panel === 'ai' ? 'none' : 'ai'">
+        <button class="icon-btn" :class="{ 'auto-on': panel === 'ai' }" :title="t('ai.title')" @click="togglePanel('ai')">
           <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2.5a1 1 0 0 1 .95.69l1.4 4.3a3 3 0 0 0 1.92 1.92l4.3 1.4a1 1 0 0 1 0 1.9l-4.3 1.4a3 3 0 0 0-1.92 1.92l-1.4 4.3a1 1 0 0 1-1.9 0l-1.4-4.3a3 3 0 0 0-1.92-1.92l-4.3-1.4a1 1 0 0 1 0-1.9l4.3-1.4a3 3 0 0 0 1.92-1.92l1.4-4.3A1 1 0 0 1 12 2.5zm7.5 12.7a.8.8 0 0 1 .76.55l.42 1.28a1.6 1.6 0 0 0 1.02 1.02l1.28.42a.8.8 0 0 1 0 1.52l-1.28.42a1.6 1.6 0 0 0-1.02 1.02l-.42 1.28a.8.8 0 0 1-1.52 0l-.42-1.28a1.6 1.6 0 0 0-1.02-1.02l-1.28-.42a.8.8 0 0 1 0-1.52l1.28-.42a1.6 1.6 0 0 0 1.02-1.02l.42-1.28a.8.8 0 0 1 .76-.55z"/></svg>
         </button>
-        <button class="icon-btn" :title="t('reader.searchInBook')" @click="panel = panel === 'search' ? 'none' : 'search'">
+        <button class="icon-btn" :title="t('reader.searchInBook')" @click="togglePanel('search')">
           <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M10.5 3a7.5 7.5 0 1 0 4.55 13.46l3.75 3.75a1 1 0 0 0 1.4-1.42l-3.74-3.74A7.5 7.5 0 0 0 10.5 3zM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0z"/></svg>
         </button>
         <button
-          class="icon-btn"
+          class="icon-btn desk-only"
           :class="{ 'auto-on': autoReading }"
           :title="t('reader.autoRead')"
-          @click="autoPanel = !autoPanel; if (autoPanel) ttsPanel = false"
+          @click="toggleAutoPanel"
         >
           <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm-1.8 4.4 5.4 3.1a.6.6 0 0 1 0 1l-5.4 3.1a.6.6 0 0 1-.9-.5V8.9a.6.6 0 0 1 .9-.5z"/></svg>
         </button>
-        <button class="icon-btn" :title="t('reader.typography')" @click="settingsOpen = !settingsOpen">
+        <button class="icon-btn desk-only" :title="t('reader.typography')" @click="toggleSettings">
           <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M11.1 4.55a1 1 0 0 1 1.8 0l5.6 12.02a1 1 0 1 1-1.81.86L15.3 14.5H8.7l-1.39 2.93a1 1 0 1 1-1.8-.86L11.1 4.55zM9.64 12.5h4.72L12 7.36 9.64 12.5z"/></svg>
         </button>
-        <button class="icon-btn" :class="{ 'auto-on': isFullscreen }" :title="isFullscreen ? t('reader.exitFullscreen') : t('reader.fullscreen')" @click="toggleFullscreen">
+        <button class="icon-btn desk-only" :class="{ 'auto-on': isFullscreen }" :title="isFullscreen ? t('reader.exitFullscreen') : t('reader.fullscreen')" @click="toggleFullscreen">
           <svg v-if="!isFullscreen" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M4 9a1 1 0 0 1-1-1V5a2 2 0 0 1 2-2h3a1 1 0 0 1 0 2H5v3a1 1 0 0 1-1 1zm16 0a1 1 0 0 1-1-1V5h-3a1 1 0 1 1 0-2h3a2 2 0 0 1 2 2v3a1 1 0 0 1-1 1zM4 15a1 1 0 0 1 1 1v3h3a1 1 0 1 1 0 2H5a2 2 0 0 1-2-2v-3a1 1 0 0 1 1-1zm16 0a1 1 0 0 1 1 1v3a2 2 0 0 1-2 2h-3a1 1 0 1 1 0-2h3v-3a1 1 0 0 1 1-1z"/></svg>
           <svg v-else viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M8 3a1 1 0 0 1 1 1v3a2 2 0 0 1-2 2H4a1 1 0 0 1 0-2h3V4a1 1 0 0 1 1-1zm8 0a1 1 0 0 1 1 1v3h3a1 1 0 1 1 0 2h-3a2 2 0 0 1-2-2V4a1 1 0 0 1 1-1zM4 15h3a2 2 0 0 1 2 2v3a1 1 0 1 1-2 0v-3H4a1 1 0 0 1 0-2zm13 0h3a1 1 0 1 1 0 2h-3v3a1 1 0 1 1-2 0v-3a2 2 0 0 1 2-2z"/></svg>
         </button>
@@ -973,19 +1114,53 @@ onBeforeUnmount(() => {
       <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M9.3 5.3a1 1 0 0 1 1.4 0l6 6a1 1 0 0 1 0 1.4l-6 6a1 1 0 0 1-1.4-1.4l5.29-5.3-5.3-5.3a1 1 0 0 1 0-1.4z"/></svg>
     </button>
 
-    <!-- 底栏: 进度 -->
+    <!-- 底栏: 章节跳转 + 进度; 手机端下方再加一排常用入口 (目录 / 笔记 / 听书 / 自动 / 排版) -->
     <footer class="bar bottom" :class="{ hidden: !barsVisible }" @mouseenter="cancelBarsTimer">
-      <input
-        class="slider"
-        type="range"
-        min="0"
-        max="1"
-        step="0.0005"
-        :value="fraction"
-        @change="onSlide"
-      />
-      <span class="percent">{{ (fraction * 100).toFixed(1) }}%</span>
+      <div class="progress-row">
+        <button class="icon-btn chapter-btn" :title="t('reader.prevChapter')" :aria-label="t('reader.prevChapter')" @click="gotoChapter(-1)">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M18.7 5.3a1 1 0 0 1 0 1.4L13.42 12l5.3 5.3a1 1 0 0 1-1.42 1.4l-6-6a1 1 0 0 1 0-1.4l6-6a1 1 0 0 1 1.42 0zM7 5a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0V6a1 1 0 0 1 1-1z"/></svg>
+        </button>
+        <input
+          class="slider"
+          type="range"
+          min="0"
+          max="1"
+          step="0.0005"
+          :value="fraction"
+          :aria-label="t('reader.progress')"
+          @change="onSlide"
+        />
+        <button class="icon-btn chapter-btn" :title="t('reader.nextChapter')" :aria-label="t('reader.nextChapter')" @click="gotoChapter(1)">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M5.3 5.3a1 1 0 0 1 1.4 0l6 6a1 1 0 0 1 0 1.4l-6 6a1 1 0 0 1-1.4-1.4l5.29-5.3-5.3-5.3a1 1 0 0 1 0-1.4zM17 5a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0V6a1 1 0 0 1 1-1z"/></svg>
+        </button>
+        <span class="percent">{{ (fraction * 100).toFixed(1) }}%</span>
+      </div>
+      <nav class="dock" :aria-label="t('reader.readerTools')">
+        <button :class="{ active: panel === 'toc' }" @click="togglePanel('toc')">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M4 6a1 1 0 0 1 1-1h1a1 1 0 0 1 0 2H5a1 1 0 0 1-1-1zm5 0a1 1 0 0 1 1-1h9a1 1 0 1 1 0 2h-9a1 1 0 0 1-1-1zM4 12a1 1 0 0 1 1-1h1a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1zm5 0a1 1 0 0 1 1-1h9a1 1 0 1 1 0 2h-9a1 1 0 0 1-1-1zM4 18a1 1 0 0 1 1-1h1a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1zm5 0a1 1 0 0 1 1-1h9a1 1 0 1 1 0 2h-9a1 1 0 0 1-1-1z"/></svg>
+          <span>{{ t('reader.toc') }}</span>
+        </button>
+        <button :class="{ active: panel === 'annotations' }" @click="togglePanel('annotations')">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19a1 1 0 0 1 1 1v15a2 2 0 0 1-2 2H6.5A2.5 2.5 0 0 1 4 18.5v-13zM6.5 5a.5.5 0 0 0-.5.5v11.34c.16-.05.33-.08.5-.08H18V5H6.5z"/></svg>
+          <span>{{ t('reader.dockNotes') }}</span>
+        </button>
+        <button :class="{ active: ttsPanel || ttsState !== 'stopped' }" @click="openTTSPanel">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 3a7 7 0 0 0-7 7v1.1A3.5 3.5 0 0 0 3 14.5v2A3.5 3.5 0 0 0 6.5 20H8a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-.9A5 5 0 0 1 12 5a5 5 0 0 1 4.9 6H16a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h1.5a3.5 3.5 0 0 0 3.5-3.5v-2a3.5 3.5 0 0 0-2-3.16V10a7 7 0 0 0-7-7z"/></svg>
+          <span>{{ t('tts.title') }}</span>
+        </button>
+        <button :class="{ active: autoPanel || autoReading }" @click="toggleAutoPanel">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm-1.8 4.4 5.4 3.1a.6.6 0 0 1 0 1l-5.4 3.1a.6.6 0 0 1-.9-.5V8.9a.6.6 0 0 1 .9-.5z"/></svg>
+          <span>{{ t('reader.dockAuto') }}</span>
+        </button>
+        <button :class="{ active: settingsOpen }" @click="toggleSettings">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M11.1 4.55a1 1 0 0 1 1.8 0l5.6 12.02a1 1 0 1 1-1.81.86L15.3 14.5H8.7l-1.39 2.93a1 1 0 1 1-1.8-.86L11.1 4.55zM9.64 12.5h4.72L12 7.36 9.64 12.5z"/></svg>
+          <span>{{ t('reader.dockTypography') }}</span>
+        </button>
+      </nav>
     </footer>
+
+    <!-- 手机端面板为底部抽屉, 点遮罩收起 -->
+    <div v-if="sheetOpen" class="sheet-scrim" aria-hidden="true" @click="closeOverlays" />
 
     <!-- 自动阅读控制条 -->
     <div v-if="autoPanel" class="auto-panel card">
@@ -1218,7 +1393,9 @@ onBeforeUnmount(() => {
     <div v-if="settingsOpen" class="settings-pop card">
       <div class="set-row">
         <label>{{ t('reader.fontSize') }}</label>
-        <input v-model.number="settings.reader.fontSize" type="range" min="12" max="64" step="1" />
+        <button class="step-btn" :title="t('reader.fontSmaller')" :aria-label="t('reader.fontSmaller')" @click="setFontSize(String(settings.reader.fontSize - 1))">A−</button>
+        <input v-model.number="settings.reader.fontSize" type="range" min="12" max="64" step="1" :aria-label="t('reader.fontSize')" />
+        <button class="step-btn big" :title="t('reader.fontLarger')" :aria-label="t('reader.fontLarger')" @click="setFontSize(String(settings.reader.fontSize + 1))">A+</button>
         <input
           class="input set-num"
           type="number"
@@ -1290,6 +1467,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .reader {
+  /* 底栏高度: 浮层 (自动阅读 / 听书胶囊) 在工具栏显示时让到它上方 */
+  --footer-h: 50px;
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
   position: relative;
   height: 100%;
   display: flex;
@@ -1304,7 +1485,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 14px;
+  padding: 8px max(14px, env(safe-area-inset-right)) 8px max(14px, env(safe-area-inset-left));
   background: color-mix(in srgb, var(--card) 86%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -1353,12 +1534,27 @@ onBeforeUnmount(() => {
 }
 .bar.top {
   top: 0;
+  padding-top: calc(8px + var(--safe-top));
 }
 .bar.bottom {
   bottom: 0;
   top: auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding-top: 6px;
+  padding-bottom: calc(6px + var(--safe-bottom));
   border-bottom: none;
   border-top: 1px solid var(--border);
+}
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 手机端底部入口, 桌面端这些都在顶栏 */
+.dock {
+  display: none;
 }
 .book-title {
   flex: 1;
@@ -1400,9 +1596,11 @@ onBeforeUnmount(() => {
   background: var(--bg);
   color: var(--brand);
 }
+/* 正文让出状态栏 / 手势条 / 横屏刘海; 阅读背景仍铺满整屏 */
 .content {
   flex: 1;
   height: 100%;
+  padding: var(--safe-top) env(safe-area-inset-right) var(--safe-bottom) env(safe-area-inset-left);
 }
 .state {
   position: absolute;
@@ -1455,7 +1653,7 @@ onBeforeUnmount(() => {
 }
 .auto-panel {
   position: absolute;
-  bottom: 56px;
+  bottom: calc(12px + var(--safe-bottom));
   left: 50%;
   transform: translateX(-50%);
   z-index: 20;
@@ -1479,7 +1677,7 @@ onBeforeUnmount(() => {
 }
 .highlight-bar {
   position: absolute;
-  top: 56px;
+  top: calc(56px + var(--safe-top));
   left: 50%;
   transform: translateX(-50%);
   z-index: 20;
@@ -1501,7 +1699,7 @@ onBeforeUnmount(() => {
 }
 .annotation-pop {
   position: absolute;
-  bottom: 60px;
+  bottom: calc(60px + var(--safe-bottom));
   left: 50%;
   transform: translateX(-50%);
   z-index: 20;
@@ -1524,9 +1722,9 @@ onBeforeUnmount(() => {
 }
 .panel {
   position: absolute;
-  top: 52px;
+  top: calc(52px + var(--safe-top));
   right: 12px;
-  bottom: 50px;
+  bottom: calc(50px + var(--safe-bottom));
   z-index: 15;
   width: min(320px, calc(100% - 24px));
   padding: 16px;
@@ -1633,7 +1831,7 @@ onBeforeUnmount(() => {
 }
 .tts-mini {
   position: absolute;
-  bottom: 56px;
+  bottom: calc(12px + var(--safe-bottom));
   left: 50%;
   transform: translateX(-50%);
   z-index: 20;
@@ -1682,7 +1880,7 @@ onBeforeUnmount(() => {
 }
 .tts-panel {
   position: absolute;
-  top: 52px;
+  top: calc(52px + var(--safe-top));
   right: 12px;
   z-index: 25;
   width: min(400px, calc(100% - 24px));
@@ -1854,7 +2052,7 @@ onBeforeUnmount(() => {
 }
 .settings-pop {
   position: absolute;
-  top: 52px;
+  top: calc(52px + var(--safe-top));
   right: 12px;
   z-index: 25;
   width: 300px;
@@ -1939,39 +2137,228 @@ onBeforeUnmount(() => {
   opacity: 0;
   pointer-events: none;
 }
+.bar.top.hidden {
+  transform: translateY(-100%);
+}
+.bar.bottom.hidden {
+  transform: translateY(100%);
+}
+.bars-on .auto-panel,
+.bars-on .tts-mini {
+  bottom: calc(var(--footer-h) + 12px + var(--safe-bottom));
+}
+.chapter-btn {
+  flex-shrink: 0;
+}
+.step-btn {
+  flex-shrink: 0;
+  width: 34px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+.step-btn.big {
+  font-size: 15px;
+}
+.step-btn:active {
+  background: var(--brand-light);
+  color: var(--brand);
+}
+.sheet-scrim {
+  display: none;
+}
 
 @media (max-width: 600px) {
-  .chapter {
+  .reader {
+    --footer-h: 112px;
+  }
+  .chapter,
+  .desk-only {
     display: none;
   }
   .bar {
     gap: 4px;
-    padding: 6px 8px;
+    padding-inline: max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-right));
+  }
+  .bar.top {
+    padding-top: calc(6px + var(--safe-top));
+    padding-bottom: 6px;
   }
   .icon-btn {
-    width: 30px;
-    height: 30px;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+  }
+  .icon-btn:hover {
+    background: none;
+    color: var(--text-2);
+  }
+  .icon-btn:active {
+    background: var(--surface-2);
+  }
+  .icon-btn.auto-on,
+  .icon-btn.auto-on:hover {
+    color: var(--brand);
   }
   .book-title strong {
-    font-size: 13px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .bar.bottom {
+    padding-top: 4px;
+    padding-bottom: calc(2px + var(--safe-bottom));
+  }
+  .percent {
+    width: 44px;
+  }
+  .dock {
+    display: flex;
+  }
+  .dock button {
+    flex: 1;
+    min-width: 0;
+    height: 54px;
+    border: none;
+    border-radius: 10px;
+    background: none;
+    color: var(--text-2);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    font-size: 11px;
+  }
+  .dock button:active {
+    background: var(--surface-2);
+  }
+  .dock button.active {
+    color: var(--brand);
+  }
+
+  /* 面板改为底部抽屉 */
+  .sheet-scrim {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 14;
+    background: var(--overlay);
+    animation: scrim-in var(--dur) var(--ease);
+  }
+  .panel,
+  .settings-pop,
+  .tts-panel {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 78%;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    border-bottom: none;
+    padding: 18px max(16px, env(safe-area-inset-right)) calc(16px + var(--safe-bottom)) max(16px, env(safe-area-inset-left));
+    box-shadow: var(--shadow-lg);
+    animation: sheet-up var(--dur-slow) var(--ease);
   }
   .panel {
-    right: 8px;
-    left: 8px;
-    width: auto;
+    height: 72%;
   }
-  .settings-pop {
-    right: 8px;
-    left: 8px;
-    width: auto;
-  }
+  .settings-pop,
   .tts-panel {
-    right: 8px;
+    overflow-y: auto;
+    gap: 16px;
+  }
+  /* 抽屉顶部的拖拽指示条 */
+  .panel::before,
+  .settings-pop::before,
+  .tts-panel::before {
+    content: '';
+    position: absolute;
+    top: 7px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    margin-left: -18px;
+    border-radius: 2px;
+    background: var(--border-strong);
+  }
+  .set-row {
+    font-size: 14px;
+  }
+  .set-row label {
+    width: 36px;
+  }
+  .set-row .input,
+  .seg button {
+    height: 36px;
+  }
+  .theme-btns {
+    flex: 1;
+    justify-content: space-between;
+  }
+  .theme-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .anno-item,
+  .search-item {
+    padding: 10px 8px;
+  }
+  .anno-tabs button {
+    height: 36px;
+  }
+  .highlight-bar {
     left: 8px;
+    right: 8px;
+    transform: none;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .hl-color {
+    width: 28px;
+    height: 28px;
+  }
+  .auto-panel {
+    left: 12px;
+    right: 12px;
+    transform: none;
+  }
+  .auto-panel input[type='range'] {
     width: auto;
+    flex: 1;
+    min-width: 0;
   }
   .nav {
     display: none;
+  }
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar,
+  .sheet-scrim,
+  .panel,
+  .settings-pop,
+  .tts-panel {
+    transition: none;
+    animation: none;
   }
 }
 </style>

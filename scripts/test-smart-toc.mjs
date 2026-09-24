@@ -65,3 +65,18 @@ test('findCurrentSmartItem: 取文档顺序上最后一个不晚于当前位置�
   assert.equal(findCurrentSmartItem(flat, ''), undefined)
   assert.equal(findCurrentSmartItem(flat, 'not-a-cfi'), undefined)
 })
+
+test('「前言 / 后记」等关键词开头的正文句子不算章节, 单独成行或带分隔符才算', async () => {
+  const { CHAPTER_RE } = await import('../src/services/smartToc.ts')
+  for (const line of ['前言', '后记：写在最后', '番外篇 归来', '尾声 · 雪夜', '楔子　旧梦']) {
+    assert.ok(CHAPTER_RE.test(line), line)
+  }
+  for (const line of ['前言戲之耳，豈知弄假成真', '后记得那天的事', '尾声渐渐远去']) {
+    assert.ok(!CHAPTER_RE.test(line), line)
+  }
+})
+
+test('章节序号认得全角数字与「○」写的零 (第一○回 / 第１２章)', async () => {
+  const { CHAPTER_RE } = await import('../src/services/smartToc.ts')
+  for (const line of ['第一○回     老龍王拙計犯天條', '第１２章 归来', '第一〇〇回 径回东土']) assert.ok(CHAPTER_RE.test(line), line)
+})

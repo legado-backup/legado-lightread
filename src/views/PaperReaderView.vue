@@ -3728,7 +3728,7 @@ onBeforeUnmount(() => {
               @click="setPagedFit('fitW')"
             >{{ t('reader.fitWidth') }}</button>
           </div>
-          <div class="reader-segment page-view-segment" role="group" :aria-label="t('reader.pageView')">
+          <div class="reader-segment page-view-segment no-phone" role="group" :aria-label="t('reader.pageView')">
             <button
               type="button"
               :class="{ active: spreadMode === 'single' }"
@@ -3794,10 +3794,10 @@ onBeforeUnmount(() => {
           >
             <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M10.5 3a7.5 7.5 0 1 0 4.55 13.46l3.75 3.75a1 1 0 0 0 1.4-1.42l-3.74-3.74A7.5 7.5 0 0 0 10.5 3zM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0z"/></svg>
           </button>
-          <button class="icon-btn" :title="`${t('reader.print')} (${primaryShortcutLabel} P)`" @click="printDocument">
+          <button class="icon-btn no-phone" :title="`${t('reader.print')} (${primaryShortcutLabel} P)`" @click="printDocument">
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M7 8V3h10v5M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M7 14h10v7H7z"/></svg>
           </button>
-          <button class="icon-btn" :title="`${t('reader.slideshow')} (F5)`" @click="enterPresentation">
+          <button class="icon-btn no-phone" :title="`${t('reader.slideshow')} (F5)`" @click="enterPresentation">
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 4h16v12H4zM9 20h6M12 16v4m-2.5-9V8l4 3-4 3z"/></svg>
           </button>
           <button class="icon-btn" :title="`${t('reader.fullscreen')} (F)`" @click="toggleFullscreen">
@@ -3822,7 +3822,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <button
-            class="icon-btn shortcut-trigger"
+            class="icon-btn shortcut-trigger no-phone"
             :class="{ 'icon-active': shortcutsOpen }"
             :title="`${t('reader.keyboardShortcuts')} (?)`"
             :aria-label="t('reader.keyboardShortcuts')"
@@ -4774,6 +4774,7 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 50;
   flex: 0 0 auto;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
   background: var(--card);
 }
 .paper-bar {
@@ -5223,6 +5224,14 @@ onBeforeUnmount(() => {
 .paper.is-fullscreen .pane-left:is(.is-fit-width, .is-fit-height),
 .paper.is-fullscreen .paged-box:is(.is-fit-width, .is-fit-height) {
   padding: 0;
+}
+/* 连续滚动: 末页不压在手势条下; 全屏隐藏顶栏后首页不压在状态栏下 (只加纵向留白, 不影响适宽计算) */
+.pane-left:is(.is-fit-width, .is-fit-height) {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.paper.is-fullscreen .pane-left:is(.is-fit-width, .is-fit-height) {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 .pane-left:is(.is-fit-width, .is-fit-height) .p-holder,
 .paged-box:is(.is-fit-width, .is-fit-height) .p-holder,
@@ -6623,6 +6632,39 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 620px) {
+  /* 手机: 打印 / 幻灯片 / 快捷键 / 双页视图用不上, 换文档与返回重复 */
+  .no-phone,
+  .change-document,
+  .toolbar-sep {
+    display: none;
+  }
+  .paper-bar {
+    min-height: 52px;
+    gap: 6px;
+    padding: 4px 8px 4px 4px;
+  }
+  .document-back {
+    width: 40px;
+    height: 40px;
+  }
+  .paper-title strong {
+    font-size: 15px;
+  }
+  .pdf-toolbar {
+    gap: 4px;
+    min-height: 48px;
+    padding: 4px 6px;
+    /* 工具条可横向滑动: 右缘渐隐提示后面还有 */
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  }
+  .pdf-toolbar .icon-btn {
+    width: 38px;
+    height: 38px;
+  }
+  .toolbar-zoom {
+    min-width: 0;
+  }
   .fullscreen-exit,
   .fullscreen-toc-toggle {
     width: 42px;

@@ -8,6 +8,7 @@
     "build": "vue-tsc -b && vite build",
     "test:archive": "node scripts/test-library-archive.mjs",
     "test:smart-toc": "node --experimental-strip-types --test scripts/test-smart-toc.mjs",
+    "test:txt-paragraphs": "node --experimental-strip-types --test scripts/test-txt-paragraphs.mjs",
     "test:keyboard-shortcuts": "node --experimental-strip-types --test scripts/test-keyboard-shortcuts.mjs",
     "test:paper-context": "node --experimental-strip-types --test scripts/test-paper-translation-context.mjs",
     "test:paper-agent": "node --experimental-strip-types --test scripts/test-paper-agent-context.mjs scripts/test-paper-agent-ten-questions.mjs",

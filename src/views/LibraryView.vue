@@ -530,6 +530,8 @@ async function batchClearTags() {
           </button>
         </div>
       </div>
+      <!-- 手机端换行点: 标题+导入 一行, 搜索+排序+管理 一行 -->
+      <span class="row-break" aria-hidden="true" />
       <input ref="fileInput" type="file" multiple :accept="ACCEPT" hidden @change="onPick" />
     </header>
 
@@ -915,6 +917,9 @@ async function batchClearTags() {
 }
 .spacer {
   flex: 1;
+}
+.row-break {
+  display: none;
 }
 .search-field {
   position: relative;
@@ -1422,7 +1427,7 @@ async function batchClearTags() {
   .toolbar h1 {
     font-size: 18px;
   }
-  /* 手机端三行: 标题+导入 / 搜索 / 排序+管理 */
+  /* 手机端两行: 标题+导入 / 搜索+排序+管理 */
   .heading {
     flex: 1;
     min-width: 0;
@@ -1434,17 +1439,27 @@ async function batchClearTags() {
   .spacer {
     display: none;
   }
-  .search-field {
-    width: 100%;
+  .row-break {
+    display: block;
     order: 3;
+    flex-basis: 100%;
+    height: 0;
+  }
+  .search-field {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+    order: 4;
   }
   .sort {
-    order: 4;
-    flex: 1;
+    order: 5;
+    flex: none;
+    width: 104px;
     min-width: 0;
   }
   .toolbar > .btn {
-    order: 5;
+    order: 6;
+    padding-inline: 12px;
   }
   .import-main {
     padding-inline: 12px;
@@ -1453,8 +1468,25 @@ async function batchClearTags() {
     grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
     gap: 16px 12px;
   }
+  /* 书单在手机上去掉卡片外框, 只留一行可横滑的书单标签 */
   .booklist-section {
-    padding-inline: 11px;
+    margin: 0 0 14px;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+  .booklist-heading {
+    margin-bottom: 8px;
+  }
+  .booklist-row {
+    margin-inline: -16px;
+    padding-inline: 16px;
+  }
+  .booklist-chip {
+    min-width: 0;
+    height: 34px;
+    border-radius: var(--radius-pill);
+    padding: 0 12px;
   }
   .booklist-manage-row {
     grid-template-columns: minmax(0, 1fr) auto auto;

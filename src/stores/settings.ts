@@ -28,7 +28,7 @@ export interface PdfPrefs {
 }
 
 /** 结构版本: 修正历史默认值时递增 */
-const SETTINGS_VERSION = 9
+const SETTINGS_VERSION = 10
 
 /** v3 时代曾并入用户设置的内置书库 (v4 起社区清单独立远程拉取, 此表仅供迁移清理) */
 const BUILTIN_BOOK_REPOS = [
@@ -95,7 +95,7 @@ const STORAGE_KEY = 'lightread-settings'
 const defaults: SettingsState = {
   version: SETTINGS_VERSION,
   language: 'zh',
-  appearance: 'light',
+  appearance: 'system',
   customFonts: [],
   githubBookRepos: [],
   reader: {
@@ -154,7 +154,7 @@ function load(): SettingsState {
       paperAgentExecutables: { ...defaults.paperAgentExecutables, ...savedAgentExecutables },
     }
     if (!['codex', 'claude', 'pi'].includes(merged.paperAgentEngine)) merged.paperAgentEngine = 'pi'
-    if (!['system', 'light', 'dark'].includes(merged.appearance)) merged.appearance = 'light'
+    if (!['system', 'light', 'dark'].includes(merged.appearance)) merged.appearance = 'system'
     for (const engine of ['codex', 'claude', 'pi'] as const) {
       if (typeof merged.paperAgentExecutables[engine] !== 'string') merged.paperAgentExecutables[engine] = ''
     }
@@ -184,6 +184,10 @@ function load(): SettingsState {
     // v9: 阅读主题默认改为跟随界面外观; 旧默认 light 视为未显式选择, 一并迁入 auto。
     if ((saved.version ?? 1) < 9 && (saved.reader?.theme ?? 'light') === 'light') {
       merged.reader.theme = 'auto'
+    }
+    // v10: 界面外观默认改为跟随系统; 旧默认 light 视为未显式选择, 一并迁入 system。
+    if ((saved.version ?? 1) < 10 && (saved.appearance ?? 'light') === 'light') {
+      merged.appearance = 'system'
     }
     merged.version = SETTINGS_VERSION
     return merged

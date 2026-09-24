@@ -175,22 +175,42 @@ svg {
   background: color-mix(in srgb, var(--brand) 24%, transparent);
 }
 
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* 细滚动条只给有精确指针的设备; 触屏保留系统的悬浮滚动条 (手机上不占宽度、滚完即隐) */
+@media (hover: hover) and (pointer: fine) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-3);
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
 }
-::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 4px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-3);
-  background-clip: padding-box;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
+
+/* 触屏: 去掉点按闪烁的灰块; 长按按钮 / 书卡不误选中文字, 也不弹系统菜单 */
+@media (hover: none) {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button,
+  .btn,
+  [role='button'],
+  [role='tab'],
+  [role='menuitem'],
+  a {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
 }
 
 /* ---- 工具类 ---- */

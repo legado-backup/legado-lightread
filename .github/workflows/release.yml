@@ -132,13 +132,16 @@ jobs:
         run: npx tauri android init
 
       # `tauri android init` 生成的工程带的是 Tauri 默认图标; `tauri icon` 产出的
-      # Android 图标在 src-tauri/icons/android, 需要覆盖进工程, 否则 APK 显示默认图标 (#5)
-      - name: 写入应用图标
+      # Android 图标在 src-tauri/icons/android, 需要覆盖进工程, 否则 APK 显示默认图标 (#5)。
+      # 桌面名称沿用 productName (LightRead), 手机桌面图标下只显示「轻阅」
+      - name: 写入应用图标与名称
         run: |
           RES=src-tauri/gen/android/app/src/main/res
           test -d "$RES"
           cp -r src-tauri/icons/android/. "$RES/"
           ls "$RES"/mipmap-xxxhdpi
+          sed -i -E 's|(<string name="(app_name\|main_activity_title)">)[^<]*(</string>)|\1轻阅\3|' "$RES/values/strings.xml"
+          grep -q '>轻阅<' "$RES/values/strings.xml"
 
       - name: 构建 APK (debug 签名, 可直接安装)
         env:
