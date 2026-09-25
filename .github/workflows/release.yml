@@ -5,12 +5,18 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: '只重打该版本的安卓 APK 并替换到其 Release (如 v1.1.18); 留空则完整构建'
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
 jobs:
   desktop:
+    if: ${{ !inputs.tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -71,7 +77,7 @@ jobs:
   # Linux 最后打包: 等 macOS / Windows / Android 先出包 (安卓失败也照常继续)
   desktop-linux:
     needs: [desktop, android]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && !inputs.tag }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -109,6 +115,7 @@ jobs:
           prerelease: false
 
   rust-floor:
+    if: ${{ !inputs.tag }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -128,8 +135,12 @@ jobs:
   android:
     runs-on: ubuntu-22.04
     continue-on-error: true
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -199,6 +210,8 @@ jobs:
       - name: 构建 APK (debug 签名, 可直接安装)
         env:
           NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
+          # debug 构建默认带 Rust 调试符号, liblightread_lib.so 会从 ~60MB 涨到 ~240MB
+          CARGO_PROFILE_DEV_DEBUG: 0
         run: npx tauri android build --apk --target aarch64 --debug
 
       - name: 重命名并上传 APK
@@ -206,16 +219,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           APK=$(find src-tauri/gen/android -name "*.apk" | head -1)
-          cp "$APK" "LightRead_${{ github.ref_name }}_android_arm64.apk"
+          cp "$APK" "LightRead_${RELEASE_TAG}_android_arm64.apk"
           # 桌面矩阵负责创建 Release；Android 偶尔先编译完，需要等待 Release 可见。
           for attempt in $(seq 1 60); do
-            if gh release view ${{ github.ref_name }} >/dev/null 2>&1; then
+            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
               break
             fi
             if [ "$attempt" -eq 60 ]; then
-              echo "Release ${{ github.ref_name }} was not created in time" >&2
+              echo "Release $RELEASE_TAG was not created in time" >&2
               exit 1
             fi
             sleep 10
           done
-          gh release upload ${{ github.ref_name }} "LightRead_${{ github.ref_name }}_android_arm64.apk" --clobber
+          gh release upload "$RELEASE_TAG" "LightRead_${RELEASE_TAG}_android_arm64.apk" --clobber
