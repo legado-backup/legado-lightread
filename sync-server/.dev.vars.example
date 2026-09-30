@@ -1,0 +1,5 @@
+# 本地开发用 (wrangler dev 读取): 复制为 .dev.vars, 该文件已被 .gitignore 忽略
+# 仅本地: 为 1 时 POST /v1/auth/code 直接返回 { devCode } 而不发邮件. 绝不能在生产设置 (vars / secret 都不行)
+DEV_EXPOSE_CODE=1
+# 若要本地真实发信, 填 Resend API Key 并去掉上面的 DEV_EXPOSE_CODE
+# RESEND_API_KEY=re_xxx

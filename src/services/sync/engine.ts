@@ -3,7 +3,7 @@
  * 流程见 docs/sync.md. 本模块顶层不依赖 vue / pinia, 依赖全部注入, 可在 node 里测试.
  */
 import type { BookMeta, CatalogSourceRec, LibraryStorage, NewBookMeta } from '../../storage/types'
-import type { SyncStore } from './baseline'
+import { baselineUsableFor, nextBaselineRemotes, type SyncStore } from './baseline.ts'
 import {
   annotationFrom, bookMetaFrom, buildLocalDoc, mergeDocs, planApply, progressFrom, sourceFrom,
 } from './merge.ts'
@@ -186,8 +186,9 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
   await remote.prepare()
   const remoteDocs = await remote.listDocs()
   const remoteFiles = canFiles ? await remote.listFiles() : new Set<string>()
+  // 基线在各远端间共用; 换成同类的另一个远端 (换网盘 / 换账号) 时作废, 按首次同步处理
   const saved = await store.loadBaseline()
-  const baseline = saved && saved.remoteId === remote.id ? saved : null
+  const baseline = saved && baselineUsableFor(saved, remote) ? saved : null
 
   const stampNow = now()
   const ctx = { deviceId, now: stampNow }
@@ -371,6 +372,7 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
   await remote.putDoc(doc)
   await store.saveBaseline({
     remoteId: remote.id,
+    remotes: nextBaselineRemotes(saved, !!baseline, remote),
     doc: merged,
     presentHashes: [...present],
     syncedAt: now(),

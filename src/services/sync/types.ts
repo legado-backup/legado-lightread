@@ -108,7 +108,7 @@ export interface LocalState {
 
 /** 上次同步后保存的基线 */
 export interface SyncBaseline {
-  /** 远端标识 (SyncRemote.id), 变了则基线作废 */
+  /** 最近一次同步的远端 (SyncRemote.id); 基线对哪些远端有效见 baseline.ts 的 remotes */
   remoteId: string
   doc: SyncDoc
   /** 上次同步结束时本地实际拥有文件的书 */

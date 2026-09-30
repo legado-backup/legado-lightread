@@ -3,12 +3,14 @@
  * 导出签名是 UI 依赖的契约, 不要改.
  */
 import { reactive } from 'vue'
-import type { SyncResult } from './types'
+import type { SyncRemote, SyncResult } from './types'
 import { runSync } from './engine.ts'
 import { createDexieSyncStore, type SyncStore } from './baseline.ts'
 import { createWebdavRemote } from './webdavRemote.ts'
+import { createAccountRemote, isAccountUnauthorized } from './accountRemote.ts'
+import { deviceName, trackSync, waitForSync } from './shared.ts'
+import { accountApiBase, accountState, clearLocalLogin, isLoggedIn } from '../account.ts'
 import { getStorage } from '../../storage'
-import { isTauri } from '../../storage/types'
 import { useSettings } from '../../stores/settings'
 import { useLibrary } from '../../stores/library'
 import { t } from '../../i18n'
@@ -38,53 +40,108 @@ export const syncState = reactive({
 let store: SyncStore | null = null
 const syncStore = () => (store ??= createDexieSyncStore())
 
-function deviceName(): string {
-  const nav = typeof navigator !== 'undefined' ? navigator : undefined
-  const platform = (nav as { userAgentData?: { platform?: string } } | undefined)
-    ?.userAgentData?.platform || nav?.platform || ''
-  const shell = isTauri() ? 'Desktop' : 'Web'
-  return platform ? `${shell} · ${platform}` : shell
-}
-
 /** WebDAV 地址已填写 */
 export function webdavSyncConfigured(): boolean {
   return !!useSettings().webdavUrl.trim()
 }
 
+/** 有可用的同步目标 (已登录轻阅账号或已填写 WebDAV) */
+export function syncConfigured(): boolean {
+  return isLoggedIn() || webdavSyncConfigured()
+}
+
 let inflight: Promise<SyncResult> | null = null
 
-/** 立即同步; 正在同步时等待当前这次结束并返回其结果. 失败抛错, 同时写入 syncState.lastError */
+/** 多个远端的结果相加; 仅元数据的书数取最后一个远端 (它已看到前面远端落地的书), 设备数取最大 */
+function combineResults(a: SyncResult | null, b: SyncResult): SyncResult {
+  if (!a) return { ...b }
+  return {
+    applied: a.applied + b.applied,
+    downloadedBooks: a.downloadedBooks + b.downloadedBooks,
+    uploadedFiles: a.uploadedFiles + b.uploadedFiles,
+    pendingBooks: b.pendingBooks,
+    devices: Math.max(a.devices, b.devices),
+  }
+}
+
+interface SyncTarget {
+  remote: SyncRemote
+  syncFiles: boolean
+  /** 账号远端所用的 token (401 时据此清除本地登录) */
+  token?: string
+}
+
+/** 本次要同步的远端: 先轻阅账号, 再 WebDAV (都配置时依次各跑一次, 共用本机基线) */
+function syncTargets(): SyncTarget[] {
+  const targets: SyncTarget[] = []
+  if (isLoggedIn()) {
+    const token = accountState.token
+    targets.push({
+      remote: createAccountRemote({ base: accountApiBase(), token, accountId: accountState.account!.id }, undefined, t),
+      syncFiles: false,
+      token,
+    })
+  }
+  if (webdavSyncConfigured()) {
+    const settings = useSettings()
+    targets.push({
+      remote: createWebdavRemote(
+        { url: settings.webdavUrl, user: settings.webdavUser, pass: settings.webdavPass },
+        undefined,
+        t,
+      ),
+      syncFiles: settings.webdavSyncFiles,
+    })
+  }
+  return targets
+}
+
+/**
+ * 立即同步; 正在同步时等待当前这次结束并返回其结果. 失败抛错, 同时写入 syncState.lastError.
+ * 已登录账号与已填 WebDAV 时依次同步两者; 一个失败仍会尝试另一个, 最后抛出第一个错误.
+ */
 export async function syncNow(): Promise<SyncResult> {
   if (inflight) return inflight
-  inflight = (async () => {
+  inflight = trackSync((async () => {
     syncState.running = true
     syncState.message = ''
     try {
-      const settings = useSettings()
-      if (!webdavSyncConfigured()) throw new Error(t('sync.err.notConfigured'))
+      const targets = syncTargets()
+      if (!targets.length) throw new Error(t('sync.err.notConfigured'))
       const library = useLibrary()
-      const result = await runSync({
-        storage: await getStorage(),
-        remote: createWebdavRemote(
-          { url: settings.webdavUrl, user: settings.webdavUser, pass: settings.webdavPass },
-          undefined,
-          t,
-        ),
-        store: syncStore(),
-        syncFiles: settings.webdavSyncFiles,
-        deviceName: deviceName(),
-        app: __APP_VERSION__,
-        t,
-        onProgress: msg => { syncState.message = msg },
-        deleteBook: id => library.removeBook(id),
-      })
+      const storage = await getStorage()
+      let result: SyncResult | null = null
+      let firstError: unknown = null
+      for (const target of targets) {
+        try {
+          const r = await runSync({
+            storage,
+            remote: target.remote,
+            store: syncStore(),
+            syncFiles: target.syncFiles,
+            deviceName: deviceName(),
+            app: __APP_VERSION__,
+            t,
+            onProgress: msg => { syncState.message = msg },
+            deleteBook: id => library.removeBook(id),
+          })
+          result = combineResults(result, r)
+        } catch (err) {
+          // 会话失效: 清除本地登录 (设置页随之回到登录表单), 错误照常报告
+          if (target.token !== undefined && isAccountUnauthorized(err)) clearLocalLogin(target.token)
+          console.warn('[sync] failed', target.remote.kind, err)
+          firstError ??= err
+        }
+      }
+      // 部分远端失败时, 成功的那次也可能已改动本地库
+      await library.refresh()
+      if (firstError || !result) throw firstError
       syncState.lastSyncAt = Date.now()
       syncState.lastResult = result
       syncState.lastError = ''
       try {
         localStorage.setItem(STATE_KEY, JSON.stringify({ lastSyncAt: syncState.lastSyncAt }))
       } catch { /* 存储不可用时只影响展示 */ }
-      await library.refresh()
       return result
     } catch (err) {
       syncState.lastError = err instanceof Error ? err.message : String(err)
@@ -93,7 +150,7 @@ export async function syncNow(): Promise<SyncResult> {
       syncState.running = false
       syncState.message = ''
     }
-  })()
+  })())
   try {
     return await inflight
   } finally {
@@ -108,7 +165,7 @@ let autoTimer: ReturnType<typeof setTimeout> | null = null
 /** 自动同步请求 (开启自动同步且已配置时才执行; 防抖, 错误只写 syncState 不抛出) */
 export function requestAutoSync(reason: string): void {
   try {
-    if (!useSettings().webdavSyncAuto || !webdavSyncConfigured()) return
+    if (!useSettings().webdavSyncAuto || !syncConfigured()) return
   } catch {
     return // pinia 未就绪
   }
@@ -145,9 +202,12 @@ export function startAutoSync(): () => void {
   }
 }
 
-/** 清除本地基线 (换网盘等); 下次同步按首次同步处理 */
+/** 等正在进行的同步结束 (不论成败) */
+export { waitForSync }
+
+/** 清除本地基线; 下次同步 (各远端) 按首次同步处理: 只并集, 不删除 */
 export async function resetSyncBaseline(): Promise<void> {
   // 正在同步时等它结束, 否则它会把旧基线写回去
-  await inflight?.catch(() => undefined)
+  await waitForSync()
   await syncStore().clearBaseline()
 }

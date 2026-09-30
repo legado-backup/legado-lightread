@@ -19,7 +19,8 @@ npm run build               # vue-tsc -b && vite build
 npx vue-tsc -b              # 只做类型检查
 npm run test:paper-agent    # 论文 Agent 前端契约 (node --test)
 npm run test:paper-context / test:keyboard-shortcuts / test:archive
-npm run test:sync-merge / test:sync-engine   # 多端同步: 合并纯函数 + 引擎 (假存储/假 WebDAV)
+npm run test:sync-merge / test:sync-engine / test:sync-account   # 多端同步: 合并纯函数 + 引擎 + 账号 (假存储/假远端)
+(cd sync-server && node --test test/api.test.mjs)                  # 账号后端契约 (wrangler 本地运行时)
 cargo test --manifest-path src-tauri/Cargo.toml agent   # 论文 Agent 原生契约
 npm run tauri dev|build     # 桌面 (需要 Rust 工具链)
 
@@ -27,6 +28,7 @@ npm run tauri dev|build     # 桌面 (需要 Rust 工具链)
 npm run build && npx vite preview --port 4173 --strictPort &
 npm run e2e                 # scripts/e2e-smoke.mjs, ~35 步: 导入 → 书单 → 阅读器 → PDF → 持久化
 npm run e2e:sync            # 内嵌 WebDAV, 两个浏览器上下文互相同步 (协议见 docs/sync.md)
+npm run e2e:account         # 本地 wrangler 起 sync-server, 两台设备走邮箱验证码登录并同步
 BIG_TXT=… PDF_FIXTURE=… node scripts/perf.mjs   # 性能基准 (打开/翻页/PDF + 长任务), 账本见 docs/perf-ledger.md
 ```
 
@@ -47,6 +49,7 @@ src/
   styles/main.css      设计令牌 + 全局组件类 (.btn .input .card .tag .segmented .modal .toast .empty .skeleton)
 scripts/               e2e-smoke.mjs e2e-full.mjs perf.mjs 各类 node --test 契约测试
 src-tauri/src/         Rust 命令: agent/ babeldoc calibre edge_tts local_tts fonts
+sync-server/           轻阅账号后端 (Cloudflare Worker + D1 + R2, sync.jiangshu.ai), API 见 docs/account-api.md
 ```
 
 ## 约定
@@ -67,6 +70,11 @@ src-tauri/src/         Rust 命令: agent/ babeldoc calibre edge_tts local_tts f
 - 不做 zlib 类站点直连、不支持 KFX（见产品设计文档），不引入组件库 / Tailwind。
 - 阅读正文主题 (`settings.reader.theme`) 与应用外观 (`settings.appearance`) 是两个设置项，不要把显式选择的正文主题绑到外观上；默认值 `auto` 例外，它经 `resolveReaderTheme()` 跟随外观在浅色/夜间间切换。
 - 不要提交 `.env*`、`.corpus`、`dist`、`src-tauri/target`。
+
+## 账号后端部署
+
+- `cd sync-server && npx wrangler deploy -c wrangler.jsonc`（必须带 `-c`，否则会撞上根目录构建留下的 `.wrangler/deploy/config.json`）。用 `~/.config/tokenssh-ai/cloudflare-workers-token` 作 `CLOUDFLARE_API_TOKEN` 即可部署；它没有 D1 权限，改表结构要走 Cloudflare MCP 的 D1 query API。
+- `DEV_EXPOSE_CODE` 只用于本地测试，**生产绝不能设**（否则任何人都能拿到任意邮箱的验证码）。
 
 ## 发版流程
 

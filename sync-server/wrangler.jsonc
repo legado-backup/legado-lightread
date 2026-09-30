@@ -1,0 +1,25 @@
+// 轻阅账号 / 多端同步后端 (sync.jiangshu.ai). 接口约定见 docs/account-api.md
+// 密钥不入库: npx wrangler secret put RESEND_API_KEY
+// DEV_EXPOSE_CODE 只能出现在本地 .dev.vars (见 .dev.vars.example), 生产配置里绝不能设
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "lightread-sync",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "routes": [{ "pattern": "sync.jiangshu.ai", "custom_domain": true }],
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "lightread-sync",
+      "database_id": "4468f65a-9f00-4b32-9982-3d615b8f5014"
+    }
+  ],
+  "r2_buckets": [{ "binding": "DOCS", "bucket_name": "lightread-sync" }],
+  "vars": {
+    "MAIL_FROM": "轻阅 LightRead <noreply@jiangshu.ai>"
+  },
+  // 每天清理过期的验证码与旧计数 (UTC 03:17)
+  "triggers": { "crons": ["17 3 * * *"] }
+}
