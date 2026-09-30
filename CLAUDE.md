@@ -19,12 +19,14 @@ npm run build               # vue-tsc -b && vite build
 npx vue-tsc -b              # 只做类型检查
 npm run test:paper-agent    # 论文 Agent 前端契约 (node --test)
 npm run test:paper-context / test:keyboard-shortcuts / test:archive
+npm run test:sync-merge / test:sync-engine   # 多端同步: 合并纯函数 + 引擎 (假存储/假 WebDAV)
 cargo test --manifest-path src-tauri/Cargo.toml agent   # 论文 Agent 原生契约
 npm run tauri dev|build     # 桌面 (需要 Rust 工具链)
 
 # 端到端冒烟 (Playwright): 先构建并起预览, 再跑脚本 (脚本写死 http://localhost:4173)
 npm run build && npx vite preview --port 4173 --strictPort &
 npm run e2e                 # scripts/e2e-smoke.mjs, ~35 步: 导入 → 书单 → 阅读器 → PDF → 持久化
+npm run e2e:sync            # 内嵌 WebDAV, 两个浏览器上下文互相同步 (协议见 docs/sync.md)
 BIG_TXT=… PDF_FIXTURE=… node scripts/perf.mjs   # 性能基准 (打开/翻页/PDF + 长任务), 账本见 docs/perf-ledger.md
 ```
 
@@ -40,6 +42,7 @@ src/
   components/          BookCard TocList ToastHost PaperAgentSidebar BabeldocTaskStatus
   stores/              settings.ts (localStorage, 带 SETTINGS_VERSION 迁移) library.ts
   services/            纯函数 / 平台适配: importer, opds, arxiv, tts, ai, paperAgent*, backup, appearance …
+  services/sync/       多端同步: types(契约) merge(纯函数) engine(编排) webdavRemote baseline(IndexedDB lightread-sync)
   i18n/                zh.ts (默认, 缺失回退来源) en.ts; t(key, params) 纯函数, key 为 'area.name' 字符串
   styles/main.css      设计令牌 + 全局组件类 (.btn .input .card .tag .segmented .modal .toast .empty .skeleton)
 scripts/               e2e-smoke.mjs e2e-full.mjs perf.mjs 各类 node --test 契约测试

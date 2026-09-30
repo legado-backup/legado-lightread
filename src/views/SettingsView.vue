@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { getStorage, isTauri } from '../storage'
 import { useSettings } from '../stores/settings'
 import { useLibrary } from '../stores/library'
@@ -9,6 +9,7 @@ import {
   LIBRARY_ARCHIVE_EXTENSION,
 } from '../services/backup'
 import { backupToWebdav, restoreFromWebdav, testWebdav, webdavBackupInfo } from '../services/webdav'
+import { syncNow, syncState, webdavSyncConfigured } from '../services/sync'
 import { fetchRemote } from '../services/net'
 import { toast } from '../services/toast'
 import {
@@ -76,6 +77,55 @@ async function davRestore() {
     toast(t('settings.restoreFailed', { msg: e?.message }), 'error', 6000)
   } finally {
     busy.value = ''
+  }
+}
+
+// ---- 多端同步 ----
+// settings.webdavUrl 是响应式的, 放进 computed 后地址变化会重新判断
+const syncReady = computed(() => {
+  void settings.webdavUrl
+  try {
+    return webdavSyncConfigured()
+  } catch {
+    return false
+  }
+})
+const syncNowTick = ref(Date.now())
+const syncTicker = window.setInterval(() => (syncNowTick.value = Date.now()), 30_000)
+onBeforeUnmount(() => window.clearInterval(syncTicker))
+
+function formatSyncTime(at: number, now: number): string {
+  const locale = settings.language === 'en' ? 'en' : 'zh-CN'
+  const diff = now - at
+  if (diff < 60_000) return t('sync.justNow')
+  if (diff < 3_600_000) {
+    return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-Math.floor(diff / 60_000), 'minute')
+  }
+  const then = new Date(at)
+  const sameDay = then.toDateString() === new Date(now).toDateString()
+  return new Intl.DateTimeFormat(locale, sameDay
+    ? { hour: '2-digit', minute: '2-digit' }
+    : { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(then)
+}
+
+const syncStatus = computed(() => {
+  if (syncState.running) return { text: syncState.message || t('sync.running'), error: false }
+  if (syncState.lastError) return { text: syncState.lastError, error: true }
+  if (syncState.lastSyncAt) {
+    return { text: t('sync.lastAt', { time: formatSyncTime(syncState.lastSyncAt, syncNowTick.value) }), error: false }
+  }
+  return { text: t('sync.never'), error: false }
+})
+
+async function doSyncNow() {
+  if (syncState.running) return
+  try {
+    const r = await syncNow()
+    let msg = t('sync.done', { applied: r.applied, downloaded: r.downloadedBooks, uploaded: r.uploadedFiles })
+    if (r.pendingBooks > 0) msg += t('sync.pending', { pending: r.pendingBooks })
+    toast(msg, 'success', r.pendingBooks > 0 ? 6000 : 4000)
+  } catch (e: any) {
+    toast(t('sync.failed', { msg: e?.message ?? t('common.unknownError') }), 'error', 6000)
   }
 }
 
@@ -442,9 +492,39 @@ const APPEARANCE_OPTIONS = [
         <input v-model="settings.webdavUser" class="input" :placeholder="t('settings.account')" :aria-label="t('settings.account')" autocomplete="off" />
         <input v-model="settings.webdavPass" class="input" type="password" :placeholder="t('settings.password')" :aria-label="t('settings.password')" autocomplete="new-password" />
       </div>
+      <div class="sync-options">
+        <label class="toggle-row">
+          <span class="toggle-text">
+            <span class="row-title">{{ t('sync.auto') }}</span>
+            <span class="row-desc">{{ t('sync.autoHint') }}</span>
+          </span>
+          <span class="switch">
+            <input v-model="settings.webdavSyncAuto" type="checkbox" role="switch" :aria-checked="settings.webdavSyncAuto" />
+            <span class="switch-track" aria-hidden="true"></span>
+          </span>
+        </label>
+        <label class="toggle-row">
+          <span class="toggle-text">
+            <span class="row-title">{{ t('sync.files') }}</span>
+            <span class="row-desc">{{ t('sync.filesHint') }}</span>
+          </span>
+          <span class="switch">
+            <input v-model="settings.webdavSyncFiles" type="checkbox" role="switch" :aria-checked="settings.webdavSyncFiles" />
+            <span class="switch-track" aria-hidden="true"></span>
+          </span>
+        </label>
+      </div>
       <div class="webdav-actions">
+        <button class="btn btn-sm btn-primary sync-now" :disabled="syncState.running || !syncReady || !!busy" @click="doSyncNow">
+          <svg :class="{ spinning: syncState.running }" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2M3 12a9 9 0 0 1 15.5-6.2" /><path d="M18.5 2.5v3.7h-3.7M5.5 21.5v-3.7h3.7" /></svg>
+          {{ syncState.running ? t('sync.running') : t('sync.now') }}
+        </button>
+        <span class="sync-status" :class="{ error: syncStatus.error }" role="status" aria-live="polite">{{ syncStatus.text }}</span>
+      </div>
+      <div class="webdav-actions">
+        <span class="backup-label">{{ t('sync.backupLabel') }}</span>
         <button class="btn btn-sm" :disabled="!!busy || !settings.webdavUrl" @click="davTest">{{ t('settings.testConnection') }}</button>
-        <button class="btn btn-sm btn-primary" :disabled="!!busy || !settings.webdavUrl" @click="davBackup">{{ t('settings.backupToCloud') }}</button>
+        <button class="btn btn-sm" :disabled="!!busy || !settings.webdavUrl" @click="davBackup">{{ t('settings.backupToCloud') }}</button>
         <button class="btn btn-sm" :disabled="!!busy || !settings.webdavUrl" @click="davRestore">{{ t('settings.restoreFromCloud') }}</button>
         <span v-if="davInfo" class="dav-info">{{ davInfo }}</span>
       </div>
@@ -806,6 +886,98 @@ h2 {
 .dav-info {
   font-size: 12px;
   color: var(--text-3);
+}
+.sync-options {
+  margin-top: 6px;
+}
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+.toggle-row + .toggle-row {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.toggle-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex-shrink: 0;
+}
+.switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+.switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
+  transition: background var(--dur) var(--ease);
+}
+.switch-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--on-brand);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--dur) var(--ease);
+}
+.switch input:checked + .switch-track {
+  background: var(--brand);
+}
+.switch input:checked + .switch-track::after {
+  transform: translateX(16px);
+}
+.switch input:focus-visible + .switch-track {
+  box-shadow: var(--ring);
+}
+.sync-now {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sync-now .spinning {
+  animation: sync-spin 1s linear infinite;
+}
+@keyframes sync-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sync-now .spinning { animation: none; }
+  .switch-track, .switch-track::after { transition: none; }
+}
+.sync-status {
+  font-size: 12px;
+  color: var(--text-3);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sync-status.error {
+  color: var(--danger);
+}
+.backup-label {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-right: 2px;
 }
 .proxy-input {
   width: 100%;

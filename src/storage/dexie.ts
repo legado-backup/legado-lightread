@@ -131,10 +131,10 @@ export class DexieStorage implements LibraryStorage {
     return this.db.booklists.orderBy('createdAt').reverse().toArray()
   }
 
-  async createBooklist(name: string) {
-    const id = newId()
+  async createBooklist(name: string, opts: { id?: string; createdAt?: number } = {}) {
+    const id = opts.id ?? newId()
     const now = Date.now()
-    await this.db.booklists.add({ id, name, createdAt: now, updatedAt: now })
+    await this.db.booklists.put({ id, name, createdAt: opts.createdAt ?? now, updatedAt: now })
     return id
   }
 
@@ -156,13 +156,21 @@ export class DexieStorage implements LibraryStorage {
     return rows.map(row => row.bookId)
   }
 
-  async addBooksToBooklist(booklistId: string, bookIds: string[]) {
+  async listBooklistItems(booklistId: string) {
+    const rows = await this.db.booklistItems
+      .where('booklistId').equals(booklistId)
+      .sortBy('addedAt')
+    return rows.map(({ bookId, addedAt }) => ({ bookId, addedAt }))
+  }
+
+  async addBooksToBooklist(booklistId: string, bookIds: string[], opts: { addedAt?: number } = {}) {
     const uniqueIds = [...new Set(bookIds)]
     if (!uniqueIds.length) return
     const now = Date.now()
+    const start = opts.addedAt ?? now
     await this.db.transaction('rw', this.db.booklists, this.db.booklistItems, async () => {
       await this.db.booklistItems.bulkPut(
-        uniqueIds.map((bookId, index) => ({ booklistId, bookId, addedAt: now + index })))
+        uniqueIds.map((bookId, index) => ({ booklistId, bookId, addedAt: start + index })))
       await this.db.booklists.update(booklistId, { updatedAt: now })
     })
   }
@@ -180,9 +188,9 @@ export class DexieStorage implements LibraryStorage {
     return this.db.annotations.where('bookId').equals(bookId).sortBy('createdAt')
   }
 
-  async addAnnotation(a: Omit<AnnotationRec, 'id'>) {
-    const id = newId()
-    await this.db.annotations.add({ ...a, id })
+  async addAnnotation(a: Omit<AnnotationRec, 'id'> & { id?: string }) {
+    const id = a.id ?? newId()
+    await this.db.annotations.put({ ...a, id })
     return id
   }
 

@@ -67,6 +67,11 @@ export interface BooklistRec {
   updatedAt: number
 }
 
+export interface BooklistItemRec {
+  bookId: string
+  addedAt: number
+}
+
 export interface LibraryStorage {
   /** 后端名称, 设置页展示 */
   readonly kind: 'indexeddb' | 'filesystem'
@@ -82,15 +87,20 @@ export interface LibraryStorage {
   getCoverUrl(id: string): Promise<string | undefined>
 
   listBooklists(): Promise<BooklistRec[]>
-  createBooklist(name: string): Promise<string>
+  /** opts.id / opts.createdAt: 同步时沿用其他设备的书单 id 与创建时间 */
+  createBooklist(name: string, opts?: { id?: string; createdAt?: number }): Promise<string>
   renameBooklist(id: string, name: string): Promise<void>
   deleteBooklist(id: string): Promise<void>
   listBooklistBookIds(booklistId: string): Promise<string[]>
-  addBooksToBooklist(booklistId: string, bookIds: string[]): Promise<void>
+  /** 书单条目 (含加入时间), 按加入时间升序 */
+  listBooklistItems(booklistId: string): Promise<BooklistItemRec[]>
+  /** opts.addedAt: 同步时沿用其他设备的加入时间 (多本时依次 +1ms) */
+  addBooksToBooklist(booklistId: string, bookIds: string[], opts?: { addedAt?: number }): Promise<void>
   removeBooksFromBooklist(booklistId: string, bookIds: string[]): Promise<void>
 
   listAnnotations(bookId: string): Promise<AnnotationRec[]>
-  addAnnotation(a: Omit<AnnotationRec, 'id'>): Promise<string>
+  /** a.id: 同步时沿用其他设备的标注 id (已存在则覆盖) */
+  addAnnotation(a: Omit<AnnotationRec, 'id'> & { id?: string }): Promise<string>
   updateAnnotation(id: string, patch: Partial<Omit<AnnotationRec, 'id' | 'bookId'>>): Promise<void>
   deleteAnnotation(id: string): Promise<void>
 

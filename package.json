@@ -10,11 +10,14 @@
     "test:smart-toc": "node --experimental-strip-types --test scripts/test-smart-toc.mjs",
     "test:txt-paragraphs": "node --experimental-strip-types --test scripts/test-txt-paragraphs.mjs",
     "test:keyboard-shortcuts": "node --experimental-strip-types --test scripts/test-keyboard-shortcuts.mjs",
+    "test:sync-merge": "node --experimental-strip-types --test scripts/test-sync-merge.mjs",
+    "test:sync-engine": "node --experimental-strip-types --test scripts/test-sync-engine.mjs",
     "test:paper-context": "node --experimental-strip-types --test scripts/test-paper-translation-context.mjs",
     "test:paper-agent": "node --experimental-strip-types --test scripts/test-paper-agent-context.mjs scripts/test-paper-agent-ten-questions.mjs",
     "preview": "npm run build && wrangler dev",
     "tauri": "tauri",
     "e2e": "node scripts/e2e-smoke.mjs",
+    "e2e:sync": "node scripts/e2e-sync.mjs",
     "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {

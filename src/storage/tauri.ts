@@ -55,6 +55,8 @@ const rowToMeta = (r: BookRow): BookMeta => ({
 
 const META_COLUMNS: Record<string, string> = {
   title: 'title',
+  format: 'format',
+  addedAt: 'added_at',
   author: 'author',
   fileName: 'file_name',
   description: 'description',
@@ -216,17 +218,34 @@ export class TauriStorage implements LibraryStorage {
     }
     await this.db.execute(
       `INSERT INTO books (id, title, author, format, file_name, description, language,
-        tags, added_at, last_read_at, location, progress, source, has_cover, kind)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        tags, added_at, last_read_at, location, progress, source, has_cover, kind,
+        reading_seconds, pinned_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
       [id, meta.title, meta.author, meta.format, meta.fileName,
         meta.description ?? null, meta.language ?? null, JSON.stringify(meta.tags),
         meta.addedAt, meta.lastReadAt ?? null, meta.location ?? null,
         meta.progress ?? null, meta.source ?? null, cover ? 1 : 0,
-        meta.kind === 'paper' ? 'paper' : 'book'])
+        meta.kind === 'paper' ? 'paper' : 'book',
+        Math.round(meta.readingSeconds ?? 0), meta.pinnedAt || null])
     return id
   }
 
   async updateBook(id: string, patch: Partial<Omit<BookMeta, 'id'>>) {
+    // 文件路径的扩展名取自 fileName: 同步改了文件名 (扩展名不同) 时把文件挪到新路径
+    if (typeof patch.fileName === 'string') {
+      const old = await this.getBook(id)
+      const from = old && this.bookPath(id, old.fileName)
+      const to = this.bookPath(id, patch.fileName)
+      if (from && from !== to) {
+        const [fromPath, fromOpts] = this.loc(from)
+        const [toPath, toOpts] = this.loc(to)
+        const bytes = await this.fs.readFile(fromPath, fromOpts).catch(() => null)
+        if (bytes) {
+          await this.fs.writeFile(toPath, bytes, toOpts)
+          await this.fs.remove(fromPath, fromOpts).catch(() => { /* 旧文件残留不影响使用 */ })
+        }
+      }
+    }
     const sets: string[] = []
     const values: unknown[] = []
     for (const [key, value] of Object.entries(patch)) {
@@ -303,12 +322,12 @@ export class TauriStorage implements LibraryStorage {
     }))
   }
 
-  async createBooklist(name: string) {
-    const id = newId()
+  async createBooklist(name: string, opts: { id?: string; createdAt?: number } = {}) {
+    const id = opts.id ?? newId()
     const now = Date.now()
     await this.db.execute(
-      'INSERT INTO booklists (id, name, created_at, updated_at) VALUES ($1, $2, $3, $4)',
-      [id, name, now, now])
+      'INSERT OR REPLACE INTO booklists (id, name, created_at, updated_at) VALUES ($1, $2, $3, $4)',
+      [id, name, opts.createdAt ?? now, now])
     return id
   }
 
@@ -330,15 +349,23 @@ export class TauriStorage implements LibraryStorage {
     return rows.map(row => row.book_id)
   }
 
-  async addBooksToBooklist(booklistId: string, bookIds: string[]) {
+  async listBooklistItems(booklistId: string) {
+    const rows = await this.db.select<Array<{ book_id: string; added_at: number }>>(
+      'SELECT book_id, added_at FROM booklist_items WHERE booklist_id = $1 ORDER BY added_at',
+      [booklistId])
+    return rows.map(row => ({ bookId: row.book_id, addedAt: row.added_at }))
+  }
+
+  async addBooksToBooklist(booklistId: string, bookIds: string[], opts: { addedAt?: number } = {}) {
     const uniqueIds = [...new Set(bookIds)]
     if (!uniqueIds.length) return
     const now = Date.now()
+    const start = opts.addedAt ?? now
     for (const [index, bookId] of uniqueIds.entries()) {
       await this.db.execute(
         `INSERT OR IGNORE INTO booklist_items (booklist_id, book_id, added_at)
          VALUES ($1, $2, $3)`,
-        [booklistId, bookId, now + index])
+        [booklistId, bookId, start + index])
     }
     await this.db.execute(
       'UPDATE booklists SET updated_at = $1 WHERE id = $2', [now, booklistId])
@@ -370,10 +397,10 @@ export class TauriStorage implements LibraryStorage {
     }))
   }
 
-  async addAnnotation(a: Omit<AnnotationRec, 'id'>) {
-    const id = newId()
+  async addAnnotation(a: Omit<AnnotationRec, 'id'> & { id?: string }) {
+    const id = a.id ?? newId()
     await this.db.execute(
-      `INSERT INTO annotations (id, book_id, kind, cfi, text, note, color, created_at)
+      `INSERT OR REPLACE INTO annotations (id, book_id, kind, cfi, text, note, color, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       [id, a.bookId, a.kind ?? 'highlight', a.cfi, a.text, a.note ?? null, a.color, a.createdAt])
     return id

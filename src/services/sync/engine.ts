@@ -1,0 +1,386 @@
+/**
+ * 同步编排: 读本地库 → 拉远端 → 合并 → 落地 → 上传文件 → 写本机文档 + 基线.
+ * 流程见 docs/sync.md. 本模块顶层不依赖 vue / pinia, 依赖全部注入, 可在 node 里测试.
+ */
+import type { BookMeta, CatalogSourceRec, LibraryStorage, NewBookMeta } from '../../storage/types'
+import type { SyncStore } from './baseline'
+import {
+  annotationFrom, bookMetaFrom, buildLocalDoc, mergeDocs, planApply, progressFrom, sourceFrom,
+} from './merge.ts'
+import type {
+  ApplyOp, BookMetaVal, LocalState, ProgressVal, SyncDoc, SyncRemote, SyncResult,
+} from './types'
+
+export type TranslateFn = (key: string, params?: Record<string, string | number>) => string
+
+export interface SyncDeps {
+  storage: LibraryStorage
+  remote: SyncRemote
+  store: SyncStore
+  /** 上传 / 下载书籍文件 */
+  syncFiles: boolean
+  now?: () => number
+  deviceName?: string
+  app?: string
+  onProgress?: (msg: string) => void
+  t?: TranslateFn
+  /** 删除本地书籍 (默认 storage.deleteBook; 应用里换成会清理论文 Agent 数据的 store 动作) */
+  deleteBook?: (id: string) => Promise<void>
+}
+
+export async function sha256Hex(data: ArrayBuffer | Uint8Array): Promise<string> {
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
+  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes))
+  return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** 本地库快照 + 反查表 */
+interface LocalScan {
+  state: LocalState
+  /** hash → 本地 id 列表 (首个为规范的那本, 即 addedAt 最早) */
+  idsByHash: Map<string, string[]>
+  /** 书单 id (本地已有) */
+  booklistIds: Set<string>
+  /** 自定义书源 url → 本地 id 列表 */
+  sourceIdsByUrl: Map<string, string[]>
+  /** 所有书源 url (含内置) */
+  allSourceUrls: Set<string>
+}
+
+async function scanLocal(
+  storage: LibraryStorage,
+  store: SyncStore,
+  progress: (msg: string) => void,
+  tr: TranslateFn,
+): Promise<LocalScan> {
+  const books = await storage.listBooks()
+  const cache = await store.getHashes()
+  const hashById = new Map<string, string>()
+  const missing = books.filter(b => !cache.has(b.id))
+  for (const b of books) {
+    const h = cache.get(b.id)
+    if (h) hashById.set(b.id, h)
+  }
+  let done = 0
+  for (const b of missing) {
+    progress(tr('sync.phase.hash', { done, total: missing.length }))
+    try {
+      const file = await storage.getBookFile(b.id)
+      const hash = await sha256Hex(await file.arrayBuffer())
+      hashById.set(b.id, hash)
+      await store.setHash(b.id, hash)
+    } catch (err) {
+      // 文件缺失 / 读不出: 这本书不参与同步
+      console.warn('[sync] hash failed', b.id, err)
+    }
+    done++
+  }
+
+  // 同一 hash 多本时取 addedAt 最早的一本为规范
+  const byHash = new Map<string, BookMeta[]>()
+  for (const b of books) {
+    const h = hashById.get(b.id)
+    if (!h) continue
+    const list = byHash.get(h) ?? []
+    list.push(b)
+    byHash.set(h, list)
+  }
+  const state: LocalState = { books: {}, annotations: {}, booklists: {}, booklistItems: {}, sources: {} }
+  const idsByHash = new Map<string, string[]>()
+  for (const [hash, list] of byHash) {
+    list.sort((a, b) => a.addedAt - b.addedAt || a.id.localeCompare(b.id))
+    const b = list[0]
+    idsByHash.set(hash, list.map(x => x.id))
+    state.books[hash] = {
+      id: b.id,
+      meta: bookMetaFrom(b),
+      progress: progressFrom(b),
+      readingSeconds: b.readingSeconds ?? 0,
+      hasCover: b.hasCover,
+    }
+  }
+
+  for (const [hash, book] of Object.entries(state.books)) {
+    for (const a of await storage.listAnnotations(book.id)) {
+      state.annotations[a.id] = annotationFrom(a, hash)
+    }
+  }
+
+  const booklistIds = new Set<string>()
+  for (const bl of await storage.listBooklists()) {
+    booklistIds.add(bl.id)
+    state.booklists[bl.id] = { name: bl.name, createdAt: bl.createdAt }
+    for (const item of await storage.listBooklistItems(bl.id)) {
+      const hash = hashById.get(item.bookId)
+      if (!hash || !idsByHash.has(hash)) continue
+      const key = `${bl.id}|${hash}`
+      const prev = state.booklistItems[key]
+      if (!prev || item.addedAt < prev.addedAt) {
+        state.booklistItems[key] = { booklistId: bl.id, bookHash: hash, addedAt: item.addedAt }
+      }
+    }
+  }
+
+  const sourceIdsByUrl = new Map<string, string[]>()
+  const allSourceUrls = new Set<string>()
+  for (const s of await storage.listSources()) {
+    allSourceUrls.add(s.url)
+    if (s.builtin) continue
+    state.sources[s.url] ??= sourceFrom(s)
+    sourceIdsByUrl.set(s.url, [...(sourceIdsByUrl.get(s.url) ?? []), s.id])
+  }
+
+  return { state, idsByHash, booklistIds, sourceIdsByUrl, allSourceUrls }
+}
+
+function newBookMeta(meta: BookMetaVal, progress: ProgressVal, readingSeconds: number): NewBookMeta {
+  const out: NewBookMeta = {
+    title: meta.title,
+    author: meta.author,
+    format: meta.format,
+    fileName: meta.fileName,
+    tags: [...meta.tags],
+    addedAt: meta.addedAt,
+    kind: meta.kind,
+    readingSeconds: Math.max(0, Math.round(readingSeconds)),
+  }
+  if (meta.description !== undefined) out.description = meta.description
+  if (meta.language !== undefined) out.language = meta.language
+  if (meta.source !== undefined) out.source = meta.source
+  if (meta.pinnedAt) out.pinnedAt = meta.pinnedAt
+  if (progress.location !== undefined) out.location = progress.location
+  if (progress.progress !== undefined) out.progress = progress.progress
+  if (progress.lastReadAt !== undefined) out.lastReadAt = progress.lastReadAt
+  return out
+}
+
+/** 读封面: 走 getCoverUrl (Object URL / data URL) 再 fetch 成 Blob; 失败视为无封面 */
+async function readCover(storage: LibraryStorage, id: string): Promise<Blob | undefined> {
+  try {
+    const url = await storage.getCoverUrl(id)
+    if (!url) return undefined
+    const blob = await (await fetch(url)).blob()
+    return blob.size ? blob : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export async function runSync(deps: SyncDeps): Promise<SyncResult> {
+  const { storage, remote, store } = deps
+  const now = deps.now ?? Date.now
+  const tr: TranslateFn = deps.t ?? (await import('../../i18n/index.ts')).t
+  const progress = (msg: string) => deps.onProgress?.(msg)
+  const removeBook = deps.deleteBook ?? ((id: string) => storage.deleteBook(id))
+  const canFiles = deps.syncFiles && remote.supportsFiles
+
+  const deviceId = await store.getDeviceId()
+
+  // 1. 本地快照
+  progress(tr('sync.phase.scan'))
+  const scan = await scanLocal(storage, store, progress, tr)
+  const local = scan.state
+
+  // 2-3. 远端文档, 生成本机文档, 合并
+  progress(tr('sync.phase.fetch'))
+  await remote.prepare()
+  const remoteDocs = await remote.listDocs()
+  const remoteFiles = canFiles ? await remote.listFiles() : new Set<string>()
+  const saved = await store.loadBaseline()
+  const baseline = saved && saved.remoteId === remote.id ? saved : null
+
+  const stampNow = now()
+  const ctx = { deviceId, now: stampNow }
+  const remoteMerged = remoteDocs.length ? mergeDocs(remoteDocs, ctx) : null
+  const localDoc = buildLocalDoc(
+    local,
+    baseline?.doc ?? null,
+    new Set(baseline?.presentHashes ?? []),
+    remoteMerged,
+    { deviceId, now: stampNow, deviceName: deps.deviceName, app: deps.app },
+  )
+  const merged = mergeDocs([localDoc, ...remoteDocs], ctx)
+
+  // 4. 落地
+  progress(tr('sync.phase.apply'))
+  const ops = planApply(merged, local)
+  const present = new Set(scan.idsByHash.keys())
+  let applied = 0
+  let downloadedBooks = 0
+  let pendingBooks = 0
+  const idOf = (hash: string) => scan.idsByHash.get(hash)?.[0]
+
+  async function applyOp(op: ApplyOp): Promise<boolean> {
+    switch (op.op) {
+      case 'addBook': {
+        if (scan.idsByHash.has(op.hash)) return false
+        if (!canFiles || !remoteFiles.has(op.hash)) {
+          pendingBooks++
+          return false
+        }
+        progress(tr('sync.phase.download', { title: op.meta.title }))
+        let file: Blob | null
+        let cover: Blob | undefined
+        try {
+          file = await remote.getFile(op.hash)
+          const coverName = `${op.hash}.cover`
+          if (remoteFiles.has(coverName)) {
+            cover = (await remote.getFile(coverName).catch(() => null)) ?? undefined
+          }
+        } catch (err) {
+          // 下载失败只让这本书保持「仅元数据」, 下次再试; 写本地库失败则整次同步失败
+          console.warn('[sync] download failed', op.hash, err)
+          file = null
+        }
+        if (!file || await sha256Hex(await file.arrayBuffer()) !== op.hash) {
+          pendingBooks++
+          return false
+        }
+        const id = await storage.addBook(
+          newBookMeta(op.meta, op.progress, op.readingSeconds), file, cover)
+        await store.setHash(id, op.hash)
+        scan.idsByHash.set(op.hash, [id])
+        present.add(op.hash)
+        downloadedBooks++
+        return true
+      }
+      case 'deleteBook': {
+        const ids = scan.idsByHash.get(op.hash)
+        if (!ids?.length) return false
+        for (const id of ids) await removeBook(id)
+        scan.idsByHash.delete(op.hash)
+        present.delete(op.hash)
+        return true
+      }
+      case 'updateBook': {
+        // 只改规范的那本 (同内容的重复导入保持各自的元数据)
+        const id = idOf(op.hash)
+        if (!id) return false
+        await storage.updateBook(id, op.patch)
+        return true
+      }
+      case 'addAnnotation': {
+        const { bookHash, ...rest } = op.value
+        const bookId = idOf(bookHash)
+        if (!bookId) return false
+        await storage.addAnnotation({ ...rest, id: op.id, bookId })
+        return true
+      }
+      case 'updateAnnotation': {
+        if (!(op.id in local.annotations)) return false
+        await storage.updateAnnotation(op.id, op.patch)
+        return true
+      }
+      case 'deleteAnnotation': {
+        if (!(op.id in local.annotations)) return false
+        await storage.deleteAnnotation(op.id)
+        return true
+      }
+      case 'addBooklist': {
+        await storage.createBooklist(op.value.name, { id: op.id, createdAt: op.value.createdAt })
+        scan.booklistIds.add(op.id)
+        return true
+      }
+      case 'renameBooklist': {
+        if (!scan.booklistIds.has(op.id)) return false
+        await storage.renameBooklist(op.id, op.name)
+        return true
+      }
+      case 'deleteBooklist': {
+        if (!scan.booklistIds.has(op.id)) return false
+        await storage.deleteBooklist(op.id)
+        scan.booklistIds.delete(op.id)
+        return true
+      }
+      case 'addBooklistItem': {
+        const bookId = idOf(op.hash)
+        if (!bookId || !scan.booklistIds.has(op.booklistId)) return false
+        const addedAt = merged.booklistItems[`${op.booklistId}|${op.hash}`]?.value?.addedAt
+        await storage.addBooksToBooklist(op.booklistId, [bookId], { addedAt })
+        return true
+      }
+      case 'removeBooklistItem': {
+        const ids = scan.idsByHash.get(op.hash)
+        if (!ids?.length || !scan.booklistIds.has(op.booklistId)) return false
+        await storage.removeBooksFromBooklist(op.booklistId, ids)
+        return true
+      }
+      case 'addSource': {
+        if (scan.allSourceUrls.has(op.value.url)) return false
+        const rec: Omit<CatalogSourceRec, 'id'> = { ...op.value, builtin: false }
+        const id = await storage.addSource(rec)
+        scan.allSourceUrls.add(op.value.url)
+        scan.sourceIdsByUrl.set(op.value.url, [id])
+        return true
+      }
+      case 'deleteSource': {
+        const ids = scan.sourceIdsByUrl.get(op.url)
+        if (!ids?.length) return false
+        for (const id of ids) await storage.deleteSource(id)
+        scan.sourceIdsByUrl.delete(op.url)
+        scan.allSourceUrls.delete(op.url)
+        return true
+      }
+    }
+  }
+
+  for (const op of ops) {
+    if (await applyOp(op)) applied++
+  }
+
+  // 5. 上传本地有、远端还没有的书籍文件与封面
+  let uploadedFiles = 0
+  if (canFiles) {
+    for (const hash of present) {
+      if (merged.books[hash]?.alive.value !== true) continue
+      const id = idOf(hash)
+      if (!id) continue
+      const needFile = !remoteFiles.has(hash)
+      const needCover = !remoteFiles.has(`${hash}.cover`) && !!local.books[hash]?.hasCover
+      if (!needFile && !needCover) continue
+      const title = merged.books[hash]?.meta.value?.title ?? local.books[hash]?.meta.title ?? hash
+      progress(tr('sync.phase.upload', { title }))
+      try {
+        if (needFile) {
+          await remote.putFile(hash, await storage.getBookFile(id))
+          remoteFiles.add(hash)
+          uploadedFiles++
+        }
+        if (needCover) {
+          const cover = await readCover(storage, id)
+          if (cover) {
+            await remote.putFile(`${hash}.cover`, cover)
+            remoteFiles.add(`${hash}.cover`)
+            uploadedFiles++
+          }
+        }
+      } catch (err) {
+        // 单个文件失败不影响元数据同步, 下次再传
+        console.warn('[sync] upload failed', hash, err)
+      }
+    }
+  }
+
+  // 6. 写本机文档与基线
+  progress(tr('sync.phase.save'))
+  const doc: SyncDoc = { ...merged, deviceId, writtenAt: now() }
+  if (deps.deviceName !== undefined) doc.deviceName = deps.deviceName
+  else delete doc.deviceName
+  if (deps.app !== undefined) doc.app = deps.app
+  else delete doc.app
+  await remote.putDoc(doc)
+  await store.saveBaseline({
+    remoteId: remote.id,
+    doc: merged,
+    presentHashes: [...present],
+    syncedAt: now(),
+  })
+
+  return {
+    applied,
+    downloadedBooks,
+    uploadedFiles,
+    pendingBooks,
+    devices: new Set([deviceId, ...remoteDocs.map(d => d.deviceId)]).size,
+  }
+}

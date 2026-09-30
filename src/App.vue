@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ToastHost from './components/ToastHost.vue'
 import BabeldocTaskStatus from './components/BabeldocTaskStatus.vue'
 import { useSettings } from './stores/settings'
@@ -9,6 +9,7 @@ import { t } from './i18n'
 import { isTauri } from './storage'
 import { startExternalOpen } from './services/externalOpen'
 import { toast } from './services/toast'
+import { requestAutoSync, startAutoSync } from './services/sync'
 import {
   canInAppInstall,
   checkUpdate,
@@ -24,6 +25,7 @@ useAppearance()
 const route = useRoute()
 const router = useRouter()
 let stopExternalOpen: (() => void) | undefined
+let stopSync: (() => void) | undefined
 
 const updateInfo = ref<UpdateInfo | null>(null)
 const updateBusy = ref(false)
@@ -99,10 +101,19 @@ async function handleSidebarUpdate() {
 onMounted(async () => {
   void refreshSidebarUpdate()
   if (isTauri()) stopExternalOpen = await startExternalOpen(router)
+  // 多端同步: 启动一次、切到后台、每 5 分钟 (未开启自动同步时引擎自己跳过)
+  stopSync = startAutoSync()
 })
-onBeforeUnmount(() => stopExternalOpen?.())
+onBeforeUnmount(() => {
+  stopExternalOpen?.()
+  stopSync?.()
+})
 // 阅读页全屏沉浸, 隐藏侧栏
 const immersive = computed(() => String(route.path).startsWith('/read'))
+// 退出阅读器 (/read /read-paper /read-djvu) 时同步进度与笔记
+watch(immersive, (now, before) => {
+  if (before && !now) requestAutoSync('reader-exit')
+})
 
 const navs = [
   { path: '/library', labelKey: 'nav.library', icon: 'M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5a2.5 2.5 0 0 1-2.5 2.5H6.5A2.5 2.5 0 0 1 4 18.5v-13zM6.5 5A.5.5 0 0 0 6 5.5V16.05c.16-.03.32-.05.5-.05H18V5H6.5zM6 18.5a.5.5 0 0 0 .5.5H18v-1H6.5a.5.5 0 0 0-.5.5z' },
