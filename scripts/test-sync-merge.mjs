@@ -721,6 +721,18 @@ function randomDoc(rand, deviceId) {
     }
   }
   for (const u of ['u1', 'u2']) if (maybe(0.6)) doc.sources[u] = reg(() => ({ title: pick(['S', 'T']), url: u, kind: 'opds', addedAt: 1 }))
+  // 每日阅读记录 (可选字段; 只生成非空叶子, 与合并结果的规范形一致)
+  if (maybe(0.6)) {
+    const log = {}
+    for (const d of ['a', 'b']) {
+      for (const day of ['2026-01-01', '2026-01-02']) {
+        for (const h of ['h1', 'h2']) {
+          if (maybe(0.4)) ((log[d] ??= {})[day] ??= {})[h] = 1 + Math.floor(rand() * 5)
+        }
+      }
+    }
+    if (Object.keys(log).length) doc.readingLog = log
+  }
   return doc
 }
 

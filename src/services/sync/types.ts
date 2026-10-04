@@ -81,7 +81,14 @@ export interface SyncDoc {
   booklistItems: Record<string, Reg<BooklistItemVal>>
   /** 键: 书源 url (仅自定义书源) */
   sources: Record<string, Reg<SourceVal>>
+  /**
+   * 每日阅读记录. G-Counter: 设备 → 日期 (该设备本地时区的 YYYY-MM-DD) → 书的 hash →
+   * 该设备当天在该书上贡献的秒数; 合并取每个叶子的较大值. 可选: 旧客户端写的文档没有此字段.
+   */
+  readingLog?: ReadingLogDoc
 }
+
+export type ReadingLogDoc = Record<string, Record<string, Record<string, number>>>
 
 /** 本地库的规范化快照 (engine 从 LibraryStorage 读出, merge 只做纯计算) */
 export interface LocalBook {

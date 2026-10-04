@@ -114,6 +114,26 @@
   --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.5);
 }
 
+/* 旧内核回退 (Chrome < 111 / Safari < 16.2 不支持 color-mix): 自定义属性里的 color-mix 在使用处
+   才失效, 会让 background: var(--brand-soft) 之类整条变透明; 这里给出等价的 rgba 令牌。
+   普通声明里的 color-mix 由构建期 PostCSS 插件 (vite.legacy.ts) 自动插入回退。 */
+@supports not (color: color-mix(in srgb, red 50%, blue)) {
+  :root {
+    --brand-soft: rgba(22, 100, 255, 0.1);
+    --danger-soft: rgba(229, 56, 59, 0.1);
+    --success-soft: rgba(18, 138, 62, 0.1);
+    --warning-soft: rgba(180, 83, 9, 0.1);
+    --ring: 0 0 0 3px rgba(22, 100, 255, 0.28);
+  }
+  :root[data-theme='dark'] {
+    --brand-soft: rgba(91, 141, 255, 0.16);
+    --danger-soft: rgba(255, 107, 107, 0.1);
+    --success-soft: rgba(74, 222, 128, 0.1);
+    --warning-soft: rgba(245, 165, 36, 0.1);
+    --ring: 0 0 0 3px rgba(91, 141, 255, 0.28);
+  }
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -176,6 +196,13 @@ svg {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
+}
+/* Safari < 15.4 没有 :focus-visible; 退回到 :focus, 保证键盘用户仍有焦点环 */
+@supports not selector(:focus-visible) {
+  :focus {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
 }
 
 ::selection {

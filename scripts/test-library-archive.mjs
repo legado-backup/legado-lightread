@@ -14,7 +14,8 @@ const temp = await mkdtemp(join(tmpdir(), 'lightread-okf-'))
 const server = spawn(
   'npm',
   ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(port)],
-  { stdio: ['ignore', 'ignore', 'inherit'] },
+  // 独立进程组: 结束时连同 npm 拉起的 vite 一起杀掉, 否则 vite 残留占住端口和输出管道
+  { stdio: ['ignore', 'ignore', 'inherit'], detached: process.platform !== 'win32' },
 )
 
 async function waitForServer() {
@@ -247,6 +248,9 @@ try {
   console.log('OKF 藏书协议测试通过：标准结构、可选兼容 manifest、OKF 权威优先、往返、第三方导入、幂等、完整性、JSON v1/v2 兼容')
 } finally {
   await browser?.close()
-  server.kill('SIGTERM')
+  try {
+    if (process.platform === 'win32') server.kill('SIGTERM')
+    else process.kill(-server.pid, 'SIGTERM')
+  } catch { /* 已退出 */ }
   await rm(temp, { recursive: true, force: true })
 }

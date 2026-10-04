@@ -1,0 +1,443 @@
+// 阅读记录 (GitHub #7): readingStats 纯函数 + readingLog 内存实现 + 经同步引擎的多端往返.
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import {
+  ACTIVE_DAY_SECONDS, addDays, dayOfWeek, heatmap, rangeSummary, streaks, totalActiveDays,
+} from '../src/services/readingStats.ts'
+import {
+  aggregateReadingLog, createMemoryReadingLogStore, createReadingLog, localDay, normalizeRow,
+  planReadingLogLanding,
+} from '../src/services/readingLog.ts'
+import { mergeDocs, mergeReadingLog } from '../src/services/sync/merge.ts'
+import { runSync, sha256Hex } from '../src/services/sync/engine.ts'
+import { createMemorySyncStore } from '../src/services/sync/baseline.ts'
+import { createFakeDav, createFakeStorage, enc, tr } from './sync-test-fakes.mjs'
+
+// ---- readingStats ----
+
+const entry = (seconds, books = []) => ({ seconds, books })
+const dailyOf = obj => Object.fromEntries(Object.entries(obj).map(([d, s]) => [d, entry(s)]))
+
+test('addDays: 跨月 / 跨年 / 闰年 / 负数', () => {
+  assert.equal(addDays('2026-01-31', 1), '2026-02-01')
+  assert.equal(addDays('2026-12-31', 1), '2027-01-01')
+  assert.equal(addDays('2027-01-01', -1), '2026-12-31')
+  assert.equal(addDays('2024-02-28', 1), '2024-02-29', '闰年')
+  assert.equal(addDays('2024-02-29', 1), '2024-03-01')
+  assert.equal(addDays('2026-02-28', 1), '2026-03-01', '平年')
+  assert.equal(addDays('2000-02-28', 1), '2000-02-29', '世纪闰年')
+  assert.equal(addDays('2100-02-28', 1), '2100-03-01', '世纪平年')
+  assert.equal(addDays('2026-03-08', 0), '2026-03-08')
+  assert.equal(addDays('2026-03-01', 365), '2027-03-01')
+  // 夏令时切换日附近不受影响 (纯 UTC 运算)
+  assert.equal(addDays('2026-03-07', 2), '2026-03-09')
+  assert.equal(addDays('2026-11-01', 1), '2026-11-02')
+  assert.throws(() => addDays('2026/01/01', 1))
+})
+
+test('dayOfWeek: 0 = 周日', () => {
+  assert.equal(dayOfWeek('2026-10-04'), 0) // 周日
+  assert.equal(dayOfWeek('2026-10-05'), 1)
+  assert.equal(dayOfWeek('2024-02-29'), 4) // 周四
+  assert.equal(dayOfWeek('2000-01-01'), 6) // 周六
+})
+
+test('streaks: 今天未读从昨天数; 不满 1 分钟不算; 跨月跨年', () => {
+  const today = '2026-01-02'
+  const daily = dailyOf({
+    '2025-12-29': 600, '2025-12-30': 60, '2025-12-31': 120, '2026-01-01': 300,
+    // 更早的一段更长
+    '2025-11-01': 100, '2025-11-02': 100, '2025-11-03': 100, '2025-11-04': 100, '2025-11-05': 100,
+    '2025-11-06': 59, // 不满 1 分钟
+  })
+  assert.deepEqual(streaks(daily, today), { current: 4, longest: 5 }, '今天没读: 从昨天数')
+  assert.deepEqual(streaks({ ...daily, [today]: entry(30) }, today), { current: 4, longest: 5 }, '今天不足 1 分钟')
+  assert.deepEqual(streaks({ ...daily, [today]: entry(60) }, today), { current: 5, longest: 5 })
+  assert.deepEqual(streaks({ ...daily, [today]: entry(60), '2025-12-28': entry(60) }, today), { current: 6, longest: 6 })
+  assert.deepEqual(streaks(dailyOf({ '2026-01-01': 600 }), '2026-01-03'), { current: 0, longest: 1 }, '昨天也没读: 断了')
+  assert.deepEqual(streaks({}, today), { current: 0, longest: 0 })
+  assert.deepEqual(streaks(dailyOf({ '2024-02-28': 60, '2024-02-29': 60, '2024-03-01': 60 }), '2024-03-01'),
+    { current: 3, longest: 3 }, '闰日')
+  assert.equal(ACTIVE_DAY_SECONDS, 60)
+})
+
+test('rangeSummary: 两端都含, 跨天按 key 合并书, 秒数降序', () => {
+  const b = (key, seconds, extra = {}) => ({ key, title: key, kind: 'book', seconds, ...extra })
+  const daily = {
+    '2026-01-31': entry(100, [b('id:a', 100)]),
+    '2026-02-01': entry(400, [b('h:x', 300), b('id:a', 100, { bookId: 'a' })]),
+    '2026-02-28': entry(30, [b('t:z', 30)]),
+    '2026-03-01': entry(999, [b('id:a', 999)]),
+  }
+  const r = rangeSummary(daily, '2026-02-01', '2026-02-28')
+  assert.equal(r.seconds, 430)
+  assert.equal(r.activeDays, 1, '30 秒那天不算阅读天')
+  assert.deepEqual(r.books.map(x => [x.key, x.seconds]), [['h:x', 300], ['id:a', 100], ['t:z', 30]])
+  const all = rangeSummary(daily, '2026-01-31', '2026-03-01')
+  assert.equal(all.seconds, 1529)
+  assert.equal(all.activeDays, 3)
+  assert.deepEqual(all.books[0], { key: 'id:a', title: 'id:a', kind: 'book', seconds: 1199, bookId: 'a' })
+  assert.deepEqual(rangeSummary(daily, '2027-01-01', '2027-12-31'), { seconds: 0, activeDays: 0, books: [] })
+  // 不改动输入
+  assert.equal(daily['2026-02-01'].books[1].seconds, 100)
+})
+
+test('heatmap: 周一起 / 周日起, 最后一列含今天, 未来为 null', () => {
+  const today = '2026-10-04' // 周日
+  const daily = dailyOf({ '2026-10-04': 120, '2026-09-28': 60, '2025-10-01': 999 })
+  const cols = heatmap(daily, today)
+  assert.equal(cols.length, 53)
+  assert.ok(cols.every(c => c.length === 7))
+  const last = cols.at(-1)
+  assert.equal(last[0].day, '2026-09-28', '周一起')
+  assert.equal(dayOfWeek(last[0].day), 1)
+  assert.deepEqual(last[6], { day: '2026-10-04', seconds: 120 })
+  assert.equal(last[0].seconds, 60)
+  assert.equal(cols[0][0].day, addDays('2026-09-28', -52 * 7))
+  // 周日起: 今天是一周的第一天, 后 6 天为未来
+  const sun = heatmap(daily, today, 2, 0)
+  assert.equal(sun.length, 2)
+  assert.deepEqual(sun[1][0], { day: '2026-10-04', seconds: 120 })
+  assert.deepEqual(sun[1].slice(1), [null, null, null, null, null, null])
+  assert.equal(sun[0][0].day, '2026-09-27')
+  // 周中: 周三, 周一起时周四到周日为 null
+  const wed = heatmap({}, '2026-10-07', 1, 1)
+  assert.deepEqual(wed[0].map(c => c && c.day), ['2026-10-05', '2026-10-06', '2026-10-07', null, null, null, null])
+  // 跨年
+  const ny = heatmap({}, '2027-01-01', 1, 1)
+  assert.equal(ny[0][0].day, '2026-12-28')
+})
+
+test('totalActiveDays: 满 1 分钟才算', () => {
+  assert.equal(totalActiveDays(dailyOf({ '2026-01-01': 60, '2026-01-02': 59, '2026-01-03': 3600 })), 2)
+  assert.equal(totalActiveDays({}), 0)
+})
+
+// ---- readingLog 内存实现 ----
+
+const AT = Date.UTC(2026, 9, 4, 12) // 中午: 绝大多数时区里仍是同一天
+const DAY = localDay(AT)
+
+function makeLog({ device = 'dev-A', books = null, hashes = {} } = {}) {
+  const store = createMemoryReadingLogStore()
+  const sync = createMemorySyncStore(device)
+  for (const [id, h] of Object.entries(hashes)) sync.setHash(id, h)
+  const shelf = books
+  const log = createReadingLog({ store, sync, listBooks: shelf ? async () => shelf : undefined, now: () => AT })
+  return { log, store, sync, shelf }
+}
+
+test('localDay 按本地时区', () => {
+  const d = new Date(2026, 0, 2, 0, 30) // 本地 1 月 2 日 00:30
+  assert.equal(localDay(d.getTime()), '2026-01-02')
+  assert.match(localDay(), /^\d{4}-\d{2}-\d{2}$/)
+})
+
+test('recordReading 同一 key 累加; loadDaily 按天按书聚合; 通知变化', async () => {
+  const { log } = makeLog({ books: [{ id: 'a', title: '三体·新名', kind: 'book' }, { id: 'p', title: 'Attention', kind: 'paper' }] })
+  let changes = 0
+  const off = log.onChange(() => changes++)
+  await log.recordReading({ id: 'a', title: '三体' }, 60, AT)
+  await log.recordReading({ id: 'a', title: '三体' }, 45.4, AT)
+  await log.recordReading({ id: 'p', title: 'Attention', kind: 'paper' }, 300, AT)
+  await log.recordReading({ id: 'a', title: '三体' }, 0, AT) // 忽略
+  await log.recordReading({ id: 'a', title: '三体' }, 120, AT + 86_400_000)
+  assert.equal(changes, 4)
+  off()
+  await log.recordReading({ id: 'a', title: '三体' }, 1, AT)
+  assert.equal(changes, 4, '取消订阅后不再通知')
+
+  const rows = await log.list()
+  const rowA = rows.find(r => r.key === `dev-A|${DAY}|id:a`)
+  assert.equal(rowA.seconds, 106)
+  assert.equal(rowA.bookId, 'a')
+  assert.equal(rowA.title, '三体')
+  assert.equal(rowA.kind, 'book')
+  assert.equal(rowA.device, 'dev-A')
+
+  const daily = await log.loadDaily()
+  assert.deepEqual(Object.keys(daily).sort(), [DAY, localDay(AT + 86_400_000)].sort())
+  assert.equal(daily[DAY].seconds, 406)
+  assert.deepEqual(daily[DAY].books, [
+    { key: 'id:p', bookId: 'p', title: 'Attention', kind: 'paper', seconds: 300 },
+    { key: 'id:a', bookId: 'a', title: '三体·新名', kind: 'book', seconds: 106 },
+  ], '书架上的书用最新书名, 按秒数降序')
+})
+
+test('loadDaily: 跨设备同书合并 (bookId / hash / 书名), 删掉的书用快照且不给 bookId', async () => {
+  const { log, store } = makeLog({
+    books: [{ id: 'a', title: '三体', kind: 'book', addedAt: 2 }, { id: 'a2', title: '三体(重复导入)', addedAt: 1 }],
+    hashes: { a: 'H1', a2: 'H1', gone: 'H2' },
+  })
+  await log.recordReading({ id: 'a', title: '三体' }, 100, AT)
+  await log.recordReading({ id: 'gone', title: '已删的书' }, 50, AT)
+  await log.recordReading({ id: 'nohash', title: '无 hash 的书' }, 70, AT)
+  // 其他设备同步来的记录
+  await log.addSynced([
+    { device: 'dev-B', day: DAY, hash: 'H1', seconds: 200, title: '三体', kind: 'book' },
+    { device: 'dev-B', day: DAY, hash: 'H2', seconds: 25, title: '已删的书', kind: 'book' },
+    { device: 'dev-B', day: DAY, hash: 'H3', seconds: 10, title: '只在 B 上的书', kind: 'paper' },
+  ])
+  // 旧备份里的、另一设备的无 hash 行: 同书名合并
+  await store.putMax([normalizeRow({ key: `dev-C|${DAY}|id:old-x`, title: '无 hash 的书', kind: 'book', seconds: 6, updatedAt: 1 })])
+  const daily = await log.loadDaily()
+  assert.equal(daily[DAY].seconds, 100 + 50 + 70 + 200 + 25 + 10 + 6)
+  assert.deepEqual(daily[DAY].books.map(b => [b.key, b.bookId, b.title, b.kind, b.seconds]), [
+    ['id:a2', 'a2', '三体(重复导入)', 'book', 300],
+    ['t:无 hash 的书', undefined, '无 hash 的书', 'book', 76],
+    ['h:H2', undefined, '已删的书', 'book', 75],
+    ['h:H3', undefined, '只在 B 上的书', 'paper', 10],
+  ])
+})
+
+test('normalizeRow 拒绝无效行', () => {
+  assert.equal(normalizeRow(null), null)
+  assert.equal(normalizeRow({ key: 'a|2026-1-1|id:x', seconds: 5 }), null)
+  assert.equal(normalizeRow({ key: 'a|2026-01-01|zz', seconds: 5 }), null)
+  assert.equal(normalizeRow({ key: 'a|2026-01-01|id:x', seconds: -1 }), null)
+  assert.equal(normalizeRow({ key: 'a|2026-01-01|id:x', seconds: 'NaN' }), null)
+  assert.deepEqual(normalizeRow({ key: 'a|2026-01-01|h:abc', seconds: 5, title: 't', kind: 'paper' }), {
+    key: 'a|2026-01-01|h:abc', device: 'a', day: '2026-01-01', hash: 'abc', title: 't', kind: 'paper', seconds: 5, updatedAt: 0,
+  })
+})
+
+test('importRows 按 key 取较大值, 重复导入幂等', async () => {
+  const { log } = makeLog()
+  await log.recordReading({ id: 'a', title: 'A' }, 100, AT)
+  const rows = [
+    { key: `dev-A|${DAY}|id:a`, title: 'A', kind: 'book', seconds: 80, updatedAt: 1 },
+    { key: `dev-X|${DAY}|id:b`, title: 'B', kind: 'book', seconds: 30, updatedAt: 1 },
+    { key: 'bad', seconds: 1 },
+  ]
+  assert.equal(await log.importRows(rows), 1)
+  assert.equal(await log.importRows(rows), 0)
+  const list = await log.list()
+  assert.equal(list.find(r => r.key === `dev-A|${DAY}|id:a`).seconds, 100)
+  assert.equal(list.find(r => r.key === `dev-X|${DAY}|id:b`).seconds, 30)
+})
+
+// ---- 同步: 纯函数 ----
+
+test('aggregateReadingLog / planReadingLogLanding', () => {
+  const rows = [
+    { key: 'A|2026-01-01|id:a', device: 'A', day: '2026-01-01', bookId: 'a', title: '', kind: 'book', seconds: 10, updatedAt: 0 },
+    { key: 'A|2026-01-01|id:a2', device: 'A', day: '2026-01-01', bookId: 'a2', title: '', kind: 'book', seconds: 5, updatedAt: 0 },
+    { key: 'A|2026-01-01|h:H1', device: 'A', day: '2026-01-01', hash: 'H1', title: '', kind: 'book', seconds: 1, updatedAt: 0 },
+    { key: 'A|2026-01-01|id:nohash', device: 'A', day: '2026-01-01', bookId: 'nohash', title: '', kind: 'book', seconds: 99, updatedAt: 0 },
+    { key: 'B|2026-01-02|h:H2', device: 'B', day: '2026-01-02', hash: 'H2', title: '', kind: 'book', seconds: 7, updatedAt: 0 },
+  ]
+  const local = aggregateReadingLog(rows, new Map([['a', 'H1'], ['a2', 'H1']]))
+  assert.deepEqual(local, { A: { '2026-01-01': { H1: 16 } }, B: { '2026-01-02': { H2: 7 } } })
+  const merged = { A: { '2026-01-01': { H1: 20 } }, B: { '2026-01-02': { H2: 3 } }, C: { '2026-01-03': { H3: 4 } } }
+  assert.deepEqual(planReadingLogLanding(merged, local), [
+    { device: 'A', day: '2026-01-01', hash: 'H1', seconds: 4 },
+    { device: 'C', day: '2026-01-03', hash: 'H3', seconds: 4 },
+  ])
+  assert.deepEqual(planReadingLogLanding(undefined, local), [])
+})
+
+test('mergeReadingLog: 逐叶取大, 交换/结合/幂等, 容忍畸形输入', () => {
+  const a = { A: { '2026-01-01': { H1: 10, H2: 5 } } }
+  const b = { A: { '2026-01-01': { H1: 7 } }, B: { '2026-01-01': { H1: 3 } } }
+  const c = { A: { '2026-01-02': { H1: 1 }, 'not-a-day': { H1: 5 } }, B: { '2026-01-01': { H1: 9, bad: -1, nan: NaN } } }
+  const ab = mergeReadingLog(a, b)
+  assert.deepEqual(ab, { A: { '2026-01-01': { H1: 10, H2: 5 } }, B: { '2026-01-01': { H1: 3 } } })
+  assert.deepEqual(mergeReadingLog(b, a), ab)
+  assert.deepEqual(mergeReadingLog(mergeReadingLog(a, b), c), mergeReadingLog(a, mergeReadingLog(b, c)))
+  assert.deepEqual(mergeReadingLog(ab, ab), ab)
+  assert.equal(mergeReadingLog(undefined, null, {}, 'x', []), undefined)
+  // mergeDocs: 旧客户端的文档没有 readingLog
+  const doc = (id, readingLog) => ({
+    format: 1, deviceId: id, writtenAt: 1, books: {}, annotations: {}, booklists: {}, booklistItems: {}, sources: {},
+    ...(readingLog ? { readingLog } : {}),
+  })
+  const m = mergeDocs([doc('old'), doc('A', a), doc('B', b)], { deviceId: 'A', now: 2 })
+  assert.deepEqual(m.readingLog, ab)
+  assert.equal('readingLog' in mergeDocs([doc('old'), doc('x')], { deviceId: 'A', now: 2 }), false, '都没有时不写字段')
+})
+
+// ---- 同步往返 (引擎 + 假 WebDAV + 假书库) ----
+
+let clock = AT
+const BOOK1 = enc('%EPUB reading log book one')
+const BOOK2 = enc('%EPUB reading log book two')
+
+async function device(name) {
+  const storage = createFakeStorage()
+  await storage.init()
+  const store = createMemorySyncStore(`dev-${name}`)
+  const logStore = createMemoryReadingLogStore()
+  const log = createReadingLog({
+    store: logStore, sync: store, listBooks: () => storage.listBooks(), now: () => clock,
+  })
+  return { name, storage, store, log, logStore }
+}
+
+const sync = (dev, dav, extra = {}) => runSync({
+  storage: dev.storage, remote: dav.remote(), store: dev.store, syncFiles: true,
+  now: () => clock, deviceName: dev.name, app: 'test', t: tr, readingLog: dev.log, ...extra,
+})
+
+const addBook = (dev, title, bytes, kind = 'book') => dev.storage.addBook({
+  title, author: 'x', format: 'epub', fileName: `${title}.epub`, tags: [], addedAt: clock, kind,
+}, new Blob([bytes]))
+
+const simpleDaily = daily => Object.fromEntries(Object.entries(daily).map(([d, e]) =>
+  [d, { seconds: e.seconds, books: e.books.map(b => [b.title, b.kind, b.seconds]) }]))
+
+test('两台设备各记一些, 同步后 loadDaily 一致; 重复同步幂等不重复累计', async () => {
+  const dav = createFakeDav()
+  const A = await device('A')
+  const B = await device('B')
+  const D1 = localDay(AT)
+  const D2 = localDay(AT + 86_400_000)
+
+  const a1 = await addBook(A, '三体', BOOK1)
+  await A.log.recordReading({ id: a1, title: '三体' }, 300, AT)
+  await A.log.recordReading({ id: a1, title: '三体' }, 60, AT + 86_400_000)
+  // A 读过、随后删除的书 (从未算过 hash): 只留本地
+  await A.log.recordReading({ id: 'deleted-before-hash', title: '删掉的书' }, 40, AT)
+
+  clock += 1000
+  await sync(A, dav)
+  const h1 = await sha256Hex(BOOK1)
+  assert.deepEqual(dav.readJson('devices/dev-A.json').readingLog, { 'dev-A': { [D1]: { [h1]: 300 }, [D2]: { [h1]: 60 } } })
+
+  // B 拿到书, 自己也读, 还读了一本只有 B 有的论文
+  clock += 1000
+  await sync(B, dav)
+  const b1 = (await B.storage.listBooks())[0].id
+  await B.log.recordReading({ id: b1, title: '三体' }, 120, AT)
+  const b2 = await addBook(B, 'Attention', BOOK2, 'paper')
+  await B.log.recordReading({ id: b2, title: 'Attention', kind: 'paper' }, 90, AT + 86_400_000)
+  clock += 1000
+  await sync(B, dav)
+  clock += 1000
+  await sync(A, dav)
+
+  const dailyA = await A.log.loadDaily()
+  const dailyB = await B.log.loadDaily()
+  const expected = {
+    [D1]: { seconds: 300 + 120 + 40, books: [['三体', 'book', 420], ['删掉的书', 'book', 40]] },
+    [D2]: { seconds: 60 + 90, books: [['Attention', 'paper', 90], ['三体', 'book', 60]] },
+  }
+  assert.deepEqual(simpleDaily(dailyA), expected)
+  // B 没有「删掉的书」(A 没有它的 hash, 不上传)
+  assert.deepEqual(simpleDaily(dailyB), {
+    [D1]: { seconds: 420, books: [['三体', 'book', 420]] },
+    [D2]: expected[D2],
+  })
+  // 同一本书在两边各自映射到本地 bookId
+  assert.equal(dailyA[D1].books[0].bookId, a1)
+  assert.equal(dailyB[D1].books[0].bookId, b1)
+  // 只有元数据 (A 开了同步文件, 这里 Attention 已下载到 A)
+  const a2 = (await A.storage.listBooks()).find(b => b.title === 'Attention')
+  assert.equal(dailyA[D2].books[0].bookId, a2?.id)
+
+  // 重复同步: 不再写入、不重复累计
+  const rowsBefore = JSON.stringify(await A.logStore.all())
+  for (let i = 0; i < 3; i++) {
+    clock += 1000
+    await sync(A, dav)
+    clock += 1000
+    await sync(B, dav)
+  }
+  assert.equal(JSON.stringify(await A.logStore.all()), rowsBefore)
+  assert.deepEqual(simpleDaily(await A.log.loadDaily()), expected)
+  assert.deepEqual(simpleDaily(await B.log.loadDaily()), simpleDaily(dailyB))
+
+  // 继续阅读后再同步: 只增加新读的部分
+  await A.log.recordReading({ id: a1, title: '三体' }, 30, AT)
+  clock += 1000
+  await sync(A, dav)
+  clock += 1000
+  await sync(B, dav)
+  assert.equal((await B.log.loadDaily())[D1].seconds, 450)
+  assert.equal((await A.log.loadDaily())[D1].seconds, 490)
+})
+
+test('旧客户端 (不带 readingLog) 写回的文档不丢别人的记录; 重装后本地记录由同步补回', async () => {
+  const dav = createFakeDav()
+  const A = await device('A')
+  const old = await device('Old')
+  const D1 = localDay(AT)
+  const a1 = await addBook(A, '三体', BOOK1)
+  await A.log.recordReading({ id: a1, title: '三体' }, 200, AT)
+  clock += 1000
+  await sync(A, dav)
+  // 旧客户端: 不传 readingLog 端口; 写回自己的文档时仍保留合并来的 readingLog, 不影响 A 的文件
+  clock += 1000
+  await sync(old, dav, { readingLog: undefined })
+  assert.ok(dav.readJson('devices/dev-A.json').readingLog)
+  // 模拟真正的旧版本: 文档里没有该字段
+  const oldDoc = dav.readJson('devices/dev-Old.json')
+  delete oldDoc.readingLog
+  dav.files.set('/remote.php/dav/LightRead/sync/v1/devices/dev-Old.json', enc(JSON.stringify(oldDoc)))
+
+  // A 的阅读记录库被清空 (同一设备 id): 同步把差额补进 h 行
+  const A2 = { ...A, logStore: createMemoryReadingLogStore() }
+  A2.log = createReadingLog({ store: A2.logStore, sync: A.store, listBooks: () => A.storage.listBooks(), now: () => clock })
+  clock += 1000
+  await sync(A2, dav)
+  const rows = await A2.logStore.all()
+  const h1 = await sha256Hex(BOOK1)
+  assert.deepEqual(rows.map(r => [r.key, r.seconds, r.title]), [[`dev-A|${D1}|h:${h1}`, 200, '三体']])
+  assert.equal((await A2.log.loadDaily())[D1].books[0].bookId, a1)
+  clock += 1000
+  await sync(A2, dav)
+  assert.equal((await A2.logStore.all())[0].seconds, 200, '幂等')
+})
+
+// ---- readingClock: 防挂机计时 ----
+import {
+  createReadingClock, READING_AUTO_MAX_MS, READING_IDLE_MS, READING_TAIL_MS,
+} from '../src/services/readingClock.ts'
+
+/** 从 start 起每 15s 心跳, 跑到 until (毫秒偏移) */
+const run = (clock, start, from, until, visible = true) => {
+  for (let t = from + 15_000; t <= until; t += 15_000) clock.tick(start + t, 15, visible)
+}
+
+test('readingClock: 持续操作全额计时; 页面隐藏不计', () => {
+  const c = createReadingClock(0)
+  for (let t = 15_000; t <= 600_000; t += 15_000) {
+    c.input(t - 1000)
+    c.tick(t, 15, true)
+  }
+  assert.equal(c.drain(), 600)
+  run(c, 0, 600_000, 660_000, false)
+  assert.equal(c.drain(), 0)
+})
+
+test('readingClock: 离开后最多多记 2 分钟, 5 分钟后停止', () => {
+  const c = createReadingClock(0)
+  run(c, 0, 0, 30 * 60_000)
+  assert.equal(c.drain(), READING_TAIL_MS / 1000)
+})
+
+test('readingClock: 2–5 分钟内回来, 挂起的时间补记', () => {
+  const c = createReadingClock(0)
+  run(c, 0, 0, 4 * 60_000)
+  assert.equal(c.pendingFlush, 120, '超过 2 分钟的部分先挂起')
+  c.input(4 * 60_000 + 1)
+  assert.equal(c.drain(), 240)
+})
+
+test('readingClock: 自动推进 (朗读) 距最后一次手动操作 60 分钟后不再计时', () => {
+  const c = createReadingClock(0)
+  const end = 90 * 60_000
+  for (let t = 15_000; t <= end; t += 15_000) {
+    c.auto(t - 1000)
+    c.tick(t, 15, true)
+  }
+  const got = c.drain()
+  assert.ok(got >= READING_AUTO_MAX_MS / 1000 && got <= (READING_AUTO_MAX_MS + READING_TAIL_MS) / 1000 + 15, String(got))
+  assert.ok(READING_IDLE_MS > READING_TAIL_MS)
+})
+
+test('readingClock: creditedAt 记录最后确认时间 (跨零点落库归日用)', () => {
+  const c = createReadingClock(0)
+  c.input(10_000)
+  c.tick(15_000, 15, true)
+  assert.equal(c.creditedAt, 15_000)
+})

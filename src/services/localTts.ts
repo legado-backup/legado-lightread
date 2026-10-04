@@ -42,6 +42,12 @@ export function localTtsRemove(): Promise<void> {
   return invoke('local_tts_remove')
 }
 
+/** 预加载模型 (首次约 10–20s, 在后台线程执行); 未安装语音包时 reject */
+export function localTtsWarmup(): Promise<void> {
+  return invoke('local_tts_warmup')
+}
+
+/** Rust 侧返回 tauri::ipc::Response 原始二进制 (ArrayBuffer), 不经 JSON 数组序列化 */
 export async function localTtsSynthesize(text: string, sid: number, speed: number): Promise<Blob> {
   const bytes = await invoke<ArrayBuffer>('local_tts_synthesize', { text, sid, speed })
   return new Blob([bytes], { type: 'audio/wav' })

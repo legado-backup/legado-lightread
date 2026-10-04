@@ -13,8 +13,12 @@ import {
   type BookMeta,
   type CatalogSourceRec,
 } from '../storage'
+import { importReadingLogRows, listReadingLog, normalizeRow, rowKey, type ReadingLogRow } from './readingLog.ts'
 
 const LEGACY_JSON_FORMAT = 'org.lightread.library'
+/** 每日阅读记录, 放在包根目录 (OKF 解析只看 .md, 不受影响); 旧包没有此文件 */
+const READING_LOG_PATH = 'reading-log.json'
+const READING_LOG_FORMAT = 'org.lightread.reading-log'
 const LEGACY_JSON_VERSION = 2
 export const LIBRARY_ARCHIVE_EXTENSION = '.okf.zip'
 export const OKF_VERSION = '0.1'
@@ -745,6 +749,15 @@ export async function exportBackup(onProgress?: (msg: string) => void): Promise<
   rootSections.push('', `Exported by LightRead ${__APP_VERSION__} at ${exportedAt}.`)
   entries['index.md'] = okfDocument({ okf_version: OKF_VERSION }, rootSections.join('\n'))
   entries['manifest.json'] = strToU8(JSON.stringify(compatibilityManifest, null, 2))
+  try {
+    const rows = await listReadingLog()
+    if (rows.length) {
+      entries[READING_LOG_PATH] = strToU8(JSON.stringify({ format: READING_LOG_FORMAT, version: 1, rows }))
+    }
+  } catch (err) {
+    // 阅读记录是附加数据, 读不出不影响藏书包
+    console.warn('[backup] reading log export failed', err)
+  }
   // 书籍文件通常已压缩，容器使用 store 模式，优先速度并避免无意义的重复压缩。
   const zipped = zipSync(entries, { level: 0 })
   return new Blob([zipped.buffer as ArrayBuffer], {
@@ -837,5 +850,37 @@ export async function importBackup(
     sourceCount++
   }
 
+  const logBytes = entries[READING_LOG_PATH]
+  if (logBytes) {
+    try {
+      await importReadingLog(logBytes, idMap)
+    } catch (err) {
+      console.warn('[backup] reading log import failed', err)
+    }
+  }
+
   return { books: bookCount, annotations: annotationCount, sources: sourceCount }
+}
+
+/**
+ * 导入阅读记录: 本机记录 (`id:` 行) 的 bookId 换成恢复后的新 id, 再按 key 取较大值合并,
+ * 重复导入幂等. 书不在包里 (导出前已删) 的行原样保留, 只显示书名快照.
+ */
+async function importReadingLog(bytes: Uint8Array, idMap: Map<string, string>): Promise<number> {
+  const parsed: unknown = JSON.parse(strFromU8(bytes))
+  const rawRows = isRecord(parsed) && Array.isArray(parsed.rows) ? parsed.rows : []
+  const byKey = new Map<string, ReadingLogRow>()
+  for (const raw of rawRows) {
+    const row = normalizeRow(raw)
+    if (!row) continue
+    const newId = row.bookId ? idMap.get(row.bookId) : undefined
+    if (newId) {
+      row.bookId = newId
+      row.key = rowKey(row.device, row.day, `id:${newId}`)
+    }
+    const prev = byKey.get(row.key)
+    // 映射后撞到同一行 (两本旧书恢复成同一本): 秒数相加
+    byKey.set(row.key, prev ? { ...prev, seconds: prev.seconds + row.seconds } : row)
+  }
+  return importReadingLogRows([...byKey.values()])
 }

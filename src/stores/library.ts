@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import type { BooklistRec, BookMeta } from '../storage'
 import { getStorage } from '../storage'
+import { recordReading } from '../services/readingLog.ts'
 import { activeAgentTurn, cleanupAgentPaper, paperAgentRuntimeAvailable, stopAgentTurn } from '../services/paperAgent.ts'
 
 export const useLibrary = defineStore('library', {
@@ -106,8 +107,8 @@ export const useLibrary = defineStore('library', {
       const book = this.books.find(b => b.id === id)
       if (book) Object.assign(book, patch)
     },
-    /** 累加阅读时长 (秒) */
-    async addReadingTime(id: string, seconds: number) {
+    /** 累加阅读时长 (秒), 同时记入每日阅读记录 (at: 归到哪一天, 缺省为现在) */
+    async addReadingTime(id: string, seconds: number, at?: number) {
       if (seconds <= 0) return
       const storage = await getStorage()
       const meta = await storage.getBook(id)
@@ -116,6 +117,12 @@ export const useLibrary = defineStore('library', {
       await storage.updateBook(id, { readingSeconds })
       const book = this.books.find(b => b.id === id)
       if (book) book.readingSeconds = readingSeconds
+      // 每日记录是附加统计: 失败不影响书的累计时长
+      try {
+        await recordReading({ id, title: meta.title, kind: meta.kind }, Math.round(seconds), at)
+      } catch (err) {
+        console.warn('[readingLog] record failed', err)
+      }
     },
   },
 })

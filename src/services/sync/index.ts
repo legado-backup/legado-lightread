@@ -9,6 +9,7 @@ import { createDexieSyncStore, type SyncStore } from './baseline.ts'
 import { createWebdavRemote } from './webdavRemote.ts'
 import { createAccountRemote, isAccountUnauthorized } from './accountRemote.ts'
 import { deviceName, trackSync, waitForSync } from './shared.ts'
+import { readingLogSyncPort } from '../readingLog.ts'
 import { accountApiBase, accountState, clearLocalLogin, isLoggedIn } from '../account.ts'
 import { getStorage } from '../../storage'
 import { useSettings } from '../../stores/settings'
@@ -124,6 +125,7 @@ export async function syncNow(): Promise<SyncResult> {
             t,
             onProgress: msg => { syncState.message = msg },
             deleteBook: id => library.removeBook(id),
+            readingLog: readingLogSyncPort(),
           })
           result = combineResults(result, r)
         } catch (err) {

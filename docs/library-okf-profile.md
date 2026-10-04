@@ -14,6 +14,7 @@ A conforming distribution is an OKF bundle directory or a ZIP archive of that di
 bundle/
 ├── index.md
 ├── manifest.json                       # optional producer cache
+├── reading-log.json                    # optional LightRead daily reading log
 ├── books/
 │   ├── index.md
 │   └── <concept-id>.md
@@ -29,6 +30,8 @@ bundle/
 The root `index.md` declares `okf_version: "0.1"` in its frontmatter as permitted by OKF 0.1. All non-reserved Markdown documents are OKF concepts and contain the required `type` field. Binary assets are ordinary bundle resources; they do not need Markdown wrappers.
 
 `manifest.json`, when present, is an optional, non-authoritative producer cache. Profile consumers must discover and import the bundle from `index.md` and the OKF concepts, must not require this file, and should ignore it when they do not understand its producer-specific schema. LightRead emits a v2 compatibility manifest so older LightRead-aware tooling can inspect the same asset descriptors efficiently; the OKF documents win if the two representations disagree.
+
+`reading-log.json`, when present, is optional LightRead-specific data: `{ "format": "org.lightread.reading-log", "version": 1, "rows": [...] }`, one row per device, local day and book (`key = "<device>|<YYYY-MM-DD>|id:<concept-id>"` or `"…|h:<content sha256>"`, plus `title`, `kind`, `seconds`, `updatedAt`). LightRead maps `id:` rows to the restored book ids and merges rows by key, keeping the larger `seconds`, so re-importing is idempotent. Other consumers may ignore it.
 
 Paths in the `file` and `cover` objects are bundle-root-relative. The standard OKF `resource` field is a URI reference relative to the concept document.
 

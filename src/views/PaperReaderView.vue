@@ -60,6 +60,7 @@ import { printPdf, revealStoredBook, savePdfAs } from '../services/pdfFileAction
 import {
   speakText,
   prefetchSpeech,
+  warmUpSpeech,
   stopSpeech,
   pauseSpeech,
   resumeSpeech,
@@ -128,7 +129,10 @@ let resizeObserver: ResizeObserver | undefined
 let scrollScheduled = false
 let tocPositionScheduled = false
 
-useReadingTimer(bookId)
+const { pingAuto: pingReadingAuto } = useReadingTimer(bookId)
+// 翻页 (含自动阅读、跳转) 算作在读
+// 页码变化也可能来自自动滚动, 按自动推进计; 手动滚动由 window 上的 wheel/touch 计入
+watch(currentPage, () => pingReadingAuto())
 
 const aiReady = computed(() => aiConfigured())
 /** 归属: 论文/藏书 (藏书 PDF 也走本阅读器, 返回目标随归属) */
@@ -3007,7 +3011,8 @@ function startBabeldoc() {
 }
 
 function copyInstall() {
-  navigator.clipboard?.writeText(INSTALL_CMD).then(() => toast(t('paper.bdCopied')))
+  navigator.clipboard?.writeText(INSTALL_CMD)
+    .then(() => toast(t('paper.bdCopied')), () => toast(t('common.copyFailed'), 'error'))
 }
 
 /* ================= 读书功能集 (藏书 PDF): 听书 / 自动翻页 ================= */
@@ -3193,6 +3198,8 @@ async function openTTSPanel() {
   if (ttsPanel.value) {
     autoPanel.value = false
     refreshLocalStatus()
+    // 离线模型首次加载需 10–20s, 打开面板时就在后台加载
+    warmUpSpeech()
     if (!ttsVoices.value.length) {
       ttsVoices.value = (await listVoicesSorted()).map(v => ({ name: v.name, lang: v.lang }))
     }
@@ -3213,11 +3220,21 @@ async function startTTS() {
       if (text) {
         spokeAnything = true
         const chunks = splitChunks(text)
+        let nextPageChunks: string[] | undefined
         for (let ci = 0; ci < chunks.length; ci++) {
           await waitWhilePaused()
           if (session !== ttsSession || ttsStopped()) return
-          if (chunks[ci + 1]) prefetchSpeech(chunks[ci + 1])
-          await speakText(chunks[ci])
+          // 预取深度 2 块, 页末接上下一页开头, 翻页时不再等合成
+          const upcoming = chunks.slice(ci + 1, ci + 3)
+          if (upcoming.length < 2 && pageNum < pageCount.value) {
+            nextPageChunks ??= splitChunks(await pageTextFor(pageNum + 1))
+            if (session !== ttsSession || ttsStopped()) return
+            upcoming.push(...nextPageChunks.slice(0, 2 - upcoming.length))
+          }
+          const speaking = speakText(chunks[ci])
+          upcoming.forEach((next, i) => prefetchSpeech(next, i + 1))
+          await speaking
+          pingReadingAuto()
         }
       }
       if (session !== ttsSession || ttsStopped()) return

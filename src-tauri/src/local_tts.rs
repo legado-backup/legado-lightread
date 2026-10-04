@@ -29,6 +29,11 @@ mod stub {
     }
 
     #[tauri::command]
+    pub fn local_tts_warmup(_app: AppHandle) -> Result<(), String> {
+        Err("移动端暂不支持离线语音".into())
+    }
+
+    #[tauri::command]
     pub fn local_tts_synthesize(
         _app: AppHandle,
         _text: String,
@@ -215,12 +220,32 @@ fn build_engine(root: &PathBuf) -> Result<OfflineTts, String> {
                 lang: None,
                 length_scale: 1.0,
             },
-            num_threads: 2,
+            num_threads: inference_threads(),
             ..Default::default()
         },
         ..Default::default()
     };
     OfflineTts::create(&config).ok_or_else(|| "初始化语音引擎失败 (模型文件可能损坏)".to_string())
+}
+
+/// 推理线程数: 用一半逻辑核 (1–4)。2 核的低配 Windows 机器上占满全部核心
+/// 会让 WebView 渲染进程抢不到 CPU, 表现为朗读时窗口「无响应」。
+fn inference_threads() -> i32 {
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2);
+    (cores / 2).clamp(1, 4) as i32
+}
+
+/// 在引擎锁内取得 (必要时加载) 模型并执行 `f`; 模型只加载一次, 之后每段复用。
+fn with_engine<T>(root: &PathBuf, f: impl FnOnce(&OfflineTts) -> Result<T, String>) -> Result<T, String> {
+    let lock = ENGINE.get_or_init(|| Mutex::new(None));
+    let mut guard = lock.lock().map_err(|_| "语音引擎锁已损坏")?;
+    if !model_ready(root) {
+        return Err("离线语音包未安装".into());
+    }
+    if guard.is_none() {
+        *guard = Some(build_engine(root)?);
+    }
+    f(guard.as_ref().unwrap())
 }
 
 /// f32 采样 → 16-bit PCM WAV
@@ -246,27 +271,20 @@ fn to_wav(samples: &[f32], sample_rate: i32) -> Vec<u8> {
 }
 
 fn synthesize_at(root: &PathBuf, text: &str, sid: i32, speed: f32) -> Result<Vec<u8>, String> {
-    let lock = ENGINE.get_or_init(|| Mutex::new(None));
-    let mut guard = lock.lock().map_err(|_| "语音引擎锁已损坏")?;
-    if !model_ready(root) {
-        return Err("离线语音包未安装".into());
-    }
-    if guard.is_none() {
-        *guard = Some(build_engine(root)?);
-    }
-    let engine = guard.as_ref().unwrap();
-    let audio = engine
-        .generate_with_config(
-            text,
-            &GenerationConfig {
-                sid,
-                speed,
-                ..Default::default()
-            },
-            None::<fn(&[f32], f32) -> bool>,
-        )
-        .ok_or("合成失败")?;
-    Ok(to_wav(audio.samples(), audio.sample_rate()))
+    with_engine(root, |engine| {
+        let audio = engine
+            .generate_with_config(
+                text,
+                &GenerationConfig {
+                    sid,
+                    speed,
+                    ..Default::default()
+                },
+                None::<fn(&[f32], f32) -> bool>,
+            )
+            .ok_or("合成失败")?;
+        Ok(to_wav(audio.samples(), audio.sample_rate()))
+    })
 }
 
 /// 模型加载、推理及锁等待必须在 blocking pool 执行；async 命令本身不会转移 CPU 工作。
@@ -276,6 +294,13 @@ async fn run_engine_task<T: Send + 'static>(
     tauri::async_runtime::spawn_blocking(task)
         .await
         .map_err(|e| format!("离线语音任务失败: {e}"))?
+}
+
+/// 预加载模型 (首次约 10–20s), 让前端在开始朗读前就能提示「正在加载」并提前完成加载。
+#[tauri::command]
+pub async fn local_tts_warmup(app: AppHandle) -> Result<(), String> {
+    let root = model_root(&app)?;
+    run_engine_task(move || with_engine(&root, |_| Ok(()))).await
 }
 
 /// 合成一段文本，返回 wav 字节流；Tauri 同步命令会阻塞窗口的 IPC 调用线程。
@@ -315,6 +340,22 @@ mod tests {
             panic!("simulated inference failure");
         }));
         assert!(result.unwrap_err().starts_with("离线语音任务失败:"));
+    }
+
+    #[test]
+    fn inference_leaves_cores_for_the_ui() {
+        let n = inference_threads();
+        assert!((1..=4).contains(&n));
+        if let Ok(cores) = std::thread::available_parallelism() {
+            assert!(n as usize <= cores.get().max(1));
+        }
+    }
+
+    #[test]
+    fn warmup_without_model_reports_not_installed() {
+        let root = std::env::temp_dir().join("lightread-no-kokoro-model");
+        let err = with_engine(&root, |_| Ok(())).unwrap_err();
+        assert_eq!(err, "离线语音包未安装");
     }
 
     #[test]

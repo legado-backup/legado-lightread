@@ -34,6 +34,7 @@
 | booklists | 书单 id | `{ name, createdAt }` | LWW |
 | booklistItems | `${booklistId}\|${bookHash}` | `{ booklistId, bookHash, addedAt }` | LWW |
 | sources | 书源 url | 自定义 OPDS 书源（含鉴权，内置书源不同步） | LWW |
+| readingLog（可选） | `设备 id → 日期 YYYY-MM-DD → 书的 hash` | 该设备当天在该书上贡献的秒数 | G-Counter：逐叶取较大值 |
 
 阅读设置、AI 配置等偏好暂不同步。
 
@@ -75,12 +76,27 @@
 基线缺失时：`myContribution = max(0, localTotal - sum(remote.reading 中除我以外的设备))`，再与远端里我原有的贡献取较大值，避免重装后重复计时。
 合并后本地总时长写成 `sum(merged.reading)`（只增不减）。
 
+### 每日阅读记录（readingLog）
+
+阅读记录页（按天、按书的时长）的数据。本地存在独立的 IndexedDB `lightread-stats`（`src/services/readingLog.ts`），每行键为 `${设备}|${日期}|${ref}`：
+
+- `ref = id:<本地 bookId>`：本机阅读时由 `library.addReadingTime` 累加（与书的累计时长同时写，失败不影响后者）。日期是记录时设备本地时区的日期。
+- `ref = h:<hash>`：同步落地的记录（其他设备读的，或本机缺失、由同步补回的差额），书名 / 类型取合并结果里的书目元数据。
+
+SyncDoc 增加可选字段 `readingLog: { [device]: { [day]: { [hash]: 秒 } } }`，`SYNC_FORMAT` 仍为 1：旧客户端会忽略并在写自己的文档时丢掉它，但每台设备只写自己的文件，别的设备文件里的记录不受影响。
+
+- 上传：本地行按 id → hash（同步层的 hash 缓存）聚合，每个 (设备, 日期, hash) = 映射到该 hash 的 id 行之和 + h 行；再与基线里的 readingLog 取较大值并入本机文档。没有 hash 的 id 行（书在算出 hash 之前就删了）只留在本地，不上传。
+- 合并：`mergeReadingLog` 逐叶取较大值（交换律 / 结合律 / 幂等）；非正数、非有限数的叶子和不像日期的键丢弃；结果为空时文档里不写该字段。
+- 落地：对合并结果里每个 (设备, 日期, hash)，本地已有的秒数（id 行 + h 行）小于合并值时，把差额累加进 `h:` 行。重复同步不会重复累计（本地值已等于合并值）。
+- 显示（`loadDaily`）：同一天同一本书跨设备合并——hash 能映射回书架上的书就归到那本（给出 bookId），否则按 hash，都没有时按书名快照。
+- 整库备份（`.okf.zip`）里另存 `reading-log.json`，导入时 id 行换成恢复后的新 id，按键取较大值合并；旧备份没有该文件时跳过。
+
 ## 一次同步的流程（engine）
 
 1. 读本地库，得到 `LocalState`（按 hash 键，书的 hash 有缓存，只对新书计算）。
 2. 远端：列出并读取所有 `devices/*.json`，合并得到 `remoteMerged`。
-3. `buildLocalDoc(local, base, presentHashes, remoteMerged)`：给本地改动打 stamp、生成墓碑、更新自己的计时贡献；再与远端文档一起 `mergeDocs`。
-4. `planApply(merged, local)` 得到操作列表并应用到本地库：新书要先下载文件（远端有文件时才加入本地，否则保持「仅元数据」状态，等以后导入同一文件时自动匹配）。
+3. `buildLocalDoc(local, base, presentHashes, remoteMerged)`：给本地改动打 stamp、生成墓碑、更新自己的计时贡献；本地每日阅读记录聚合后并入 `readingLog`；再与远端文档一起 `mergeDocs`。
+4. `planApply(merged, local)` 得到操作列表并应用到本地库：新书要先下载文件（远端有文件时才加入本地，否则保持「仅元数据」状态，等以后导入同一文件时自动匹配）。随后把 `merged.readingLog` 多出的差额落到本地阅读记录。
 5. 上传：本地有、远端还没有的书文件和封面（开启「同步书籍文件」时）。
 6. 把合并结果写到 `devices/<me>.json`，并把合并结果和 `presentHashes` 存为新基线（IndexedDB `lightread-sync`）。
 7. 刷新书架。

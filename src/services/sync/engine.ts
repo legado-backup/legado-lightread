@@ -5,8 +5,11 @@
 import type { BookMeta, CatalogSourceRec, LibraryStorage, NewBookMeta } from '../../storage/types'
 import { baselineUsableFor, nextBaselineRemotes, type SyncStore } from './baseline.ts'
 import {
-  annotationFrom, bookMetaFrom, buildLocalDoc, mergeDocs, planApply, progressFrom, sourceFrom,
+  annotationFrom, bookMetaFrom, buildLocalDoc, mergeDocs, mergeReadingLog, planApply, progressFrom, sourceFrom,
 } from './merge.ts'
+import {
+  aggregateReadingLog, planReadingLogLanding, type ReadingLogRow, type ReadingLogSyncPort,
+} from '../readingLog.ts'
 import type {
   ApplyOp, BookMetaVal, LocalState, ProgressVal, SyncDoc, SyncRemote, SyncResult,
 } from './types'
@@ -26,6 +29,8 @@ export interface SyncDeps {
   t?: TranslateFn
   /** 删除本地书籍 (默认 storage.deleteBook; 应用里换成会清理论文 Agent 数据的 store 动作) */
   deleteBook?: (id: string) => Promise<void>
+  /** 每日阅读记录 (不提供则不读写本地记录, 远端已有的记录照样合并保留) */
+  readingLog?: ReadingLogSyncPort
 }
 
 export async function sha256Hex(data: ArrayBuffer | Uint8Array): Promise<string> {
@@ -200,6 +205,12 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
     remoteMerged,
     { deviceId, now: stampNow, deviceName: deps.deviceName, app: deps.app },
   )
+  // 每日阅读记录: 本地行按 id→hash 聚合成 设备→日期→hash→秒, 与基线一起并入本机文档
+  const hashById = deps.readingLog ? await store.getHashes() : new Map<string, string>()
+  const logRows: ReadingLogRow[] = deps.readingLog ? await deps.readingLog.list() : []
+  const localLog = aggregateReadingLog(logRows, hashById)
+  const ownLog = mergeReadingLog(baseline?.doc.readingLog, localLog)
+  if (ownLog) localDoc.readingLog = ownLog
   const merged = mergeDocs([localDoc, ...remoteDocs], ctx)
 
   // 4. 落地
@@ -327,6 +338,26 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
 
   for (const op of ops) {
     if (await applyOp(op)) applied++
+  }
+
+  // 阅读记录落地: 合并值比本地 (id 行 + h 行) 多出的差额补进 h 行
+  if (deps.readingLog) {
+    const landing = planReadingLogLanding(merged.readingLog, localLog)
+    if (landing.length) {
+      const titleOfHash = new Map<string, string>()
+      for (const row of logRows) {
+        const h = row.hash ?? (row.bookId ? hashById.get(row.bookId) : undefined)
+        if (h && row.title && !titleOfHash.has(h)) titleOfHash.set(h, row.title)
+      }
+      await deps.readingLog.addSynced(landing.map(e => {
+        const meta = merged.books[e.hash]?.meta.value ?? local.books[e.hash]?.meta
+        return {
+          ...e,
+          title: meta?.title ?? titleOfHash.get(e.hash) ?? '',
+          kind: meta?.kind === 'paper' ? 'paper' as const : 'book' as const,
+        }
+      }))
+    }
   }
 
   // 5. 上传本地有、远端还没有的书籍文件与封面

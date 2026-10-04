@@ -161,6 +161,7 @@ pub fn run() {
       local_tts::local_tts_status,
       local_tts::local_tts_download,
       local_tts::local_tts_remove,
+      local_tts::local_tts_warmup,
       local_tts::local_tts_synthesize,
       babeldoc::babeldoc_status,
       babeldoc::babeldoc_translate,

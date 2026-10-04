@@ -4,8 +4,8 @@
  */
 import type { AnnotationRec, BookMeta, CatalogSourceRec } from '../../storage/types'
 import type {
-  AnnotationVal, ApplyOp, BookMetaVal, BookSyncRec, LocalState, ProgressVal, Reg, SourceVal, Stamp,
-  SyncDoc,
+  AnnotationVal, ApplyOp, BookMetaVal, BookSyncRec, LocalState, ProgressVal, ReadingLogDoc, Reg, SourceVal,
+  Stamp, SyncDoc,
 } from './types'
 
 // ---- 通用工具 ----
@@ -261,6 +261,36 @@ function mergeBook(a: BookSyncRec | undefined, b: BookSyncRec | undefined): Book
   }
 }
 
+const isPlainObj = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && !Array.isArray(v)
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * 每日阅读记录的合并: 逐叶取较大值 (交换律/结合律/幂等). 缺失或畸形的输入当作空;
+ * 非正数 / 非有限数的叶子、不像日期的键丢弃. 结果为空时返回 undefined (文档里不写该字段).
+ */
+export function mergeReadingLog(...logs: Array<ReadingLogDoc | undefined | null>): ReadingLogDoc | undefined {
+  const out: ReadingLogDoc = {}
+  let any = false
+  for (const log of logs) {
+    if (!isPlainObj(log)) continue
+    for (const [device, days] of Object.entries(log)) {
+      if (!isPlainObj(days)) continue
+      for (const [day, books] of Object.entries(days)) {
+        if (!DAY_RE.test(day) || !isPlainObj(books)) continue
+        for (const [hash, n] of Object.entries(books)) {
+          if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) continue
+          const d = (out[device] ??= {})
+          const b = (d[day] ??= {})
+          if (!(hash in b) || n > b[hash]) b[hash] = n
+          any = true
+        }
+      }
+    }
+  }
+  return any ? out : undefined
+}
+
 function mergeRegs<T>(into: Record<string, Reg<T>>, from: Record<string, Reg<T>>) {
   for (const [k, reg] of Object.entries(from)) into[k] = lww(into[k], reg)!
 }
@@ -280,6 +310,8 @@ export function mergeDocs(docs: SyncDoc[], ctx: { deviceId: string; now: number 
   }
   if (self?.deviceName !== undefined) out.deviceName = self.deviceName
   if (self?.app !== undefined) out.app = self.app
+  const readingLog = mergeReadingLog(...docs.map(d => d.readingLog))
+  if (readingLog) out.readingLog = readingLog
   return structuredClone(out)
 }
 

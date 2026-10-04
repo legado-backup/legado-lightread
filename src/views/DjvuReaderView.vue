@@ -21,7 +21,7 @@ const pageCount = ref(0)
 const currentPage = ref(1)
 const fit = ref<'fitH' | 'fitW'>('fitH')
 
-useReadingTimer(bookId)
+const { ping: pingReading } = useReadingTimer(bookId)
 
 let doc: DjvuDoc | null = null
 let saveTimer: ReturnType<typeof setTimeout> | undefined
@@ -77,6 +77,7 @@ async function render() {
 function goto(num: number) {
   const clamped = Math.max(1, Math.min(num || 1, pageCount.value))
   if (clamped === currentPage.value && host.value?.children.length) return
+  pingReading()
   currentPage.value = clamped
   scheduleSave(clamped)
   render()

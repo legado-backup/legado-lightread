@@ -11,7 +11,7 @@ import { resolvedTheme } from '../services/appearance'
 import { setPageBarsDark } from '../services/systemBars'
 import { listSystemFonts, importFontFile, injectFontIntoDoc, resolveFontFamily } from '../services/fonts'
 import { isTauri } from '../storage/types'
-import { listVoicesSorted, speakText, ssmlToText, stopSpeech, pauseSpeech, resumeSpeech, resetEdgeFailure } from '../services/tts'
+import { listVoicesSorted, speakText, prefetchSpeech, warmUpSpeech, ssmlToText, stopSpeech, pauseSpeech, resumeSpeech, resetEdgeFailure } from '../services/tts'
 import { EDGE_VOICES, edgeAvailable, playAudio } from '../services/edgeTts'
 import { localTtsAvailable, localTtsDownload, localTtsStatus, localTtsSynthesize } from '../services/localTts'
 import { useReadingTimer } from '../composables/useReadingTimer'
@@ -155,7 +155,8 @@ const ttsVoices = ref<{ name: string; lang: string }[]>([])
 let ttsSession = 0
 let sectionLoadResolvers: Array<() => void> = []
 
-useReadingTimer(bookId)
+// 翻页 / 位置变化 / 朗读推进时 ping: 正文在 iframe 里, 其中的操作不会冒泡到 window
+const { ping: pingReading, pingAuto: pingReadingAuto } = useReadingTimer(bookId)
 
 // 书内搜索 (VSCode 风格: 多关键词 / 正则 / 大小写 / 全词)
 const searchQuery = ref('')
@@ -325,6 +326,9 @@ watch([() => settings.reader, appDark], () => {
 }, { deep: true })
 
 function onRelocate(e: CustomEvent) {
+  // 朗读跟随翻页属于自动推进, 不能无限续命计时
+  if (ttsState.value === 'playing') pingReadingAuto()
+  else pingReading()
   const { cfi, fraction: frac, tocItem } = e.detail
   fraction.value = frac ?? 0
   chapterLabel.value = tocItem?.label?.trim() ?? ''
@@ -516,10 +520,38 @@ async function openTTSPanel() {
   const next = !ttsPanel.value
   closeOverlays()
   ttsPanel.value = next
-  if (ttsPanel.value) refreshLocalStatus()
+  if (ttsPanel.value) {
+    refreshLocalStatus()
+    // 离线模型首次加载需 10–20s, 打开面板时就在后台加载
+    warmUpSpeech()
+  }
   if (ttsPanel.value && !ttsVoices.value.length) {
     ttsVoices.value = (await listVoicesSorted()).map(v => ({ name: v.name, lang: v.lang }))
   }
+}
+
+/**
+ * 不移动朗读位置和高亮, 读取后续 count 段文本供预取合成。
+ * foliate 的 tts.next()/prev() 不带 paused 参数时不触碰视图; 前进几步就退回几步。
+ */
+function peekUpcomingTexts(count: number): string[] {
+  const tts = view.tts
+  const texts: string[] = []
+  let steps = 0
+  try {
+    while (texts.length < count && steps < count + 3) {
+      const ssml = tts.next()
+      if (!ssml) break
+      steps++
+      const text = ssmlToText(ssml)
+      if (text) texts.push(text)
+    }
+  } catch (e) {
+    console.warn('tts peek failed', e)
+  } finally {
+    for (let i = 0; i < steps; i++) tts.prev()
+  }
+  return texts
 }
 
 async function startTTS() {
@@ -548,7 +580,13 @@ async function startTTS() {
         continue
       }
       const text = ssmlToText(ssml)
-      if (text) await speakText(text)
+      const speaking = text ? speakText(text) : undefined
+      // 当前段入队后预取后续两段: 合成慢于实时时也保持 1–2 段缓冲, 段间不再等合成
+      if (settings.ttsEngine !== 'system') {
+        peekUpcomingTexts(2).forEach((upcoming, i) => prefetchSpeech(upcoming, i + 1))
+      }
+      if (speaking) await speaking
+      pingReadingAuto()
       if (session !== ttsSession || ttsStopped()) break
       await waitWhilePaused()
       if (session !== ttsSession) break

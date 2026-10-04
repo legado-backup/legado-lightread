@@ -7,6 +7,8 @@ import { importFromUrl } from '../services/urlImport'
 import { ACCEPT, SUPPORTED_EXTS } from '../services/format'
 import { toast } from '../services/toast'
 import { formatReadingTime } from '../composables/useReadingTimer'
+import { readerPath } from '../services/readerRoute'
+import { loadDaily, localDay, onReadingLogChange } from '../services/readingLog'
 import BookCard from '../components/BookCard.vue'
 import type { BookMeta } from '../storage'
 import { t } from '../i18n'
@@ -52,11 +54,29 @@ const pickerBookIds = ref<string[]>([])
 const pickerDraft = ref('')
 const booklistRenames = ref<Record<string, string>>({})
 
+// 顶部「今日阅读」入口 (藏书模式), 记录变化时实时刷新
+const todaySeconds = ref(0)
+let stopReadingLog: (() => void) | undefined
+async function refreshToday() {
+  try {
+    const daily = await loadDaily()
+    todaySeconds.value = daily[localDay()]?.seconds ?? 0
+  } catch {
+    todaySeconds.value = 0
+  }
+}
+const todayMinutes = computed(() => Math.floor(todaySeconds.value / 60))
+
 onMounted(() => {
   library.refresh()
   window.addEventListener('keydown', onGlobalKeydown)
+  void refreshToday()
+  stopReadingLog = onReadingLogChange(() => void refreshToday())
 })
-onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKeydown)
+  stopReadingLog?.()
+})
 
 /** Esc 逐层关闭: 弹窗 → 导入菜单 → 管理模式 */
 function onGlobalKeydown(e: KeyboardEvent) {
@@ -153,11 +173,7 @@ function onDrop(e: DragEvent) {
 
 function openBook(book: BookMeta) {
   // PDF 统一走论文阅读器 (可选 MuPDF/PDFium 渲染 + PDFium 交互几何), 藏书与论文共用
-  const target = book.format === 'pdf'
-    ? `/read-paper/${book.id}`
-    : book.format === 'djvu' ? `/read-djvu/${book.id}`
-      : `/read/${book.id}`
-  router.push(target)
+  router.push(readerPath(book))
 }
 
 async function removeBook(book: BookMeta) {
@@ -478,6 +494,16 @@ async function batchClearTags() {
         <span v-if="library.loaded" class="count">
           {{ t(paperMode ? 'library.paperCount' : 'library.bookCount', { count: kindBooks.length }) }}<template v-if="totalReadingTime"> · {{ t('library.totalReading', { time: totalReadingTime }) }}</template>
         </span>
+        <router-link
+          v-if="!paperMode"
+          to="/stats"
+          class="today-link"
+          :title="t('stats.libraryTodayTitle', { m: todayMinutes })"
+          :aria-label="t('stats.libraryTodayTitle', { m: todayMinutes })"
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M4 13a1.5 1.5 0 0 1 3 0v5.5a1.5 1.5 0 0 1-3 0V13zm6.5-5a1.5 1.5 0 0 1 3 0v10.5a1.5 1.5 0 0 1-3 0V8zM17 4.5a1.5 1.5 0 0 1 3 0v14a1.5 1.5 0 0 1-3 0v-14z"/></svg>
+          <span>{{ t('stats.libraryToday', { m: todayMinutes }) }}</span>
+        </router-link>
       </div>
       <div class="spacer" />
       <div class="search-field">
@@ -914,6 +940,30 @@ async function batchClearTags() {
   color: var(--text-3);
   font-size: 13px;
   white-space: nowrap;
+}
+.today-link {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background var(--dur-fast) var(--ease);
+}
+.today-link:hover {
+  background: var(--brand-light);
+  text-decoration: none;
+}
+.today-link:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
 }
 .spacer {
   flex: 1;
@@ -1432,6 +1482,12 @@ async function batchClearTags() {
     flex: 1;
     min-width: 0;
     order: 1;
+  }
+  /* 手机上标题行较挤: 计数行过长时省略, 今日入口保持完整 */
+  .count {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
   .import-group {
     order: 2;

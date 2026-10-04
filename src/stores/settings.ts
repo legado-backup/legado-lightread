@@ -92,6 +92,8 @@ interface SettingsState {
   webdavSyncAuto: boolean
   /** 同步时上传 / 下载书籍文件 (关闭则只同步进度、笔记、书单) */
   webdavSyncFiles: boolean
+  /** 阅读记录: 每日阅读目标 (分钟), 0 表示不设目标 */
+  dailyGoalMinutes: number
 }
 
 const STORAGE_KEY = 'lightread-settings'
@@ -140,6 +142,7 @@ const defaults: SettingsState = {
   webdavPass: '',
   webdavSyncAuto: false,
   webdavSyncFiles: true,
+  dailyGoalMinutes: 30,
 }
 
 function load(): SettingsState {

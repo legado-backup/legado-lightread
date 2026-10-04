@@ -13,6 +13,7 @@ export const router = createRouter({
     { path: '/read-pdf/:id', redirect: to => `/read-paper/${to.params.id}` },
     { path: '/read-djvu/:id', component: () => import('../views/DjvuReaderView.vue') },
     { path: '/catalogs', component: () => import('../views/CatalogView.vue') },
+    { path: '/stats', component: () => import('../views/StatsView.vue') },
     { path: '/settings', component: () => import('../views/SettingsView.vue') },
   ],
 })
