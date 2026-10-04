@@ -445,11 +445,73 @@ async function putDoc(request: Request, session: Session, env: Env, deviceId: st
   return noContent()
 }
 
+// ---- WebDAV 中转 (仅网页版用) ----
+// 坚果云 / Koofr 的 WebDAV 不支持浏览器跨域 (CORS 预检直接 401), 网页版经此原样转发.
+// 只转发到白名单里的固定地址 (不是开放代理), 不存储也不记录账号密码与内容.
+
+const WEBDAV_UPSTREAMS: Record<string, string> = {
+  jianguoyun: 'https://dav.jianguoyun.com/dav/',
+  koofr: 'https://app.koofr.net/dav/Koofr/',
+}
+const WEBDAV_METHODS = new Set(['GET', 'HEAD', 'PUT', 'DELETE', 'MKCOL', 'PROPFIND'])
+const WEBDAV_CORS: Record<string, string> = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-headers': 'authorization, content-type, depth',
+  'access-control-allow-methods': 'GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, OPTIONS',
+  'access-control-expose-headers': 'content-length, content-type, last-modified, etag',
+  'access-control-max-age': '86400',
+}
+const WEBDAV_RE = /^\/v1\/webdav\/([a-z0-9]+)\/(.*)$/
+
+const davFail = (status: number, error: string) =>
+  new Response(JSON.stringify({ error }), {
+    status,
+    headers: { 'content-type': 'application/json; charset=utf-8', ...WEBDAV_CORS },
+  })
+
+async function webdavRelay(request: Request, provider: string, rest: string, search: string): Promise<Response> {
+  const upstream = WEBDAV_UPSTREAMS[provider]
+  if (!upstream) return davFail(404, 'not_found')
+  const method = request.method
+  if (method === 'OPTIONS') return new Response(null, { status: 204, headers: WEBDAV_CORS })
+  if (!WEBDAV_METHODS.has(method)) return davFail(405, 'method_not_allowed')
+  // 路径段里不许出现 .. (含转义形式), 防止跳出上游目录
+  let decoded = rest
+  try { decoded = decodeURIComponent(rest) } catch { return davFail(400, 'invalid_path') }
+  if (decoded.split('/').some(seg => seg === '..' || seg === '.')) return davFail(400, 'invalid_path')
+  const auth = request.headers.get('authorization') ?? ''
+  // 不带 WWW-Authenticate: 免得浏览器弹出原生登录框
+  if (!auth.startsWith('Basic ')) return davFail(401, 'unauthorized')
+
+  const headers = new Headers({ authorization: auth })
+  for (const name of ['content-type', 'depth']) {
+    const v = request.headers.get(name)
+    if (v) headers.set(name, v)
+  }
+  const hasBody = method === 'PUT' || method === 'PROPFIND'
+  const res = await fetch(upstream + rest + search, {
+    method,
+    headers,
+    // 读成整块再转发: 上游需要 Content-Length (Workers 请求体本身有 100MB 上限)
+    body: hasBody ? await request.arrayBuffer() : undefined,
+    redirect: 'manual',
+  })
+  const out = new Headers(WEBDAV_CORS)
+  for (const name of ['content-type', 'content-length', 'last-modified', 'etag']) {
+    const v = res.headers.get(name)
+    if (v) out.set(name, v)
+  }
+  return new Response(method === 'HEAD' ? null : res.body, { status: res.status, headers: out })
+}
+
 // ---- 路由 ----
 
 async function route(request: Request, env: Env): Promise<Response> {
-  const { pathname } = new URL(request.url)
+  const { pathname, search } = new URL(request.url)
   const method = request.method
+
+  const davMatch = WEBDAV_RE.exec(pathname)
+  if (davMatch) return webdavRelay(request, davMatch[1], davMatch[2], search)
 
   if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
   if (method === 'GET' && pathname === '/health') return json(200, { ok: true })

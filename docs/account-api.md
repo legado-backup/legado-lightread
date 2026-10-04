@@ -21,8 +21,13 @@
 | `GET /v1/docs` | — | `200 { docs: SyncDoc[] }`（该账号所有设备的文档） | `401` |
 | `PUT /v1/docs/:deviceId` | `SyncDoc`（JSON，`deviceId` 须与路径一致，`format === 1`） | `204` | `400 invalid_doc`；`413 too_large`（> 8MB）；`401` |
 | `GET /health` | — | `200 { ok: true }` | — |
+| `PROPFIND/GET/HEAD/PUT/DELETE/MKCOL /v1/webdav/:provider/*` | 原样转发（`Authorization: Basic …`） | 上游状态码与响应体 | `404 not_found`（未知服务商）；`401 unauthorized`（无 Basic 鉴权，不带 `WWW-Authenticate`）；`400 invalid_path`；`405` |
 
 `deviceId` 限 `[A-Za-z0-9_-]{1,64}`。邮箱统一 trim + 小写。
+
+### WebDAV 中转（仅网页版）
+
+坚果云、Koofr 的 WebDAV 不支持浏览器跨域（CORS 预检直接 401），网页版经 `/v1/webdav/<provider>/<路径>` 转发：`jianguoyun → https://dav.jianguoyun.com/dav/`，`koofr → https://app.koofr.net/dav/Koofr/`。只转发到这两个固定地址（不是开放代理），不存储、不记录账号密码与内容；去掉上游的 `WWW-Authenticate`，避免浏览器弹出原生登录框。客户端在 `src/services/net.ts` 里按地址改写（`webdavRelayUrl`），桌面 / 安卓走原生请求直连。
 
 ## 限流（按 UTC 日计数）
 

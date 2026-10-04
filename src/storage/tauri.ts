@@ -4,7 +4,7 @@
  *  - 元数据用 SQLite 索引 (tauri-plugin-sql)
  */
 import type {
-  AnnotationRec, BooklistRec, BookMeta, CatalogSourceRec, LibraryStorage, NewBookMeta,
+  AnnotationRec, BooklistRec, BookMeta, CatalogSourceRec, LibraryStorage, LocalFileRef, NewBookMeta,
 } from './types'
 import { BUILTIN_SOURCES, getLibraryRoot, newId } from './types'
 
@@ -289,6 +289,13 @@ export class TauriStorage implements LibraryStorage {
     const [path, opts] = this.loc(this.bookPath(id, meta.fileName))
     const bytes = await this.fs.readFile(path, opts)
     return new Blob([bytes.buffer as ArrayBuffer])
+  }
+
+  async getBookFileRef(id: string): Promise<LocalFileRef | undefined> {
+    const meta = await this.getBook(id)
+    if (!meta) return undefined
+    const rel = this.bookPath(id, meta.fileName)
+    return { kind: 'local-file', root: this.root, rel, blob: () => this.getBookFile(id) }
   }
 
   async getCoverUrl(id: string) {

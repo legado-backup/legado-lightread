@@ -2323,6 +2323,7 @@ dependencies = [
  "futures-util",
  "libc",
  "log",
+ "reqwest 0.12.22",
  "rusqlite",
  "serde",
  "serde_json",

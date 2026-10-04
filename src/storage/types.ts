@@ -72,6 +72,21 @@ export interface BooklistItemRec {
   addedAt: number
 }
 
+/**
+ * 书库里的本地文件 (桌面 / 安卓): 同步上传时由原生层直接从磁盘读取, 书的内容不经过 WebView.
+ * root 为自定义书库根目录 (空 = 应用数据目录), rel 为 `books/<文件名>` 或 `covers/<文件名>`.
+ */
+export interface LocalFileRef {
+  readonly kind: 'local-file'
+  root: string
+  rel: string
+  /** 读成 Blob (原生上传不可用时的退路) */
+  blob(): Promise<Blob>
+}
+
+export const isLocalFileRef = (v: unknown): v is LocalFileRef =>
+  !!v && typeof v === 'object' && (v as { kind?: unknown }).kind === 'local-file'
+
 export interface LibraryStorage {
   /** 后端名称, 设置页展示 */
   readonly kind: 'indexeddb' | 'filesystem'
@@ -83,6 +98,8 @@ export interface LibraryStorage {
   updateBook(id: string, patch: Partial<Omit<BookMeta, 'id'>>): Promise<void>
   deleteBook(id: string): Promise<void>
   getBookFile(id: string): Promise<Blob>
+  /** 书籍文件的本地路径引用 (仅文件系统后端); 不支持时为 undefined */
+  getBookFileRef?(id: string): Promise<LocalFileRef | undefined>
   /** 返回可直接用于 <img src> 的 URL (Object URL), 由调用方缓存, 无封面返回 undefined */
   getCoverUrl(id: string): Promise<string | undefined>
 

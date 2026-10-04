@@ -12,6 +12,7 @@ import { loadDaily, localDay, onReadingLogChange } from '../services/readingLog'
 import BookCard from '../components/BookCard.vue'
 import type { BookMeta } from '../storage'
 import { t } from '../i18n'
+import { useSettings } from '../stores/settings'
 
 const router = useRouter()
 const route = useRoute()
@@ -66,6 +67,10 @@ async function refreshToday() {
   }
 }
 const todayMinutes = computed(() => Math.floor(todaySeconds.value / 60))
+const goalMinutes = computed(() => Math.max(0, Math.round(useSettings().dailyGoalMinutes || 0)))
+const todayRatio = computed(() => (goalMinutes.value > 0 ? Math.min(1, todaySeconds.value / (goalMinutes.value * 60)) : 0))
+const todayDone = computed(() => goalMinutes.value > 0 && todayRatio.value >= 1)
+const TODAY_RING_C = 2 * Math.PI * 5.5
 
 onMounted(() => {
   library.refresh()
@@ -498,11 +503,23 @@ async function batchClearTags() {
           v-if="!paperMode"
           to="/stats"
           class="today-link"
+          :class="{ done: todayDone }"
           :title="t('stats.libraryTodayTitle', { m: todayMinutes })"
           :aria-label="t('stats.libraryTodayTitle', { m: todayMinutes })"
         >
-          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M4 13a1.5 1.5 0 0 1 3 0v5.5a1.5 1.5 0 0 1-3 0V13zm6.5-5a1.5 1.5 0 0 1 3 0v10.5a1.5 1.5 0 0 1-3 0V8zM17 4.5a1.5 1.5 0 0 1 3 0v14a1.5 1.5 0 0 1-3 0v-14z"/></svg>
-          <span>{{ t('stats.libraryToday', { m: todayMinutes }) }}</span>
+          <svg v-if="goalMinutes > 0" class="today-ring" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true">
+            <circle cx="7" cy="7" r="5.5" class="today-ring-track" />
+            <circle
+              cx="7"
+              cy="7"
+              r="5.5"
+              class="today-ring-fill"
+              :stroke-dasharray="TODAY_RING_C"
+              :stroke-dashoffset="TODAY_RING_C * (1 - todayRatio)"
+            />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M4 13a1.5 1.5 0 0 1 3 0v5.5a1.5 1.5 0 0 1-3 0V13zm6.5-5a1.5 1.5 0 0 1 3 0v10.5a1.5 1.5 0 0 1-3 0V8zM17 4.5a1.5 1.5 0 0 1 3 0v14a1.5 1.5 0 0 1-3 0v-14z"/></svg>
+          <span>{{ goalMinutes > 0 && !todayDone ? t('stats.libraryTodayGoal', { m: todayMinutes, goal: goalMinutes }) : t('stats.libraryToday', { m: todayMinutes }) }}</span>
         </router-link>
       </div>
       <div class="spacer" />
@@ -953,13 +970,37 @@ async function batchClearTags() {
   color: var(--brand);
   font-size: 12px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   flex-shrink: 0;
   transition: background var(--dur-fast) var(--ease);
 }
+.today-link.done {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.today-ring {
+  transform: rotate(-90deg);
+}
+.today-ring-track,
+.today-ring-fill {
+  fill: none;
+  stroke-width: 2.5;
+}
+.today-ring-track {
+  stroke: currentColor;
+  opacity: 0.25;
+}
+.today-ring-fill {
+  stroke: currentColor;
+  stroke-linecap: round;
+}
 .today-link:hover {
   background: var(--brand-light);
   text-decoration: none;
+}
+.today-link.done:hover {
+  background: color-mix(in srgb, var(--success) 18%, transparent);
 }
 .today-link:focus-visible {
   outline: none;

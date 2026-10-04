@@ -108,6 +108,30 @@ test('CORS 预检与错误响应都带 CORS 头', async () => {
   assert.deepEqual(await jsonOf(unauth), { error: 'unauthorized' })
 })
 
+test('WebDAV 中转: 预检放行 WebDAV 方法; 只认白名单服务商; 无 Basic 鉴权 / 越级路径不转发', async () => {
+  const pre = await call('OPTIONS', '/v1/webdav/jianguoyun/LightRead/', {
+    headers: { origin: 'https://app.example', 'access-control-request-method': 'PROPFIND' },
+  })
+  assert.equal(pre.status, 204)
+  assert.equal(pre.headers.get('access-control-allow-origin'), '*')
+  assert.match(pre.headers.get('access-control-allow-headers'), /depth/)
+  for (const m of ['PROPFIND', 'MKCOL', 'PUT', 'HEAD']) {
+    assert.match(pre.headers.get('access-control-allow-methods'), new RegExp(m))
+  }
+  const unknown = await call('PROPFIND', '/v1/webdav/evil/x', { headers: { authorization: 'Basic eDp5' } })
+  assert.equal(unknown.status, 404)
+  const noAuth = await call('PROPFIND', '/v1/webdav/koofr/')
+  assert.equal(noAuth.status, 401)
+  assert.equal(noAuth.headers.get('www-authenticate'), null)
+  assert.equal(noAuth.headers.get('access-control-allow-origin'), '*')
+  const bearer = await call('GET', '/v1/webdav/koofr/a', { headers: { authorization: 'Bearer x' } })
+  assert.equal(bearer.status, 401)
+  const traversal = await call('GET', '/v1/webdav/jianguoyun/a/..%2Fb', { headers: { authorization: 'Basic eDp5' } })
+  assert.equal(traversal.status, 400)
+  const post = await call('POST', '/v1/webdav/jianguoyun/a', { headers: { authorization: 'Basic eDp5' } })
+  assert.equal(post.status, 405)
+})
+
 test('非法邮箱 → 400 invalid_email', async () => {
   for (const email of ['', 'not-an-email', 'a@b', 'x y@z.com', 123]) {
     const res = await call('POST', '/v1/auth/code', { body: { email } })

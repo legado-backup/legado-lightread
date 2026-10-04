@@ -269,3 +269,99 @@ test('WebDAV: 目录创建、401 映射、损坏文件跳过、href 解析', asy
   </multistatus>`
   assert.deepEqual(parsePropfindNames(xml, 'files'), ['a b.cover', 'c&d'])
 })
+
+test('先写文档再传文件: 上传失败 / 中断时文档已写入, B 先拿到元数据, 文件到位后再下载', async () => {
+  const dav = createFakeDav()
+  const A = await device('A')
+  const B = await device('B')
+  const hash = await sha256Hex(BOOK_BYTES)
+  const bookA = await importBook(A)
+  // 文件系统后端提供本地文件引用; 注入的 HTTP 函数收到的仍是读出来的 Blob
+  const refs = []
+  A.storage.getBookFileRef = async id => {
+    refs.push(id)
+    return { kind: 'local-file', root: '', rel: `books/${id}.epub`, blob: () => A.storage.getBookFile(id) }
+  }
+
+  // 1) 书文件上传失败: 文档与基线照样写入, 失败的文件下次再传
+  let mode = 'fail'
+  let release
+  const filePuts = []
+  const http = async (url, req) => {
+    if (req.method === 'PUT' && url.includes('/files/')) {
+      filePuts.push(url)
+      if (mode === 'fail') return { status: 507, text: async () => '', blob: async () => new Blob() }
+      if (mode === 'hang') {
+        await new Promise((_, reject) => { release = () => reject(new Error('killed')) })
+      }
+    }
+    return dav.http(url, req)
+  }
+  const remote = () => createWebdavRemote({ url: dav.base + '/', user: 'u', pass: 'p' }, http, tr)
+
+  tick()
+  const r1 = await sync(A, dav, { remote: remote() })
+  assert.equal(r1.uploadedFiles, 0)
+  assert.equal(filePuts.length, 1, '书文件失败后这本书的封面也留到下次')
+  assert.equal(dav.readJson('devices/dev-A.json').books[hash].alive.value, true)
+  assert.deepEqual((await A.store.loadBaseline()).presentHashes, [hash])
+  assert.deepEqual(refs, [bookA], '书文件走本地文件引用')
+
+  // B: 文件还没到位, 只拿到元数据 (pending), 也不会因此生成删除
+  tick()
+  const r2 = await sync(B, dav, { remote: remote() })
+  assert.equal(r2.pendingBooks, 1)
+  assert.equal(r2.downloadedBooks, 0)
+  assert.deepEqual(await B.storage.listBooks(), [])
+  assert.equal(dav.readJson('devices/dev-B.json').books[hash].alive.value, true)
+
+  // 2) 上传中途被杀 (请求挂住): 文档在上传开始前就已写入
+  mode = 'hang'
+  await A.storage.updateBook(bookA, { location: 'cfi-9', progress: 0.9, lastReadAt: tick() })
+  tick()
+  const phases = []
+  const pending = sync(A, dav, { remote: remote(), onProgress: m => phases.push(m) })
+  while (!release) await new Promise(r => setImmediate(r))
+  assert.equal(dav.readJson('devices/dev-A.json').books[hash].progress.value.location, 'cfi-9')
+  assert.ok(phases.includes('sync.phase.save'))
+  assert.ok(phases.some(p => p.startsWith('sync.phase.upload') && p.includes('"done":1,"total":1')), phases.join('\n'))
+  release()
+  assert.equal((await pending).uploadedFiles, 0)
+
+  // 3) A 恢复上传; B 下次同步下载到文件, 进度是最新的
+  mode = 'ok'
+  tick()
+  const r3 = await sync(A, dav, { remote: remote() })
+  assert.equal(r3.uploadedFiles, 2, '书 + 封面')
+  assert.ok(dav.files.has(`/remote.php/dav/LightRead/sync/v1/files/${hash}`))
+  tick()
+  const r4 = await sync(B, dav, { remote: remote() })
+  assert.equal(r4.downloadedBooks, 1)
+  assert.equal(r4.pendingBooks, 0)
+  const bookB = await onlyBook(B)
+  assert.equal(bookB.location, 'cfi-9')
+  assert.equal(bookB.hasCover, true)
+  assert.deepEqual(new Uint8Array(await (await B.storage.getBookFile(bookB.id)).arrayBuffer()), BOOK_BYTES)
+})
+
+test('WebDAV: 请求整体超时 → sync.err.timeout, 并中止请求', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let signal
+  const hang = async (_url, req) => {
+    signal = req.signal
+    return new Promise(() => {})
+  }
+  const remote = createWebdavRemote({ url: 'https://dav.example.com/', user: 'u', pass: 'p' }, hang, tr)
+  const p = remote.listDocs()
+  t.mock.timers.tick(59_999)
+  assert.equal(signal.aborted, false)
+  t.mock.timers.tick(1)
+  await assert.rejects(p, { message: 'sync.err.timeout' })
+  assert.equal(signal.aborted, true)
+
+  // 原生上传命令报的超时 (code: 'timeout') 同样映射
+  const nativeTimeout = createWebdavRemote({ url: 'https://x/', user: '', pass: '' }, async () => {
+    throw Object.assign(new Error('operation timed out'), { code: 'timeout' })
+  }, tr)
+  await assert.rejects(nativeTimeout.putFile('abc', new Blob([enc('x')])), { message: 'sync.err.timeout' })
+})

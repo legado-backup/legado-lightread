@@ -88,6 +88,8 @@ interface SettingsState {
   webdavUrl: string
   webdavUser: string
   webdavPass: string
+  /** 设置页选择的 WebDAV 服务商 (jianguoyun/koofr/selfhosted/other); 空为按 webdavUrl 识别 */
+  webdavProvider: string
   /** WebDAV 增量同步: 启动 / 切后台 / 退出阅读器及每 5 分钟自动同步 */
   webdavSyncAuto: boolean
   /** 同步时上传 / 下载书籍文件 (关闭则只同步进度、笔记、书单) */
@@ -140,6 +142,7 @@ const defaults: SettingsState = {
   webdavUrl: '',
   webdavUser: '',
   webdavPass: '',
+  webdavProvider: '',
   webdavSyncAuto: false,
   webdavSyncFiles: true,
   dailyGoalMinutes: 30,

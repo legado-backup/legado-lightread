@@ -1,5 +1,5 @@
 /**
- * 同步编排: 读本地库 → 拉远端 → 合并 → 落地 → 上传文件 → 写本机文档 + 基线.
+ * 同步编排: 读本地库 → 拉远端 → 合并 → 落地 → 写本机文档 + 基线 → 上传文件.
  * 流程见 docs/sync.md. 本模块顶层不依赖 vue / pinia, 依赖全部注入, 可在 node 里测试.
  */
 import type { BookMeta, CatalogSourceRec, LibraryStorage, NewBookMeta } from '../../storage/types'
@@ -360,21 +360,44 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
     }
   }
 
-  // 5. 上传本地有、远端还没有的书籍文件与封面
+  // 5. 先写本机文档与基线: 其他设备马上能看到元数据 (书文件没到位时保持「仅元数据」,
+  //    文件传上去以后的下一次同步再下载); 上传中途被杀 / 切后台也不会丢掉这次的改动
+  progress(tr('sync.phase.save'))
+  const doc: SyncDoc = { ...merged, deviceId, writtenAt: now() }
+  if (deps.deviceName !== undefined) doc.deviceName = deps.deviceName
+  else delete doc.deviceName
+  if (deps.app !== undefined) doc.app = deps.app
+  else delete doc.app
+  await remote.putDoc(doc)
+  await store.saveBaseline({
+    remoteId: remote.id,
+    remotes: nextBaselineRemotes(saved, !!baseline, remote),
+    doc: merged,
+    presentHashes: [...present],
+    syncedAt: now(),
+  })
+
+  // 6. 上传本地有、远端还没有的书籍文件与封面. 是否已上传以远端文件列表为准 (不记在文档 / 基线里),
+  //    失败的逐本跳过, 下次同步再传
   let uploadedFiles = 0
   if (canFiles) {
+    const uploads: { hash: string; id: string; needFile: boolean; needCover: boolean }[] = []
     for (const hash of present) {
       if (merged.books[hash]?.alive.value !== true) continue
       const id = idOf(hash)
       if (!id) continue
       const needFile = !remoteFiles.has(hash)
       const needCover = !remoteFiles.has(`${hash}.cover`) && !!local.books[hash]?.hasCover
-      if (!needFile && !needCover) continue
+      if (needFile || needCover) uploads.push({ hash, id, needFile, needCover })
+    }
+    for (const [i, { hash, id, needFile, needCover }] of uploads.entries()) {
       const title = merged.books[hash]?.meta.value?.title ?? local.books[hash]?.meta.title ?? hash
-      progress(tr('sync.phase.upload', { title }))
+      progress(tr('sync.phase.upload', { title, done: i + 1, total: uploads.length }))
       try {
         if (needFile) {
-          await remote.putFile(hash, await storage.getBookFile(id))
+          // 桌面 / 安卓: 只给文件路径, 由原生层读盘上传, 书的内容不进 JS
+          const data = (await storage.getBookFileRef?.(id)) ?? await storage.getBookFile(id)
+          await remote.putFile(hash, data)
           remoteFiles.add(hash)
           uploadedFiles++
         }
@@ -392,22 +415,6 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
       }
     }
   }
-
-  // 6. 写本机文档与基线
-  progress(tr('sync.phase.save'))
-  const doc: SyncDoc = { ...merged, deviceId, writtenAt: now() }
-  if (deps.deviceName !== undefined) doc.deviceName = deps.deviceName
-  else delete doc.deviceName
-  if (deps.app !== undefined) doc.app = deps.app
-  else delete doc.app
-  await remote.putDoc(doc)
-  await store.saveBaseline({
-    remoteId: remote.id,
-    remotes: nextBaselineRemotes(saved, !!baseline, remote),
-    doc: merged,
-    presentHashes: [...present],
-    syncedAt: now(),
-  })
 
   return {
     applied,

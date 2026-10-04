@@ -14,6 +14,21 @@
 - 基线丢失（清缓存、重装后从旧备份恢复），或换到同类的另一个远端（另一个 WebDAV 地址 / 另一个账号；账号与 WebDAV 之间共用同一份基线）时视为首次同步：**远端优先**，本地只补上远端没见过的记录，本地有的书不会被删，旧备份也不会盖掉别处更新的改动。
 - **规范化**：可选字段 `undefined` 与空串 `''` 视为同一个值（都去掉）；元数据补齐缺省值（`kind: 'book'`、`pinnedAt: 0`、`tags: []`），标注 `kind` 缺省为 `highlight`。判等用键序无关的结构比较。
 
+## WebDAV 服务商（设置页）
+
+设置页先选服务商，再填账号与（应用）密码，点一次「连接」完成：PROPFIND 校验（只认 207）→ 保存 → 打开自动同步 → 立即首次同步。校验失败不保存配置。数据见 `src/services/webdavProviders.ts`，`settings.webdavProvider` 记住选择（老配置为空时按 `webdavUrl` 识别）。
+
+| 服务商 | 地址 | 账号 / 密码 | 来源 |
+|---|---|---|---|
+| 坚果云 | `https://dav.jianguoyun.com/dav/`（固定，不显示） | 注册邮箱或手机号 / 应用密码（网页「账户信息 → 安全选项 → 第三方应用管理」，直达 `https://www.jianguoyun.com/#/safety`） | help.jianguoyun.com/?p=2064 |
+| Koofr | `https://app.koofr.net/dav/Koofr`（固定） | 登录邮箱 / 应用密码（`https://app.koofr.net/app/admin/preferences/password`） | koofr.eu 帮助中心 |
+| 自建 | 用户填；只填域名时依次探测 `/`（群晖 WebDAV Server）、`/remote.php/dav/files/<用户名>/`（Nextcloud / ownCloud）、`/dav/`（Alist） | 用户名 / 密码或应用密码 | 各项目文档 |
+| 其他 | 用户填完整地址 | — | — |
+
+InfiniCLOUD 每个账号的 WebDAV 节点不同（`https://<节点>.teracloud.jp/dav/`），地址不固定，归入「其他」。
+
+网页版：坚果云、Koofr 经轻阅同步服务中转（见 `docs/account-api.md`「WebDAV 中转」）；其他地址要求服务器开启 CORS，或在「网络」里配置跨域代理，否则提示改用桌面 / 手机 App。
+
 ## 远端布局（WebDAV）
 
 ```
@@ -97,11 +112,20 @@ SyncDoc 增加可选字段 `readingLog: { [device]: { [day]: { [hash]: 秒 } } }
 2. 远端：列出并读取所有 `devices/*.json`，合并得到 `remoteMerged`。
 3. `buildLocalDoc(local, base, presentHashes, remoteMerged)`：给本地改动打 stamp、生成墓碑、更新自己的计时贡献；本地每日阅读记录聚合后并入 `readingLog`；再与远端文档一起 `mergeDocs`。
 4. `planApply(merged, local)` 得到操作列表并应用到本地库：新书要先下载文件（远端有文件时才加入本地，否则保持「仅元数据」状态，等以后导入同一文件时自动匹配）。随后把 `merged.readingLog` 多出的差额落到本地阅读记录。
-5. 上传：本地有、远端还没有的书文件和封面（开启「同步书籍文件」时）。
-6. 把合并结果写到 `devices/<me>.json`，并把合并结果和 `presentHashes` 存为新基线（IndexedDB `lightread-sync`）。
+5. 把合并结果写到 `devices/<me>.json`，并把合并结果和 `presentHashes` 存为新基线（IndexedDB `lightread-sync`）。**先写文档、后传文件**：其他设备马上能看到新书的元数据，文件没到位时按第 4 步保持「仅元数据」，等文件传上去后的下一次同步再下载；上传中途应用被杀或切到后台，这次的改动也不会丢。
+6. 上传：本地有、远端还没有的书文件和封面（开启「同步书籍文件」时），进度显示「第几本 / 共几本」。是否已上传以远端 `files/` 列表为准，不记在文档或基线里；单本失败只记日志，下次同步再传。
 7. 刷新书架。
 
 同一时刻只跑一次同步；自动同步在启动、切到后台、退出阅读器时触发，另外每 5 分钟一次。
+
+### 传输与超时（WebDAV）
+
+- 每个请求都有整体超时：普通请求（PROPFIND、读同步文档、建目录）60 秒，下载书籍文件 15 分钟，上传 60 秒 + 每 MB 10 秒（上限 30 分钟）。超时会中止请求并报「连接云端超时」（`sync.err.timeout`），不会让同步一直挂着、挡住之后的自动同步。
+- 桌面 / 安卓上的 PUT（书籍文件、封面、同步文档）不走 `@tauri-apps/plugin-http`（它把请求体转成数字数组再 JSON 序列化走 IPC，整本书上传极慢、内存暴涨），改走原生命令 `http_upload`（`src-tauri/src/http_upload.rs`，前端 `src/services/nativeUpload.ts`）：
+  - 书籍文件只传书库里的相对路径（`LibraryStorage.getBookFileRef`，`books/<id>.<扩展名>`，根目录为自定义书库或应用数据目录），由 Rust 直接读盘上传，书的内容不经过 WebView。Rust 侧只允许 `books/`、`covers/` 下的文件，自定义根目录必须含 `lightread.db`。读盘失败时退回读进 JS 再上传。
+  - 其他请求体走 Tauri 2 的原始二进制 IPC（Android 上 Tauri 只有 postMessage 通道，仍是数字数组，但封面和同步文档都不大）。
+  - 连接超时 30 秒，整体超时同上；代理沿用设置页的「HTTP 代理」（http / https / socks5）。
+  - 其余请求（PROPFIND、GET、MKCOL）要读完整响应，仍走 plugin-http。
 
 ## 后端接口
 

@@ -55,9 +55,9 @@ async function login(page) {
   const codeRes = page.waitForResponse(r => r.url().endsWith('/v1/auth/code'))
   await page.getByRole('button', { name: '发送验证码' }).click()
   const { devCode } = await (await codeRes).json()
+  // 输满 6 位自动登录, 不用再点「登录」
   await page.getByRole('textbox', { name: /验证码/ }).fill(devCode)
-  await page.getByRole('button', { name: '登录', exact: true }).click()
-  await page.waitForSelector(`text=${EMAIL}`, { timeout: 10000 })
+  await page.locator('.conn-card', { hasText: EMAIL }).waitFor({ timeout: 10000 })
 }
 
 async function waitSynced(page) {
@@ -100,7 +100,7 @@ try {
   await login(A)
   await waitSynced(A)
   assert(await A.getByRole('switch', { name: /自动同步/ }).isChecked(), '登录后应自动打开自动同步')
-  ok('A 用邮箱验证码登录, 自动同步已打开, 首次同步完成')
+  ok('A 用邮箱验证码登录 (输满 6 位自动提交), 自动同步已打开, 首次同步完成')
 
   await login(B)
   await waitSynced(B)

@@ -76,12 +76,14 @@ const settings = {
 
 const browser = await chromium.launch()
 const errors = []
-async function device(name) {
+async function device(name, preset = true) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
-  await context.addInitScript(s => {
-    const raw = localStorage.getItem('lightread-settings')
-    if (!raw) localStorage.setItem('lightread-settings', JSON.stringify(s))
-  }, settings)
+  if (preset) {
+    await context.addInitScript(s => {
+      const raw = localStorage.getItem('lightread-settings')
+      if (!raw) localStorage.setItem('lightread-settings', JSON.stringify(s))
+    }, settings)
+  }
   const page = await context.newPage()
   page.on('pageerror', e => errors.push(`[${name}] ${e.message}`))
   await page.goto(APP + '#/library', { waitUntil: 'networkidle' })
@@ -116,6 +118,10 @@ async function syncVia(page) {
   await page.goto(APP + '#/settings', { waitUntil: 'networkidle' })
   const btn = page.locator('button.sync-now')
   await btn.click()
+  return waitSynced(page)
+}
+
+async function waitSynced(page) {
   await page.waitForFunction(() => {
     const b = document.querySelector('button.sync-now')
     const s = document.querySelector('.sync-status')?.textContent ?? ''
@@ -132,7 +138,8 @@ const assert = (cond, msg) => { if (!cond) throw new Error(msg) }
 
 try {
   const A = await device('A')
-  const B = await device('B')
+  // B 不预置配置, 走设置页的连接流程
+  const B = await device('B', false)
 
   // 1. A 导入并同步
   await A.setInputFiles('input[type=file][multiple]', txtPath)
@@ -151,7 +158,28 @@ try {
   assert(devicesA.length === 1 && filesA.some(f => /^[0-9a-f]{64}$/.test(f)), `远端布局不对: ${devicesA} / ${filesA}`)
   ok(`A 同步: 远端有 ${devicesA.length} 个设备文档, ${filesA.length} 个文件`)
 
-  // 2. B 同步 → 下载入库, 书单带过来
+  // 2. B 在设置页连接: 选服务商 → 填地址/账号/密码 → 「连接」一次完成校验、保存、开自动同步与首次同步
+  await B.goto(APP + '#/settings', { waitUntil: 'networkidle' })
+  await B.getByRole('button', { name: /其他 WebDAV/ }).click()
+  await B.getByLabel('服务器地址').fill(settings.webdavUrl)
+  await B.getByLabel('账号', { exact: true }).fill('u')
+  await B.getByLabel('密码', { exact: true }).fill('wrong')
+  await B.getByRole('button', { name: '连接', exact: true }).click()
+  const davError = B.locator('#dav-error')
+  await davError.waitFor({ timeout: 10000 })
+  assert((await davError.textContent()).includes('应用密码'), `密码错误时应提示改用应用密码: ${await davError.textContent()}`)
+  assert(!(await B.evaluate(() => JSON.parse(localStorage.getItem('lightread-settings') || '{}').webdavUrl)), '校验失败不应保存配置')
+  ok('B 填错密码: 不保存配置, 提示改用应用密码')
+  await B.getByLabel('密码', { exact: true }).fill('p')
+  await B.getByRole('button', { name: '连接', exact: true }).click()
+  await B.locator('.conn-card', { hasText: '其他 WebDAV' }).waitFor({ timeout: 30000 })
+  await waitSynced(B)
+  assert(await B.getByRole('switch', { name: /自动同步/ }).isChecked(), '连接后应自动打开自动同步')
+  // 关掉自动同步, 后续步骤的同步时机由测试控制
+  await B.getByRole('switch', { name: /自动同步/ }).uncheck()
+  ok('B 一键连接: 校验 → 保存 → 自动同步已开 → 首次同步完成, 折叠为已连接状态卡')
+
+  // B 同步 → 下载入库, 书单带过来
   await syncVia(B)
   await B.goto(APP + '#/library', { waitUntil: 'networkidle' })
   await B.waitForSelector('.book-card:has-text("同步测试")', { timeout: 10000 })

@@ -8,8 +8,10 @@ import {
   importBackup,
   LIBRARY_ARCHIVE_EXTENSION,
 } from '../services/backup'
-import { backupToWebdav, restoreFromWebdav, testWebdav, webdavBackupInfo } from '../services/webdav'
-import { syncConfigured, syncNow, syncState } from '../services/sync'
+import { backupToWebdav, restoreFromWebdav, testWebdav, verifyWebdav, WebdavConnectError, type WebdavDraft } from '../services/webdav'
+import { detectProvider, displayHost, providerOf, WEBDAV_PROVIDERS, type WebdavProviderId } from '../services/webdavProviders'
+import { syncConfigured, syncNow, syncState, waitForSync } from '../services/sync'
+import type { SyncResult } from '../services/sync/types'
 import {
   accountState,
   deleteAccount,
@@ -45,20 +47,154 @@ const busy = ref('')
 const busyScope = ref<'dav' | 'local'>('local')
 const backupInput = ref<HTMLInputElement>()
 
-// ---- WebDAV ----
-const davInfo = ref('')
+// ---- WebDAV 网盘 ----
+// 未连接: 选服务商 → 填账号与 (应用) 密码 → 「连接」一次完成校验、保存、开自动同步与首次同步.
+// 已连接: 折叠为状态卡; 「修改」重新展开表单 (草稿), 校验通过才写回 settings.
+const davConnected = computed(() => !!settings.webdavUrl.trim())
+const davProviderId = computed(() => detectProvider(settings.webdavUrl, settings.webdavProvider))
+const davProvider = computed(() => providerOf(davProviderId.value))
+const davEditing = ref(false)
+const davShowForm = computed(() => !davConnected.value || davEditing.value)
+const davDraft = reactive<WebdavDraft>({ provider: 'jianguoyun', address: '', user: '', pass: '' })
+const draftProvider = computed(() => providerOf(davDraft.provider))
+/** 连接进度: '' 空闲 / verify 校验中 / sync 首次同步中 */
+const davStage = ref<'' | 'verify' | 'sync'>('')
+const davError = ref('')
+const davErrorKind = ref('')
+const davInfo = ref<{ text: string; error: boolean } | null>(null)
+const davPassInput = ref<HTMLInputElement>()
+/** 网页版直连服务商时要提醒跨域 (固定服务商经中转, 无需提醒) */
+const davWebNote = computed(() => {
+  if (isTauri()) return ''
+  return draftProvider.value.relay ? t('webdav.relayNote') : t('webdav.corsNote')
+})
+
+function resetDavDraft() {
+  const connected = davConnected.value
+  davDraft.provider = connected ? davProviderId.value : 'jianguoyun'
+  davDraft.address = connected && !davProvider.value.url ? settings.webdavUrl : ''
+  davDraft.user = connected ? settings.webdavUser : ''
+  davDraft.pass = connected ? settings.webdavPass : ''
+  davError.value = ''
+  davErrorKind.value = ''
+}
+resetDavDraft()
+
+function pickDavProvider(id: WebdavProviderId) {
+  if (davStage.value) return
+  davDraft.provider = id
+  davError.value = ''
+  davErrorKind.value = ''
+}
+
+// 改了表单就清掉上次的错误提示
+watch(() => [davDraft.address, davDraft.user, davDraft.pass], () => {
+  if (!davStage.value) { davError.value = ''; davErrorKind.value = '' }
+})
+
+function startDavEdit() {
+  resetDavDraft()
+  davEditing.value = true
+  davInfo.value = null
+}
+
+function cancelDavEdit() {
+  if (davStage.value) return
+  davEditing.value = false
+  resetDavDraft()
+}
+
+async function openExternalUrl(url: string) {
+  try {
+    await openDownload(url)
+  } catch {
+    toast(t('update.cannotOpenLink'), 'error')
+  }
+}
+
+const davStageText = computed(() => {
+  if (davStage.value === 'verify') return t('webdav.verifying')
+  if (davStage.value === 'sync') return syncState.message || t('webdav.firstSync')
+  return ''
+})
+
+async function connectWebdav() {
+  if (davStage.value) return
+  davError.value = ''
+  davErrorKind.value = ''
+  davStage.value = 'verify'
+  let url: string
+  try {
+    url = await verifyWebdav(davDraft)
+  } catch (e: any) {
+    davStage.value = ''
+    davError.value = e?.message || t('common.unknownError')
+    davErrorKind.value = e instanceof WebdavConnectError ? e.kind : ''
+    if (davErrorKind.value === 'auth') {
+      await nextTick()
+      davPassInput.value?.select()
+    }
+    return
+  }
+  settings.webdavProvider = davDraft.provider
+  settings.webdavUrl = url
+  settings.webdavUser = davDraft.user.trim()
+  settings.webdavPass = davDraft.pass
+  // 连网盘就是为了同步: 打开自动同步, 立刻同步一次
+  settings.webdavSyncAuto = true
+  davStage.value = 'sync'
+  const name = t(`webdav.provider.${davDraft.provider}`)
+  try {
+    const r = await syncNow()
+    // 有实际下载 / 待补文件时才附上同步明细, 否则一句「已连接」即可
+    const detail = r.downloadedBooks > 0 || r.pendingBooks > 0 ? ' · ' + syncResultText(r) : ''
+    toast(t('webdav.connectedToast', { name }) + detail, 'success', detail ? 6000 : 4000)
+  } catch (e: any) {
+    // 已通过校验并保存; 首次同步的错误留在同步状态行
+    toast(t('sync.failed', { msg: e?.message ?? t('common.unknownError') }), 'error', 6000)
+  } finally {
+    davStage.value = ''
+    davEditing.value = false
+  }
+}
+
+const showDavDisconnect = ref(false)
+const davDisconnectCancel = ref<HTMLButtonElement>()
+
+async function openDavDisconnect() {
+  showDavDisconnect.value = true
+  await nextTick()
+  davDisconnectCancel.value?.focus()
+}
+
+async function confirmDavDisconnect() {
+  // 正在同步时等它结束, 免得半路换掉配置
+  await waitForSync()
+  settings.webdavUrl = ''
+  settings.webdavUser = ''
+  settings.webdavPass = ''
+  settings.webdavProvider = ''
+  showDavDisconnect.value = false
+  davEditing.value = false
+  davInfo.value = null
+  resetDavDraft()
+  toast(t('webdav.disconnected'), 'success')
+}
 
 async function davTest() {
   busyScope.value = 'dav'
-  busy.value = t('settings.testing')
+  busy.value = t('webdav.testing')
+  davInfo.value = null
   try {
-    await testWebdav()
-    const info = await webdavBackupInfo()
-    davInfo.value = info
-      ? t('settings.davOk', { size: (info.size / 1024 / 1024).toFixed(1), date: info.modified.slice(0, 22) })
-      : t('settings.davOkEmpty')
+    const info = await testWebdav()
+    davInfo.value = {
+      error: false,
+      text: info
+        ? t('webdav.testOk', { size: (info.size / 1024 / 1024).toFixed(1), date: info.modified.slice(0, 22) })
+        : t('webdav.testOkEmpty'),
+    }
   } catch (e: any) {
-    davInfo.value = `❌ ${e?.message}`
+    davInfo.value = { error: true, text: e?.message || t('common.unknownError') }
   } finally {
     busy.value = ''
   }
@@ -66,31 +202,42 @@ async function davTest() {
 
 async function davBackup() {
   busyScope.value = 'dav'
-  busy.value = t('settings.preparingBackup')
+  busy.value = t('webdav.preparingBackup')
+  davInfo.value = null
   try {
     await backupToWebdav(msg => (busy.value = msg))
-    toast(t('settings.backedUp'), 'success')
-    davInfo.value = ''
+    toast(t('webdav.backedUp'), 'success')
   } catch (e: any) {
-    toast(t('settings.cloudBackupFailed', { msg: e?.message }), 'error', 6000)
+    toast(t('webdav.backupFailed', { msg: e?.message }), 'error', 6000)
   } finally {
     busy.value = ''
   }
 }
 
 async function davRestore() {
-  if (!confirm(t('settings.restoreConfirm'))) return
+  if (!confirm(t('webdav.restoreConfirm'))) return
   busyScope.value = 'dav'
-  busy.value = t('settings.connectingCloud')
+  busy.value = t('webdav.connectingCloud')
+  davInfo.value = null
   try {
     const result = await restoreFromWebdav(msg => (busy.value = msg))
     await library.refresh()
-    toast(t('settings.restoreDone', { books: result.books, annotations: result.annotations }), 'success', 5000)
+    toast(t('webdav.restoreDone', { books: result.books, annotations: result.annotations }), 'success', 5000)
   } catch (e: any) {
     toast(t('settings.restoreFailed', { msg: e?.message }), 'error', 6000)
   } finally {
     busy.value = ''
   }
+}
+
+const DAV_PROVIDER_ICONS: Record<WebdavProviderId, string> = {
+  // 云
+  jianguoyun: 'M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 8.5a4.75 4.75 0 0 1-.25 9.5H7z',
+  koofr: 'M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 8.5a4.75 4.75 0 0 1-.25 9.5H7z',
+  // 服务器
+  selfhosted: 'M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v4a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 9.5v-4zm0 9A1.5 1.5 0 0 1 5.5 13h13a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-4zM8 7.5h.01M8 16.5h.01',
+  // 链接
+  other: 'M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1',
 }
 
 // ---- 轻阅账号 ----
@@ -168,6 +315,8 @@ async function sendLoginCode() {
 
 function onCodeInput() {
   loginCode.value = loginCode.value.replace(/\D/g, '').slice(0, 6)
+  // 输满 6 位 (含粘贴 / 短信自动填充) 直接登录, 不用再点按钮
+  if (loginCode.value.length === 6 && !verifying.value) submitLogin()
 }
 
 async function submitLogin() {
@@ -261,6 +410,12 @@ const syncReady = computed(() => {
     return false
   }
 })
+const syncTargetNames = computed(() => {
+  const names: string[] = []
+  if (loggedIn.value) names.push(t('account.title'))
+  if (davConnected.value) names.push(t(`webdav.provider.${davProviderId.value}`))
+  return names.join(t('sync.targetSep'))
+})
 const syncNowTick = ref(Date.now())
 const syncTicker = window.setInterval(() => (syncNowTick.value = Date.now()), 30_000)
 onBeforeUnmount(() => window.clearInterval(syncTicker))
@@ -290,13 +445,17 @@ const syncStatus = computed(() => {
   return { text: t('sync.never'), error: false }
 })
 
+function syncResultText(r: SyncResult): string {
+  let msg = t('sync.done', { applied: r.applied, downloaded: r.downloadedBooks, uploaded: r.uploadedFiles })
+  if (r.pendingBooks > 0) msg += t('sync.pending', { pending: r.pendingBooks })
+  return msg
+}
+
 async function doSyncNow() {
   if (syncState.running) return
   try {
     const r = await syncNow()
-    let msg = t('sync.done', { applied: r.applied, downloaded: r.downloadedBooks, uploaded: r.uploadedFiles })
-    if (r.pendingBooks > 0) msg += t('sync.pending', { pending: r.pendingBooks })
-    toast(msg, 'success', r.pendingBooks > 0 ? 6000 : 4000)
+    toast(syncResultText(r), 'success', r.pendingBooks > 0 ? 6000 : 4000)
   } catch (e: any) {
     toast(t('sync.failed', { msg: e?.message ?? t('common.unknownError') }), 'error', 6000)
   }
@@ -624,21 +783,49 @@ const APPEARANCE_OPTIONS = [
     <section class="card section sync-section" aria-labelledby="settings-sync-heading">
       <h2 id="settings-sync-heading">{{ t('settings.syncSection') }}</h2>
 
+      <!-- 同步状态: 账号与 WebDAV 共用, 有同步目标时显示 -->
+      <div v-if="syncReady" class="sync-bar">
+        <div class="sync-bar-main">
+          <span class="sync-bar-icon" :class="{ error: syncStatus.error }" aria-hidden="true">
+            <svg v-if="syncStatus.error" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5m0 3.5h.01M10.3 3.9 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>
+            <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 8.5a4.75 4.75 0 0 1-.25 9.5H7z" /><path d="m9.5 13.5 2 2 3.5-4" /></svg>
+          </span>
+          <div class="sync-bar-text">
+            <div class="row-title">{{ t('sync.targets', { targets: syncTargetNames }) }}</div>
+            <span class="sync-status" :class="{ error: syncStatus.error }" role="status" aria-live="polite">{{ syncStatus.text }}</span>
+          </div>
+          <button class="btn btn-sm btn-primary sync-now" :disabled="syncState.running || !!busy || !!davStage" @click="doSyncNow">
+            <svg :class="{ spinning: syncState.running }" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2M3 12a9 9 0 0 1 15.5-6.2" /><path d="M18.5 2.5v3.7h-3.7M5.5 21.5v-3.7h3.7" /></svg>
+            {{ syncState.running ? t('sync.running') : t('sync.now') }}
+          </button>
+        </div>
+        <label class="toggle-row">
+          <span class="toggle-text">
+            <span class="row-title">{{ t('sync.auto') }}</span>
+            <span class="row-desc">{{ t('sync.autoHint') }}</span>
+          </span>
+          <span class="switch">
+            <input v-model="settings.webdavSyncAuto" type="checkbox" role="switch" :aria-checked="settings.webdavSyncAuto" />
+            <span class="switch-track" aria-hidden="true"></span>
+          </span>
+        </label>
+      </div>
+
       <!-- 轻阅账号 -->
-      <div class="account-block">
+      <div class="sync-block account-block">
         <template v-if="loggedIn">
-          <div class="account-signed-in">
-            <span class="account-avatar" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11z" /><path d="m4.5 7 7.5 5.5L19.5 7" /></svg>
+          <div class="conn-card">
+            <span class="conn-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11z" /><path d="m4.5 7 7.5 5.5L19.5 7" /></svg>
             </span>
-            <div class="account-id">
+            <div class="conn-id">
               <div class="row-title">
                 {{ t('account.title') }}
-                <span class="account-chip">{{ t('account.loggedIn') }}</span>
+                <span class="conn-chip">{{ t('account.loggedIn') }}</span>
               </div>
-              <div class="account-email">{{ accountState.account?.email }}</div>
+              <div class="conn-sub">{{ accountState.account?.email }}</div>
             </div>
-            <div class="row-actions">
+            <div class="conn-actions">
               <button class="btn btn-sm" :disabled="accountBusy" @click="doLogout">{{ t('account.logout') }}</button>
             </div>
           </div>
@@ -702,59 +889,145 @@ const APPEARANCE_OPTIONS = [
         </template>
       </div>
 
-      <!-- 同步控制: 账号与 WebDAV 共用 -->
-      <div class="sync-options">
-        <label class="toggle-row">
-          <span class="toggle-text">
-            <span class="row-title">{{ t('sync.auto') }}</span>
-            <span class="row-desc">{{ t('sync.autoHint') }}</span>
-          </span>
-          <span class="switch">
-            <input v-model="settings.webdavSyncAuto" type="checkbox" role="switch" :aria-checked="settings.webdavSyncAuto" />
-            <span class="switch-track" aria-hidden="true"></span>
-          </span>
-        </label>
-      </div>
-      <div class="webdav-actions sync-now-row">
-        <button class="btn btn-sm btn-primary sync-now" :disabled="syncState.running || !syncReady || !!busy" @click="doSyncNow">
-          <svg :class="{ spinning: syncState.running }" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2M3 12a9 9 0 0 1 15.5-6.2" /><path d="M18.5 2.5v3.7h-3.7M5.5 21.5v-3.7h3.7" /></svg>
-          {{ syncState.running ? t('sync.running') : t('sync.now') }}
-        </button>
-        <span class="sync-status" :class="{ error: syncStatus.error }" role="status" aria-live="polite">{{ syncStatus.text }}</span>
-      </div>
+      <!-- WebDAV 网盘 -->
+      <div class="sync-block webdav-block">
+        <template v-if="!davShowForm">
+          <div class="conn-card">
+            <span class="conn-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="DAV_PROVIDER_ICONS[davProviderId]" /></svg>
+            </span>
+            <div class="conn-id">
+              <div class="row-title">
+                {{ t(`webdav.provider.${davProviderId}`) }}
+                <span class="conn-chip">{{ t('webdav.connected') }}</span>
+              </div>
+              <div class="conn-sub">
+                {{ settings.webdavUser }}<template v-if="!davProvider.url"> · {{ displayHost(settings.webdavUrl) }}</template>
+              </div>
+            </div>
+            <div class="conn-actions">
+              <button class="btn btn-sm" :disabled="!!busy" @click="startDavEdit">{{ t('webdav.edit') }}</button>
+              <button class="btn btn-sm" :disabled="!!busy" @click="openDavDisconnect">{{ t('webdav.disconnect') }}</button>
+            </div>
+          </div>
+          <div class="sync-options">
+            <label class="toggle-row">
+              <span class="toggle-text">
+                <span class="row-title">{{ t('sync.files') }}</span>
+                <span class="row-desc">{{ t('sync.filesHint') }}</span>
+              </span>
+              <span class="switch">
+                <input v-model="settings.webdavSyncFiles" type="checkbox" role="switch" :aria-checked="settings.webdavSyncFiles" />
+                <span class="switch-track" aria-hidden="true"></span>
+              </span>
+            </label>
+          </div>
+          <details class="dav-more">
+            <summary>
+              <svg class="dav-more-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+              {{ t('webdav.more') }}
+            </summary>
+            <div class="dav-more-body">
+              <div class="webdav-actions">
+                <button class="btn btn-sm" :disabled="!!busy || syncState.running" @click="davTest">{{ t('settings.testConnection') }}</button>
+                <button class="btn btn-sm" :disabled="!!busy || syncState.running" @click="davBackup">{{ t('webdav.backup') }}</button>
+                <button class="btn btn-sm" :disabled="!!busy || syncState.running" @click="davRestore">{{ t('webdav.restore') }}</button>
+              </div>
+              <div class="row-desc">{{ t('webdav.backupDesc') }}</div>
+              <div v-if="busy && busyScope === 'dav'" class="busy" role="status">{{ busy }}</div>
+              <div v-else-if="davInfo" class="dav-info" :class="{ error: davInfo.error }" role="status">{{ davInfo.text }}</div>
+            </div>
+          </details>
+        </template>
 
-      <!-- WebDAV 网盘 (可选) -->
-      <div class="webdav-block">
-        <div class="row-title">{{ t('settings.webdavTitle') }}</div>
-        <div class="row-desc">
-          {{ t('settings.webdavDesc') }}<br />
-          {{ t('settings.webdavExample') }}: <code>https://dav.jianguoyun.com/dav/</code> {{ t('settings.webdavPassHint') }}
-        </div>
-        <div class="webdav-grid">
-          <input v-model="settings.webdavUrl" class="input" type="url" inputmode="url" placeholder="https://dav.jianguoyun.com/dav/" :aria-label="t('settings.webdavUrl')" />
-          <input v-model="settings.webdavUser" class="input" :placeholder="t('settings.account')" :aria-label="t('settings.account')" autocomplete="off" />
-          <input v-model="settings.webdavPass" class="input" type="password" :placeholder="t('settings.password')" :aria-label="t('settings.password')" autocomplete="new-password" />
-        </div>
-        <div class="sync-options">
-          <label class="toggle-row">
-            <span class="toggle-text">
-              <span class="row-title">{{ t('sync.files') }}</span>
-              <span class="row-desc">{{ t('sync.filesHint') }}</span>
-            </span>
-            <span class="switch">
-              <input v-model="settings.webdavSyncFiles" type="checkbox" role="switch" :aria-checked="settings.webdavSyncFiles" />
-              <span class="switch-track" aria-hidden="true"></span>
-            </span>
-          </label>
-        </div>
-        <div class="webdav-actions">
-          <span class="backup-label">{{ t('sync.backupLabel') }}</span>
-          <button class="btn btn-sm" :disabled="!!busy || !settings.webdavUrl" @click="davTest">{{ t('settings.testConnection') }}</button>
-          <button class="btn btn-sm" :disabled="!!busy || !settings.webdavUrl" @click="davBackup">{{ t('settings.backupToCloud') }}</button>
-          <button class="btn btn-sm" :disabled="!!busy || !settings.webdavUrl" @click="davRestore">{{ t('settings.restoreFromCloud') }}</button>
-          <span v-if="davInfo" class="dav-info">{{ davInfo }}</span>
-        </div>
-        <div v-if="busy && busyScope === 'dav'" class="busy">{{ busy }}</div>
+        <template v-else>
+          <div class="row-title">{{ t('webdav.title') }}</div>
+          <div class="row-desc">{{ t('webdav.desc') }}</div>
+          <div class="dav-providers" role="group" :aria-label="t('webdav.chooseProvider')">
+            <button
+              v-for="p in WEBDAV_PROVIDERS"
+              :key="p.id"
+              type="button"
+              class="dav-provider"
+              :class="{ active: davDraft.provider === p.id }"
+              :aria-pressed="davDraft.provider === p.id"
+              :disabled="!!davStage"
+              @click="pickDavProvider(p.id)"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="DAV_PROVIDER_ICONS[p.id]" /></svg>
+              <span class="dav-provider-text">
+                <span class="dav-provider-name">{{ t(`webdav.provider.${p.id}`) }}</span>
+                <span class="dav-provider-hint">{{ t(`webdav.providerHint.${p.id}`) }}</span>
+              </span>
+            </button>
+          </div>
+
+          <form class="dav-form" novalidate @submit.prevent="connectWebdav">
+            <div v-if="!draftProvider.url" class="field">
+              <label class="field-label" for="dav-address">{{ t('webdav.address') }}</label>
+              <input
+                id="dav-address"
+                v-model="davDraft.address"
+                class="input"
+                type="url"
+                inputmode="url"
+                autocapitalize="off"
+                autocomplete="url"
+                spellcheck="false"
+                :placeholder="t(`webdav.addressPlaceholder.${davDraft.provider}`)"
+                :disabled="!!davStage"
+              />
+              <div class="field-hint">{{ t(`webdav.addressHint.${davDraft.provider}`) }}</div>
+            </div>
+            <div class="dav-grid">
+              <div class="field">
+                <label class="field-label" for="dav-user">{{ t('webdav.user') }}</label>
+                <input
+                  id="dav-user"
+                  v-model="davDraft.user"
+                  class="input"
+                  autocomplete="username"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  :placeholder="t(`webdav.userPlaceholder.${draftProvider.url ? davDraft.provider : 'default'}`)"
+                  :disabled="!!davStage"
+                />
+              </div>
+              <div class="field">
+                <label class="field-label" for="dav-pass">{{ draftProvider.appPasswordUrl ? t('webdav.appPassword') : t('webdav.password') }}</label>
+                <input
+                  id="dav-pass"
+                  ref="davPassInput"
+                  v-model="davDraft.pass"
+                  class="input"
+                  type="password"
+                  autocomplete="current-password"
+                  :placeholder="draftProvider.appPasswordUrl ? t('webdav.appPasswordPlaceholder') : t('webdav.passwordPlaceholder')"
+                  :aria-invalid="davErrorKind === 'auth'"
+                  :aria-describedby="davError ? 'dav-error' : undefined"
+                  :disabled="!!davStage"
+                />
+              </div>
+            </div>
+            <div v-if="draftProvider.appPasswordUrl" class="field-hint dav-app-pass">
+              {{ t(`webdav.appPasswordHint.${davDraft.provider}`) }}
+              <button type="button" class="link-btn" @click="openExternalUrl(draftProvider.appPasswordUrl!)">
+                {{ t(`webdav.getAppPassword.${davDraft.provider}`) }}
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" /></svg>
+              </button>
+            </div>
+            <div v-if="davWebNote" class="field-hint">{{ davWebNote }}</div>
+            <div v-if="davError" id="dav-error" class="dav-error" role="alert">{{ davError }}</div>
+            <div class="dav-submit">
+              <button type="submit" class="btn btn-primary dav-connect" :disabled="!!davStage">
+                <svg v-if="davStage" class="spinning" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.56" /></svg>
+                {{ davStage ? t('webdav.connecting') : t('webdav.connect') }}
+              </button>
+              <button v-if="davEditing" type="button" class="btn" :disabled="!!davStage" @click="cancelDavEdit">{{ t('common.cancel') }}</button>
+              <span v-if="davStageText" class="dav-stage" role="status" aria-live="polite">{{ davStageText }}</span>
+            </div>
+          </form>
+        </template>
       </div>
     </section>
 
@@ -1036,6 +1309,17 @@ const APPEARANCE_OPTIONS = [
       </div>
     </section>
 
+    <div v-if="showDavDisconnect" class="modal-mask" @click.self="showDavDisconnect = false" @keydown.esc="showDavDisconnect = false">
+      <div class="modal delete-account-modal" role="alertdialog" aria-modal="true" aria-labelledby="dav-disconnect-title" aria-describedby="dav-disconnect-desc">
+        <h3 id="dav-disconnect-title">{{ t('webdav.disconnectTitle', { name: t(`webdav.provider.${davProviderId}`) }) }}</h3>
+        <p id="dav-disconnect-desc" class="modal-text">{{ t('webdav.disconnectConfirm') }}</p>
+        <div class="modal-actions">
+          <button ref="davDisconnectCancel" class="btn btn-sm" @click="showDavDisconnect = false">{{ t('common.cancel') }}</button>
+          <button class="btn btn-sm btn-danger" @click="confirmDavDisconnect">{{ t('webdav.disconnect') }}</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showDeleteAccount" class="modal-mask" @click.self="closeDeleteAccount" @keydown.esc="closeDeleteAccount">
       <div class="modal delete-account-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-account-title" aria-describedby="delete-account-desc">
         <h3 id="delete-account-title">{{ t('account.deleteTitle') }}</h3>
@@ -1142,18 +1426,6 @@ h2 {
 .agent-path-row .input { flex: 1; min-width: 0; }
 .agent-engine-meta { margin-top: 5px; color: var(--text-3); font-size: 10.5px; overflow-wrap: anywhere; }
 .agent-settings-note { margin: 10px 0 0; color: var(--text-3); font-size: 11px; line-height: 1.55; }
-.webdav-grid {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-.webdav-grid .input:first-child {
-  flex: 2;
-}
-.webdav-grid .input {
-  flex: 1;
-  min-width: 0;
-}
 .webdav-actions {
   display: flex;
   gap: 8px;
@@ -1163,7 +1435,12 @@ h2 {
 }
 .dav-info {
   font-size: 12px;
-  color: var(--text-3);
+  color: var(--success);
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.dav-info.error {
+  color: var(--danger);
 }
 .sync-options {
   margin-top: 6px;
@@ -1240,7 +1517,7 @@ h2 {
   to { transform: rotate(360deg); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sync-now .spinning { animation: none; }
+  .sync-now .spinning, .dav-connect .spinning { animation: none; }
   .switch-track, .switch-track::after { transition: none; }
 }
 .sync-status {
@@ -1251,10 +1528,6 @@ h2 {
 }
 .sync-status.error {
   color: var(--danger);
-}
-.account-block {
-  padding: 4px 0 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 .account-form {
   display: flex;
@@ -1268,6 +1541,10 @@ h2 {
 .account-code-input {
   font-family: var(--font-mono);
   letter-spacing: 0.2em;
+}
+.account-code-input::placeholder {
+  font-family: var(--font);
+  letter-spacing: normal;
 }
 .account-send {
   flex-shrink: 0;
@@ -1286,12 +1563,12 @@ h2 {
   margin-top: 8px;
   overflow-wrap: anywhere;
 }
-.account-signed-in {
+.conn-card {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-.account-avatar {
+.conn-icon {
   width: 36px;
   height: 36px;
   flex-shrink: 0;
@@ -1301,32 +1578,37 @@ h2 {
   background: var(--brand-light);
   color: var(--brand);
 }
-.account-id {
+.conn-id {
   flex: 1;
   min-width: 0;
 }
-.account-id .row-title {
+.conn-id .row-title {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
-.account-chip {
+.conn-chip {
   font-size: 11.5px;
   font-weight: 500;
   color: var(--success);
-  background: color-mix(in srgb, var(--success) 12%, transparent);
+  background: var(--success-soft);
   border-radius: var(--radius-pill);
   padding: 0 8px;
   line-height: 20px;
 }
-.account-email {
+.conn-sub {
   font-size: 13px;
   color: var(--text-2);
   margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.conn-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 .account-foot {
   display: flex;
@@ -1359,20 +1641,223 @@ h2 {
   opacity: 0.5;
   cursor: default;
 }
-.sync-now-row {
-  margin-top: 2px;
-  padding-bottom: 12px;
+.sync-bar {
+  background: var(--surface-2);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px 2px;
+  margin-bottom: 4px;
+}
+.sync-bar-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sync-bar-icon {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--success-soft);
+  color: var(--success);
+}
+.sync-bar-icon.error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.sync-bar-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sync-bar .toggle-row {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  margin-top: 10px;
+}
+.sync-block {
+  padding: 14px 0;
+}
+.sync-block + .sync-block {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 .webdav-block {
-  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  padding-top: 12px;
+  padding-bottom: 2px;
 }
-.webdav-block code {
-  font-family: var(--font-mono);
-  font-size: 0.92em;
-  background: var(--surface-2);
-  padding: 1px 5px;
+.dav-providers {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.dav-provider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap-min);
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--text-2);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.dav-provider svg {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+.dav-provider:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.dav-provider.active {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--text);
+}
+.dav-provider.active svg {
+  color: var(--brand);
+}
+.dav-provider:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+.dav-provider:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.dav-provider-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.dav-provider-name {
+  font-size: 13.5px;
+  font-weight: 550;
+}
+.dav-provider-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin-top: 1px;
+}
+.dav-form {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dav-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.field-label {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-2);
+}
+.field-hint {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 550;
+  color: var(--brand);
+  cursor: pointer;
+}
+.link-btn:hover {
+  text-decoration: underline;
+}
+.link-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
   border-radius: 4px;
+}
+.dav-error {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+}
+.dav-submit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.dav-connect {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 112px;
+}
+.dav-connect .spinning {
+  animation: sync-spin 1s linear infinite;
+}
+.dav-stage {
+  font-size: 12px;
+  color: var(--text-3);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.dav-more {
+  margin-top: 2px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.dav-more summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--tap-min);
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  list-style: none;
+}
+.dav-more summary::-webkit-details-marker {
+  display: none;
+}
+.dav-more summary:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: 4px;
+}
+.dav-more-chevron {
+  transition: transform var(--dur-fast) var(--ease);
+}
+.dav-more[open] .dav-more-chevron {
+  transform: rotate(90deg);
+}
+.dav-more-body {
+  padding-bottom: 10px;
+}
+.dav-more-body .webdav-actions {
+  margin-top: 0;
+}
+.dav-more-body .row-desc {
+  margin-top: 8px;
 }
 .delete-account-modal {
   width: min(420px, 100%);
@@ -1666,7 +2151,6 @@ h2 {
   .row .segmented {
     align-self: flex-start;
   }
-  .webdav-grid,
   .ai-grid,
   .proxy-grid,
   .account-form {
@@ -1680,10 +2164,33 @@ h2 {
     align-items: flex-start;
     gap: 6px;
   }
+  .dav-providers,
+  .dav-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .dav-grid {
+    grid-template-columns: 1fr;
+  }
+  .dav-connect {
+    flex: 1;
+  }
+  .conn-card {
+    flex-wrap: wrap;
+  }
+  .conn-actions {
+    width: 100%;
+    padding-left: 48px;
+  }
+  .sync-bar-main {
+    flex-wrap: wrap;
+  }
+  .sync-bar-main .sync-now {
+    width: 100%;
+    justify-content: center;
+  }
   .modal-actions .btn {
     flex: 1;
   }
-  .webdav-grid .input,
   .account-form .input,
   .ai-grid .input,
   .proxy-grid .input,

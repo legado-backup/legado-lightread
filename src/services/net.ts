@@ -6,13 +6,15 @@
  */
 import { isTauri } from '../storage/types'
 import { useSettings } from '../stores/settings'
+import { accountApiBase } from './account'
+import { webdavRelayUrl } from './webdavProviders'
 
 export interface RequestAuth {
   username?: string
   password?: string
 }
 
-function authHeader(auth?: RequestAuth): Record<string, string> {
+export function authHeader(auth?: RequestAuth): Record<string, string> {
   if (!auth?.username) return {}
   const raw = `${auth.username}:${auth.password ?? ''}`
   // btoa 只接受 latin1, 先做 UTF-8 编码
@@ -22,12 +24,18 @@ function authHeader(auth?: RequestAuth): Record<string, string> {
 
 function applyCorsProxy(url: string): string {
   if (isTauri()) return url
+  // 坚果云等不支持跨域的固定 WebDAV 服务商: 经轻阅同步服务中转 (见 webdavProviders.ts)
+  const relayed = webdavRelayUrl(url, accountApiBase())
+  if (relayed) return relayed
   const proxy = useSettings().corsProxy.trim()
   if (!proxy) return url
   return proxy.includes('{url}')
     ? proxy.replace('{url}', encodeURIComponent(url))
     : proxy + encodeURIComponent(url)
 }
+
+export const REMOTE_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 LightRead'
 
 const STATUS_HINTS: Record<number, string> = {
   401: '需要账号授权 (401)。请在书源设置中填写用户名和密码。',
@@ -53,7 +61,7 @@ export async function fetchRemote(
   const headers: Record<string, string> = {
     accept: 'application/atom+xml, application/xml, text/xml, */*',
     // 部分站点 (如古登堡) 拦截非浏览器 UA; 浏览器环境此头会被忽略, 桌面端由 Rust 发送
-    'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 LightRead',
+    'user-agent': REMOTE_USER_AGENT,
     ...authHeader(auth),
     ...(init.headers ?? {}),
   }

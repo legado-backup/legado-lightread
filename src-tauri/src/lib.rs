@@ -3,6 +3,7 @@ mod babeldoc;
 mod calibre;
 mod edge_tts;
 mod fonts;
+mod http_upload;
 mod local_tts;
 
 use std::{collections::HashSet, path::Path, sync::Mutex};
@@ -156,6 +157,7 @@ pub fn run() {
       agent::worksheet::agent_worksheet_commit_human,
       edge_tts::edge_tts_synthesize,
       fonts::list_system_fonts,
+      http_upload::http_upload,
       calibre::calibre_list_books,
       calibre::calibre_read_file,
       local_tts::local_tts_status,

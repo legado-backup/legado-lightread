@@ -2,7 +2,7 @@
  * 多端同步协议类型. 规则见 docs/sync.md.
  * 本文件是 merge (纯函数) / engine (编排) / remote (后端) 三者之间的契约.
  */
-import type { AnnotationRec, BookMeta, CatalogSourceRec } from '../../storage/types'
+import type { AnnotationRec, BookMeta, CatalogSourceRec, LocalFileRef } from '../../storage/types'
 
 export const SYNC_FORMAT = 1
 
@@ -156,7 +156,8 @@ export interface SyncRemote {
   putDoc(doc: SyncDoc): Promise<void>
   /** 已上传的文件名集合 */
   listFiles(): Promise<Set<string>>
-  putFile(name: string, blob: Blob): Promise<void>
+  /** data 为书库本地文件引用时, 能直接读盘的后端 (桌面 / 安卓的 WebDAV) 不把内容读进 JS */
+  putFile(name: string, data: Blob | LocalFileRef): Promise<void>
   /** 不存在返回 null */
   getFile(name: string): Promise<Blob | null>
 }
