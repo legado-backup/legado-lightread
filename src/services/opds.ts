@@ -3,6 +3,7 @@ import { getFeed, isOPDSCatalog, SYMBOL } from 'foliate-js/opds.js'
 import { fetchXml, fetchBlob, type RequestAuth } from './net'
 import { detectFormat } from './format'
 import { importFile } from './importer'
+import { t } from '../i18n'
 
 export interface OpdsNavItem {
   title: string
@@ -154,6 +155,19 @@ export async function downloadToLibrary(
   kind?: 'book' | 'paper',
 ) {
   const { blob, contentType } = await fetchBlob(acq.href, auth)
+  const htmlMime = /^(?:text\/html|application\/xhtml\+xml)(?:\s*;|\s*$)/i
+  const expectsHtml = htmlMime.test(acq.type.trim()) || /^(?:html?|xhtml)$/i.test(acq.label.trim())
+  if (!expectsHtml) {
+    // 部分源的登录/验证页也返回 200，不能按 EPUB/PDF 等格式交给导入器。
+    // 仅检查开头，避免将 TXT 正文中的 HTML 示例误判为网页响应。
+    const prefix = (await blob.slice(0, 4096).text()).trimStart()
+      .replace(/^<\?xml\b[\s\S]*?\?>\s*/i, '')
+      .replace(/^(?:<!--[\s\S]*?-->\s*)+/, '')
+    const looksHtml = /^(?:<!doctype\s+html\b|<(?:html|head|body)(?:\s|>))/i.test(prefix)
+    if (htmlMime.test(contentType.trim()) || looksHtml) {
+      throw new Error(t('catalog.downloadReturnedWebpage'))
+    }
+  }
   // 从 URL 或 MIME 推断文件名
   let ext = acq.label.toLowerCase()
   if (ext === 'mobi') ext = 'mobi'

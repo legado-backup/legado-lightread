@@ -1,6 +1,7 @@
 import { getStorage, type NewBookMeta } from '../storage'
 import { detectFormat, isFoliateNative, isTextLike } from './format'
 import { convertToEpub } from './textToEpub'
+import { makeFoliateBook } from './foliateBook'
 
 /** foliate 的 metadata 字段可能是字符串 / 对象 / 数组, 统一压平为字符串 */
 function flattenMeta(value: any): string {
@@ -17,8 +18,7 @@ function flattenMeta(value: any): string {
 }
 
 async function extractFoliateMeta(file: File) {
-  const { makeBook } = await import('foliate-js/view.js')
-  const book = await makeBook(file)
+  const book = await makeFoliateBook(file)
   const meta = book.metadata ?? {}
   let cover: Blob | undefined
   try {

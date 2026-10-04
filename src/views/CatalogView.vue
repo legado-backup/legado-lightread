@@ -16,6 +16,10 @@ import {
   type GithubBookHit, type CommunityRepo,
 } from '../services/githubBooks'
 import { openDownload } from '../services/updater'
+import { searchWikisource, type WikisourceBook } from '../services/wikisource'
+import { searchOpenLibrary, type OpenLibraryBook } from '../services/openLibrary'
+import { searchInternetArchive, loadArchivePublication, type ArchiveBook } from '../services/internetArchive'
+import { WEB_BOOK_SOURCES, webBookSourceUrl } from '../services/webBookSources'
 import { arxivSearchUrl as arxivSearchUrlOf, loadArxivPage as loadArxivPageOf } from '../services/arxiv'
 import { importFromUrl } from '../services/urlImport'
 import { useSettings } from '../stores/settings'
@@ -89,9 +93,31 @@ async function importGhBook(hit: GithubBookHit) {
   }
 }
 
-// ---- 统一搜书: GitHub 书库 / 古登堡计划 / arXiv ----
+// ---- 统一搜书: 默认优先免登录的公开图书 ----
 const uniQuery = ref('')
-const uniScopes = reactive({ github: true, gutenberg: true, arxiv: false })
+const uniScopes = reactive({ github: true, gutenberg: true, archive: true, wikisource: true, openlibrary: false, arxiv: false })
+const hasSearchScope = computed(() => Object.values(uniScopes).some(Boolean))
+const uniWikisource = ref<WikisourceBook[]>([])
+const uniArchive = ref<ArchiveBook[]>([])
+const uniOpenLibrary = ref<OpenLibraryBook[]>([])
+const archivePublications = reactive<Record<string, OpdsPublication>>(Object.create(null))
+const archiveLoading = reactive(new Set<string>())
+
+async function showArchiveDownloads(book: ArchiveBook) {
+  if (archiveLoading.has(book.identifier)) return
+  archiveLoading.add(book.identifier)
+  try {
+    archivePublications[book.identifier] = await loadArchivePublication(book)
+  } catch (e: any) {
+    toast(t('catalog.loadFailed') + ': ' + (e?.message ?? e), 'error', 6000)
+  } finally {
+    archiveLoading.delete(book.identifier)
+  }
+}
+
+function openBookWebsite(url: string) {
+  void openDownload(url).catch(e => toast(t('catalog.loadFailed') + ': ' + (e?.message ?? e), 'error'))
+}
 const uniSearching = ref(false)
 const uniSearched = ref(false)
 const uniErrors = ref<string[]>([])
@@ -102,9 +128,13 @@ let uniSession = 0
 
 async function uniSearch() {
   const query = uniQuery.value.trim()
-  if (!query || uniSearching.value) return
+  if (!query || uniSearching.value || !hasSearchScope.value) return
   const session = ++uniSession
   uniSearching.value = true
+  uniSearched.value = true
+  uniWikisource.value = []
+  uniArchive.value = []
+  uniOpenLibrary.value = []
   uniErrors.value = []
   uniGithub.value = []
   uniGutenberg.value = []
@@ -123,6 +153,21 @@ async function uniSearch() {
       uniGutenberg.value = pubs
     }).catch(e => { uniErrors.value.push(`Gutenberg: ${e?.message ?? e}`) }))
   }
+  if (uniScopes.wikisource) {
+    jobs.push(searchWikisource(query).then(books => {
+      if (session === uniSession) uniWikisource.value = books
+    }).catch(e => { uniErrors.value.push(`${t('catalog.wikisource')}: ${e?.message ?? e}`) }))
+  }
+  if (uniScopes.archive) {
+    jobs.push(searchInternetArchive(query).then(books => {
+      if (session === uniSession) uniArchive.value = books
+    }).catch(e => { uniErrors.value.push(`Internet Archive: ${e?.message ?? e}`) }))
+  }
+  if (uniScopes.openlibrary) {
+    jobs.push(searchOpenLibrary(query).then(books => {
+      if (session === uniSession) uniOpenLibrary.value = books
+    }).catch(e => { uniErrors.value.push(`Open Library: ${e?.message ?? e}`) }))
+  }
   if (uniScopes.arxiv) {
     jobs.push(loadArxivPageOf(arxivSearchUrlOf(query)).then(p => {
       if (session !== uniSession) return
@@ -134,6 +179,14 @@ async function uniSearch() {
     uniSearched.value = true
     uniSearching.value = false
   }
+}
+
+// These providers omit CORS headers on downloads. Offer a browser download on Web
+// when no proxy is configured, instead of failing an otherwise public download.
+const publicDownloadInBrowser = computed(() => !isTauri() && !settings.corsProxy.trim())
+function downloadPublicBook(pub: OpdsPublication, acq: OpdsPublication['acquisitions'][number], source: string) {
+  if (publicDownloadInBrowser.value) openBookWebsite(acq.href)
+  else void uniDownloadPub(pub, acq, source)
 }
 
 /** 统一搜书里下载 OPDS/arXiv 出版物 */
@@ -449,15 +502,20 @@ async function removeSource(s: CatalogSourceRec) {
             :aria-label="t('catalog.uniTitle')"
             @keyup.enter="uniSearch"
           />
-          <button class="btn btn-primary" :disabled="uniSearching" @click="uniSearch">
+          <button class="btn btn-primary" :disabled="uniSearching || !uniQuery.trim() || !hasSearchScope" @click="uniSearch">
             {{ uniSearching ? t('library.ghSearching') : t('library.ghSearch') }}
           </button>
         </div>
+        <p class="intro">{{ t('catalog.freeSearchHint') }}</p>
         <div class="uni-scopes">
-          <label class="check-chip" :class="{ on: uniScopes.github }"><input v-model="uniScopes.github" type="checkbox" /> GitHub</label>
-          <label class="check-chip" :class="{ on: uniScopes.gutenberg }"><input v-model="uniScopes.gutenberg" type="checkbox" /> {{ t('catalog.gutenberg') }}</label>
-          <label class="check-chip" :class="{ on: uniScopes.arxiv }"><input v-model="uniScopes.arxiv" type="checkbox" /> arXiv</label>
+          <label class="check-chip" :class="{ on: uniScopes.wikisource }"><input v-model="uniScopes.wikisource" :disabled="uniSearching" type="checkbox" /> {{ t('catalog.wikisource') }}</label>
+          <label class="check-chip" :class="{ on: uniScopes.gutenberg }"><input v-model="uniScopes.gutenberg" :disabled="uniSearching" type="checkbox" /> {{ t('catalog.gutenberg') }}</label>
+          <label class="check-chip" :class="{ on: uniScopes.archive }"><input v-model="uniScopes.archive" :disabled="uniSearching" type="checkbox" /> Internet Archive</label>
+          <label class="check-chip" :class="{ on: uniScopes.arxiv }"><input v-model="uniScopes.arxiv" :disabled="uniSearching" type="checkbox" /> arXiv</label>
+          <label class="check-chip" :class="{ on: uniScopes.openlibrary }"><input v-model="uniScopes.openlibrary" :disabled="uniSearching" type="checkbox" /> Open Library</label>
+          <label class="check-chip" :class="{ on: uniScopes.github }"><input v-model="uniScopes.github" :disabled="uniSearching" type="checkbox" /> GitHub</label>
         </div>
+        <p v-if="!hasSearchScope" class="intro" role="status">{{ t('catalog.chooseSearchSource') }}</p>
         <div v-if="uniErrors.length" class="gh-notice" role="alert">
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M10.3 3.9a2 2 0 0 1 3.4 0l8 13.6A2 2 0 0 1 20 20.5H4a2 2 0 0 1-1.7-3l8-13.6zM12 9a1 1 0 0 0-1 1v4a1 1 0 1 0 2 0v-4a1 1 0 0 0-1-1zm0 9.2a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z"/></svg>
           {{ uniErrors.join('; ') }}
@@ -465,6 +523,43 @@ async function removeSource(s: CatalogSourceRec) {
         <div v-if="ghProgress" class="gh-progress" role="status">{{ ghProgress }}</div>
 
         <template v-if="uniSearched">
+          <p v-if="!uniSearching && !uniErrors.length && !uniWikisource.length && !uniGithub.length && !uniGutenberg.length && !uniArchive.length && !uniOpenLibrary.length && !uniArxiv.length" class="intro" role="status">{{ t('catalog.noSearchResults') }}</p>
+          <div v-if="uniScopes.wikisource" class="uni-group">
+            <div class="uni-group-head">{{ t('catalog.wikisource') }} · {{ t('reader.resultCount', { n: uniWikisource.length }) }}</div>
+            <div v-for="book in uniWikisource" :key="book.id" class="gh-item uni-pub">
+              <span class="gh-name">{{ book.title }}</span>
+              <span v-if="book.summary" class="gh-meta">{{ book.summary }}</span>
+              <span class="uni-acts">
+                <button v-for="acq in book.publication.acquisitions" :key="acq.href" class="btn btn-sm" :disabled="downloading.has(acq.href)" @click="downloadPublicBook(book.publication, acq, t('catalog.wikisource'))">{{ downloading.has(acq.href) ? t('catalog.downloading') : t(publicDownloadInBrowser ? 'catalog.browserDownload' : 'catalog.download', { label: acq.label }) }}</button>
+                <button v-if="!publicDownloadInBrowser" class="btn btn-sm" @click="openBookWebsite(book.publication.acquisitions[0]!.href)">{{ t('catalog.browserDownload', { label: 'EPUB' }) }}</button>
+                <button class="btn btn-sm" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button>
+              </span>
+            </div>
+          </div>
+          <div v-if="uniScopes.archive" class="uni-group">
+            <div class="uni-group-head">Internet Archive · {{ t('reader.resultCount', { n: uniArchive.length }) }}</div>
+            <div v-for="book in uniArchive" :key="book.identifier" class="gh-item uni-pub">
+              <span class="gh-name">{{ book.title }}</span>
+              <span class="gh-meta">{{ book.author || t('common.anonymous') }}<template v-if="book.year"> · {{ book.year }}</template></span>
+              <span class="uni-acts">
+                <template v-if="archivePublications[book.identifier]">
+                  <button v-for="acq in archivePublications[book.identifier].acquisitions" :key="acq.href" class="btn btn-sm" :disabled="downloading.has(acq.href)" @click="downloadPublicBook(archivePublications[book.identifier], acq, 'Internet Archive')">{{ downloading.has(acq.href) ? t('catalog.downloading') : t(publicDownloadInBrowser ? 'catalog.browserDownload' : 'catalog.download', { label: acq.label }) }}</button>
+                  <span v-if="!archivePublications[book.identifier].acquisitions.length" class="gh-meta">{{ t('catalog.noDownloadFormat') }}</span>
+                </template>
+                <button v-else class="btn btn-sm" :disabled="archiveLoading.has(book.identifier)" @click="showArchiveDownloads(book)">{{ archiveLoading.has(book.identifier) ? t('catalog.readingLibrary') : t('catalog.showDownloads') }}</button>
+                <button class="btn btn-sm" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button>
+              </span>
+            </div>
+          </div>
+          <div v-if="uniScopes.openlibrary" class="uni-group">
+            <div class="uni-group-head">Open Library · {{ t('reader.resultCount', { n: uniOpenLibrary.length }) }}</div>
+            <p class="intro">{{ t('catalog.openlibraryHint') }}</p>
+            <div v-for="book in uniOpenLibrary" :key="book.key" class="gh-item uni-pub">
+              <span class="gh-name">{{ book.title }}</span>
+              <span class="gh-meta">{{ book.author || t('common.anonymous') }}<template v-if="book.year"> · {{ book.year }}</template> · {{ t('catalog.access.' + book.access) }}</span>
+              <span class="uni-acts"><button class="btn btn-sm" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button></span>
+            </div>
+          </div>
           <div v-if="uniScopes.github" class="uni-group">
             <div class="uni-group-head">GitHub · {{ t('reader.resultCount', { n: uniGithub.length }) }}</div>
             <div v-for="hit in uniGithub.slice(0, 60)" :key="hit.url" class="gh-item" :class="{ busy: ghImporting === hit.url }" role="button" tabindex="0" @click="importGhBook(hit)" @keydown.enter.prevent="importGhBook(hit)">
@@ -535,6 +630,18 @@ async function removeSource(s: CatalogSourceRec) {
           <svg class="source-chevron" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M9.3 6.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4L13.58 12 9.3 7.7a1 1 0 0 1 0-1.4z"/></svg>
         </div>
       </div>
+
+      <section class="web-sources">
+        <h2>{{ t('catalog.webSourcesTitle') }}</h2>
+        <p class="intro">{{ t('catalog.webSourcesHint') }}</p>
+        <div class="source-grid">
+          <article v-for="source in WEB_BOOK_SOURCES" :key="source.id" class="card web-source-card">
+            <div class="source-title">{{ source.title }}</div>
+            <p class="intro">{{ t(source.descriptionKey) }}</p>
+            <button class="btn btn-sm" @click="openBookWebsite(webBookSourceUrl(source, uniQuery))">{{ uniQuery.trim() && source.searchUrl ? t('catalog.searchWebsite') : t('catalog.openWebsite') }}</button>
+          </article>
+        </div>
+      </section>
 
       <!-- GitHub 书源列表 (社区共建) -->
       <section class="gh-section">
@@ -745,6 +852,11 @@ async function removeSource(s: CatalogSourceRec) {
 </template>
 
 <style scoped>
+.web-sources { margin-top: 24px; }
+.web-source-card { padding: 16px; display: flex; flex-direction: column; align-items: flex-start; }
+.web-source-card .intro { flex: 1; }
+.uni-acts { flex-wrap: wrap; }
+
 .catalog {
   padding: 24px 28px calc(40px + var(--lr-safe-bottom));
   min-height: 100%;

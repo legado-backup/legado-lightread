@@ -183,14 +183,17 @@ pub async fn local_tts_download(app: AppHandle, proxy: Option<String>) -> Result
 }
 
 #[tauri::command]
-pub fn local_tts_remove(app: AppHandle) -> Result<(), String> {
-    // 卸载前释放引擎
-    if let Some(lock) = ENGINE.get() {
-        *lock.lock().unwrap() = None;
-    }
+pub async fn local_tts_remove(app: AppHandle) -> Result<(), String> {
     let root = model_root(&app)?;
-    std::fs::remove_dir_all(&root).map_err(|e| format!("删除失败: {e}"))?;
-    Ok(())
+    run_engine_task(move || {
+        // 等待合成、释放模型和删除文件都不能占用 UI 线程。
+        // 删除完成前持有同一把锁，避免新的合成重新打开模型。
+        let lock = ENGINE.get_or_init(|| Mutex::new(None));
+        let mut guard = lock.lock().map_err(|_| "语音引擎锁已损坏")?;
+        *guard = None;
+        std::fs::remove_dir_all(&root).map_err(|e| format!("删除失败: {e}"))
+    })
+    .await
 }
 
 fn build_engine(root: &PathBuf) -> Result<OfflineTts, String> {
@@ -243,11 +246,11 @@ fn to_wav(samples: &[f32], sample_rate: i32) -> Vec<u8> {
 }
 
 fn synthesize_at(root: &PathBuf, text: &str, sid: i32, speed: f32) -> Result<Vec<u8>, String> {
+    let lock = ENGINE.get_or_init(|| Mutex::new(None));
+    let mut guard = lock.lock().map_err(|_| "语音引擎锁已损坏")?;
     if !model_ready(root) {
         return Err("离线语音包未安装".into());
     }
-    let lock = ENGINE.get_or_init(|| Mutex::new(None));
-    let mut guard = lock.lock().map_err(|_| "引擎忙")?;
     if guard.is_none() {
         *guard = Some(build_engine(root)?);
     }
@@ -266,21 +269,53 @@ fn synthesize_at(root: &PathBuf, text: &str, sid: i32, speed: f32) -> Result<Vec
     Ok(to_wav(audio.samples(), audio.sample_rate()))
 }
 
-/// 合成一段文本, 返回 wav 字节流 (同步命令, tauri 自动放线程池)
+/// 模型加载、推理及锁等待必须在 blocking pool 执行；async 命令本身不会转移 CPU 工作。
+async fn run_engine_task<T: Send + 'static>(
+    task: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|e| format!("离线语音任务失败: {e}"))?
+}
+
+/// 合成一段文本，返回 wav 字节流；Tauri 同步命令会阻塞窗口的 IPC 调用线程。
 #[tauri::command]
-pub fn local_tts_synthesize(
+pub async fn local_tts_synthesize(
     app: AppHandle,
     text: String,
     sid: i32,
     speed: f32,
 ) -> Result<tauri::ipc::Response, String> {
     let root = model_root(&app)?;
-    Ok(tauri::ipc::Response::new(synthesize_at(&root, &text, sid, speed)?))
+    let wav = run_engine_task(move || synthesize_at(&root, &text, sid, speed)).await?;
+    Ok(tauri::ipc::Response::new(wav))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn engine_task_runs_off_the_calling_thread() {
+        let caller = std::thread::current().id();
+        let worker = tauri::async_runtime::block_on(run_engine_task(|| {
+            Ok(std::thread::current().id())
+        }))
+        .expect("worker should succeed");
+        assert_ne!(caller, worker, "model work must not run on the IPC caller");
+    }
+
+    #[test]
+    fn engine_task_preserves_errors_and_catches_worker_panics() {
+        let result = tauri::async_runtime::block_on(run_engine_task(|| {
+            Err::<(), _>("离线语音包未安装".to_string())
+        }));
+        assert_eq!(result.unwrap_err(), "离线语音包未安装");
+        let result = tauri::async_runtime::block_on(run_engine_task(|| -> Result<(), String> {
+            panic!("simulated inference failure");
+        }));
+        assert!(result.unwrap_err().starts_with("离线语音任务失败:"));
+    }
 
     #[test]
     fn synthesizes_with_downloaded_model() {

@@ -67,7 +67,7 @@ sync-server/           轻阅账号后端 (Cloudflare Worker + D1 + R2, sync.jia
 
 - **e2e 依赖的选择器别改语义**：`getByRole('button', { name })`（分段控件按钮不要改成 `role="radio"`），`button[title="目录"]` 等 title 文案，`.book-card` `.booklist-action` `.booklist-chip` `.sidebar-update`（收起 ≤42px、悬停 ≥108px）、`text=书架还是空的` / `这个书单还是空的` 等文案 key。改动后跑一遍 `npm run e2e`。
 - `PaperReaderView.vue` 里仍有约 70 处硬编码浅色面板；深色主题下它不是完全适配的，改动前先看那一段样式。
-- 不做 zlib 类站点直连、不支持 KFX（见产品设计文档），不引入组件库 / Tailwind。
+- Z-Library 等需要登录/验证的来源使用外部浏览器；优先接入免登录的公开搜索与下载（2026-10-03 用户要求）。不支持 KFX（见产品设计文档），不引入组件库 / Tailwind。
 - 阅读正文主题 (`settings.reader.theme`) 与应用外观 (`settings.appearance`) 是两个设置项，不要把显式选择的正文主题绑到外观上；默认值 `auto` 例外，它经 `resolveReaderTheme()` 跟随外观在浅色/夜间间切换。
 - 不要提交 `.env*`、`.corpus`、`dist`、`src-tauri/target`。
 
@@ -78,7 +78,11 @@ sync-server/           轻阅账号后端 (Cloudflare Worker + D1 + R2, sync.jia
 
 ## 发版流程
 
-1. 同步改 5 处版本号：`package.json`、`package-lock.json`(两处)、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`(lightread 包)、`src-tauri/tauri.conf.json`。
-2. 提交信息 `release: vX.Y.Z`，正文即 GitHub Release 说明（`release.yml` 用 `head_commit.message` 作 releaseBody）。
-3. `git tag -a vX.Y.Z && git push origin main vX.Y.Z` → 触发 `.github/workflows/release.yml`，四平台 (macOS arm64/x64, Ubuntu, Windows NSIS) 构建约 17 分钟。
-4. 推送需要 yzfly 账号权限（`gh auth switch -u yzfly && gh auth setup-git`）。
+1. 发版前检查工作区、需求清单与变更范围；同步修改 `package.json`、`package-lock.json`（顶层和根包两处）、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`（lightread 包）、`src-tauri/tauri.conf.json`。执行 `node scripts/check-release.mjs --self-test` 和 `node scripts/check-release.mjs --tag vX.Y.Z`，版本或 tag 不一致即停止。
+2. 完成相关单测、`npm run build`、阅读器/更新流程冒烟；Rust 变更执行相应原生测试。桌面分别确认 macOS arm64/x64、Windows NSIS、Linux AppImage/deb 的目标平台。CI 的 Rust 最低版本检查也必须通过。资源密集任务使用 `flock /tmp/heavy.lock nice -n 10 ...` 串行执行。
+3. Android 仍为**实验性 arm64 debug 包**，既有应用身份是 `com.yzfly.lightread.debug`；不能直接去掉 `.debug`、改用 release 构建或替换证书来“修复”覆盖升级。CI 保留 `--debug`，要求仓库 secret `ANDROID_KEYSTORE_B64` 和非秘密仓库变量 `ANDROID_CERT_SHA256`（64 位十六进制、对应同一固定证书）。密钥须兼容现有 Android debug signing 配置（别名 `androiddebugkey`，store/key password 均为 `android`），受控备份；禁止提交密钥、打印 secret 或临时生成签名兜底。缺配置必须失败。
+4. **历史签名迁移限制（2026-10-03 核实）**：此前 CI 缺少固定签名 secret，使用 runner 临时密钥。官方 v1.3.0 APK 与 v1.1.18 安装的证书不同，因此无法承诺跨这些版本覆盖升级；公开证书指纹不能恢复私钥。v1.4.0 起专用固定密钥位于 `~/.config/lightread/signing/lightread-android.jks`，本机备份位于 `~/.local/share/lightread/signing-backup/lightread-android.jks`，GitHub secret 已配置。公开证书 SHA256 为 `56103db2e518cf800db66d148d45f886e93c12b1afc8944ec668713636c7bada`。不要覆盖这两个密钥文件或复用其他项目签名。历史用户迁移按 README 的 Android 备份/恢复说明执行；不得默默卸载旧应用、清空数据或声称新固定签名可覆盖所有旧随机签名安装。
+5. 对候选 APK 执行 `node scripts/check-release.mjs --tag vX.Y.Z --apk <APK路径> --cert <固定证书SHA256>`（`aapt`/`apksigner` 在 PATH 或通过 `AAPT`/`APKSIGNER` 指定）。校验实际包名、versionName、versionCode、仅 arm64-v8a、minSdk 24、targetSdk 36、签名证书；生成 `.apk.json` 报告与 `.apk.sha256`。API 基线升级必须显式审查并更新检查脚本。真机记录 Android API、ABI、WebView 版本；用相同固定签名的前一版本执行覆盖升级，验证藏书/阅读进度/设置保留、离线启动、导入和阅读，以及点开下载→返回应用→版本检查。签名不一致时只做经授权的数据迁移，不能以卸载重装充当覆盖升级验收。
+6. 提交信息使用 `release: vX.Y.Z`，正文写用户可见变化、修复、验证与已知限制，作为 GitHub Release 说明。按需检查 `gh auth status`，推送使用 yzfly 账号。发版工作获得授权后才创建并推送 annotated tag：`git tag -a vX.Y.Z -m "vX.Y.Z"`、`git push origin main vX.Y.Z`；只有整理发版规范的任务不执行推送/发布。
+7. `.github/workflows/release.yml` 先校验版本/tag/签名配置，再构建各平台并上传 **draft Release**。Android 失败不再忽略；APK 必须完成上述静态检查后才能上传。最终 job 下载资产核对 APK SHA256、检查平台安装包齐全，生成并回验 `SHA256SUMS` 后才公开 Release。任一环节失败保留草稿，排查并重跑；不要手动提前公开不完整草稿。
+8. 公开后核对 Release 下载链接、版本说明、APK 报告、SHA256SUMS 和各平台更新入口；记录实机验收结果与已知限制。`workflow_dispatch` 的 `tag` 输入仅用于替换该 tag 的 Android 资产并重算校验清单，必须从该 tag 源码构建、保持包名/签名/版本一致，不改变现有 Release 的公开状态。审核脚本从本次 workflow 的固定 SHA 提取并保存在 `RUNNER_TEMP`，随后检出目标 tag 审核和构建；旧 tag 无需包含新版脚本，但仍须通过当前身份、签名与版本门禁。

@@ -1,8 +1,14 @@
 {
   "_": "LightRead 轻阅 · GitHub 书源列表 (社区共建)。欢迎提交 PR 添加你发现的书籍仓库: 仓库需直接存放书籍文件 (epub/pdf/mobi/azw3/txt 等), 纯链接聚合类仓库不收录。应用每 24 小时自动拉取本清单。",
   "version": 1,
-  "updated": "2026-07-12",
+  "updated": "2026-10-03",
   "githubRepos": [
+    { "repo": "SaberOnGo/public-domain-books-translation", "note": "公版文学作品中文译本 EPUB（含 AI 辅助翻译；CC BY-NC-SA）", "include": ["books/zh-Hans/*/output/release/*.epub"] },
+    { "repo": "byoungd/up", "note": "人生进阶指南 · 作者开放中英文 EPUB / PDF（CC BY-NC）", "include": ["docs/public/downloads/*.epub", "docs/public/downloads/*.pdf"] },
+    { "repo": "nndl/nndl", "note": "邱锡鹏《神经网络与深度学习》第一版 · 中文 PDF", "include": ["legacy/nndl-v1/main.pdf"] },
+    { "repo": "mml-book/mml-book.github.io", "note": "Mathematics for Machine Learning · 机器学习数学教材，作者免费 PDF", "include": ["book/mml-book.pdf", "book/mml-book_printed.pdf", "book/additional_chapters/*.pdf"] },
+    { "repo": "tuhdo/os01", "note": "Operating Systems: From 0 to 1 · 操作系统教材 PDF", "include": ["Operating_Systems_From_0_to_1.pdf"] },
+    { "repo": "rougier/scientific-visualization-book", "note": "Scientific Visualization · Python 科学可视化教材 PDF（CC BY-NC-SA，约 94 MB）", "include": ["pdf/book.pdf"] },
     { "repo": "0voice/expert_readed_books", "note": "计算机 / 历史 / 文学综合书库, 560+ 本" },
     { "repo": "LeungGeorge/grimoire-kindle", "note": "综合电子书库, 700+ 本" },
     { "repo": "elain/mybooks", "note": "综合书库, 140+ 本" },

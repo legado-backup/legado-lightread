@@ -12,11 +12,11 @@ import { toast } from './services/toast'
 import { requestAutoSync, startAutoSync } from './services/sync'
 import {
   canInAppInstall,
-  checkUpdate,
   downloadInstaller,
   openDownload,
   openInstaller,
-  pickDownloads,
+  pickRecommendedDownload,
+  watchUpdateAvailability,
   type UpdateInfo,
 } from './services/updater'
 
@@ -26,14 +26,14 @@ const route = useRoute()
 const router = useRouter()
 let stopExternalOpen: (() => void) | undefined
 let stopSync: (() => void) | undefined
+let stopUpdateChecks: (() => void) | undefined
 
 const updateInfo = ref<UpdateInfo | null>(null)
 const updateBusy = ref(false)
 const updateProgress = ref<number | null>(null)
 const downloadedInstaller = ref('')
 const sidebarDownload = computed(() => {
-  const downloads = updateInfo.value ? pickDownloads(updateInfo.value.assets) : []
-  return downloads.find(item => item.recommended) ?? downloads[0] ?? null
+  return updateInfo.value ? pickRecommendedDownload(updateInfo.value.assets) : null
 })
 const showSidebarUpdate = computed(() => Boolean(updateInfo.value?.hasUpdate))
 const sidebarUpdateLabel = computed(() => {
@@ -44,17 +44,9 @@ const sidebarUpdateLabel = computed(() => {
   }
   return downloadedInstaller.value ? t('update.openShort') : t('update.action')
 })
-const sidebarUpdateTitle = computed(() => t('update.sidebarTitle', {
+const sidebarUpdateTitle = computed(() => t(sidebarDownload.value ? 'update.sidebarTitle' : 'update.platformPendingTitle', {
   version: updateInfo.value?.version ?? '',
 }))
-
-async function refreshSidebarUpdate() {
-  try {
-    updateInfo.value = await checkUpdate(false)
-  } catch {
-    // 启动时静默检查：网络不可用不打扰阅读。
-  }
-}
 
 async function handleSidebarUpdate() {
   if (updateBusy.value || !updateInfo.value) return
@@ -72,7 +64,7 @@ async function handleSidebarUpdate() {
   if (!download || !canInAppInstall()) {
     try {
       await openDownload(download?.url ?? updateInfo.value.pageUrl)
-      toast(t('update.browserDownloadStarted'), 'success')
+      toast(t(download ? 'update.browserDownloadStarted' : 'update.platformPending'), download ? 'success' : 'info', 6000)
     } catch {
       toast(t('update.cannotOpenLink'), 'error')
     }
@@ -99,7 +91,11 @@ async function handleSidebarUpdate() {
 }
 
 onMounted(async () => {
-  void refreshSidebarUpdate()
+  stopUpdateChecks = watchUpdateAvailability(info => {
+    if (updateBusy.value) return
+    if (info.version !== updateInfo.value?.version) downloadedInstaller.value = ''
+    updateInfo.value = info
+  })
   if (isTauri()) stopExternalOpen = await startExternalOpen(router)
   // 多端同步: 启动一次、切到后台、每 5 分钟 (未开启自动同步时引擎自己跳过)
   stopSync = startAutoSync()
@@ -107,6 +103,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   stopExternalOpen?.()
   stopSync?.()
+  stopUpdateChecks?.()
 })
 // 阅读页全屏沉浸, 隐藏侧栏
 const immersive = computed(() => String(route.path).startsWith('/read'))

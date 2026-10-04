@@ -100,6 +100,8 @@ import { localTtsAvailable, localTtsSynthesize } from './localTts'
 
 /** 神经引擎失败后本次会话回退系统语音, 避免每段都等超时 */
 let neuralFailed = false
+// 停止期间后台合成可能仍在运行；完成后不得重新开始播放。
+let speechGeneration = 0
 export const resetEdgeFailure = () => { neuralFailed = false }
 
 /** 当前设置下的神经合成器 (edge 在线 / local 离线); 不可用返回 null */
@@ -137,6 +139,7 @@ export function prefetchSpeech(text: string) {
 
 /** 按设置选择引擎朗读一段文本; 神经引擎失败自动回退系统语音 */
 export async function speakText(text: string): Promise<'end' | 'cancelled'> {
+  const generation = speechGeneration
   const settings = useSettings()
   const synth = neuralSynth()
   if (synth) {
@@ -145,14 +148,17 @@ export async function speakText(text: string): Promise<'end' | 'cancelled'> {
       const pending = prefetchCache.get(key)
       prefetchCache.delete(key)
       const blob = pending ? await pending : await synth(text)
+      if (generation !== speechGeneration) return 'cancelled'
       return await playAudio(blob)
     } catch (e) {
+      if (generation !== speechGeneration) return 'cancelled'
       console.error(e)
       neuralFailed = true
       toast(t('tts.neuralUnavailable'), 'error', 4000)
     }
   }
   const voice = await pickVoice(settings.ttsVoice, text)
+  if (generation !== speechGeneration) return 'cancelled'
   return speak(text, { voice: voice as SpeechSynthesisVoice, rate: settings.ttsRate })
 }
 
@@ -167,6 +173,7 @@ export function resumeSpeech() {
 }
 
 export function stopSpeech() {
+  speechGeneration++
   edgeStop()
   stopSpeaking()
   prefetchCache.clear()

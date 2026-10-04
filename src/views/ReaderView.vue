@@ -992,7 +992,8 @@ onMounted(async () => {
       }
     })
 
-    await view.open(file)
+    const { makeFoliateBook } = await import('../services/foliateBook')
+    await view.open(await makeFoliateBook(file))
     toc.value = view.book?.toc ?? []
     applyPrefs()
     // 文本类书籍的内存 EPUB 版式变过 (v2: 多章合为一个分节), 旧版式下存的 CFI 指向别处;

@@ -14,8 +14,70 @@ on:
 permissions:
   contents: write
 
+# 同一版本只允许一个构建/替换流程，避免资产与校验清单交叉覆盖。
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
+  preflight:
+    runs-on: ubuntu-22.04
+    steps:
+      # 审核策略来自本次 workflow 的固定 SHA；目标旧 tag 不必自带新版脚本。
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+      - name: 保存当前发版审核脚本
+        run: cp scripts/check-release.mjs "$RUNNER_TEMP/check-release.mjs"
+      - name: 检出需要审核和构建的目标版本
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 校验版本与发版脚本
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          node "$RUNNER_TEMP/check-release.mjs" --self-test
+          node "$RUNNER_TEMP/check-release.mjs" --tag "$RELEASE_TAG"
+      - name: 要求固定 Android 签名
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          test -n "$KEYSTORE_B64" || { echo "::error::缺少 ANDROID_KEYSTORE_B64，禁止临时签名发布"; exit 1; }
+          [[ "$CERT_SHA256" =~ ^[a-fA-F0-9]{64}$ ]] || { echo "::error::ANDROID_CERT_SHA256 必须是固定签名证书的 SHA-256（64 位十六进制）"; exit 1; }
+
+      - run: npm ci
+        if: ${{ !inputs.tag }}
+      - name: 验证书源、EPUB、听书和更新回归
+        if: ${{ !inputs.tag }}
+        run: |
+          npm run test:book-sources
+          npm run test:epub-compat
+          npm run test:tts
+          npm run test:updater
+      - name: 在构建前准备 Release 草稿
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          REPAIR_ANDROID_ONLY: ${{ inputs.tag != '' }}
+        run: |
+          if [ "$REPAIR_ANDROID_ONLY" = true ]; then
+            gh release view "$RELEASE_TAG" >/dev/null
+          elif gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/release-is-draft"; then
+            # 完整重跑只续建草稿，避免直接替换已公开版本的部分安装包。
+            test "$(cat "$RUNNER_TEMP/release-is-draft")" = true || { echo "::error::该版本已公开，请发布新版本或使用 Android 专项修补"; exit 1; }
+          else
+            git log -1 --format=%B > "$RUNNER_TEMP/release-notes.txt"
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "LightRead 轻阅 $RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.txt"
+          fi
+
   desktop:
+    needs: preflight
     if: ${{ !inputs.tag }}
     strategy:
       fail-fast: false
@@ -59,7 +121,10 @@ jobs:
         run: npm run test:paper-agent
 
       - name: 验证论文 Agent 原生契约
-        run: cargo test --manifest-path src-tauri/Cargo.toml agent
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml agent
+
+      - name: 验证离线语音后台调度与错误传播
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml local_tts::desktop::tests::engine_task
 
       - name: 构建并上传到 Release
         uses: tauri-apps/tauri-action@v0
@@ -70,14 +135,14 @@ jobs:
           releaseName: 'LightRead 轻阅 ${{ github.ref_name }}'
           releaseBody: |
             ${{ github.event.head_commit.message }}
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
 
-  # Linux 最后打包: 等 macOS / Windows / Android 先出包 (安卓失败也照常继续)
+  # Linux 最后打包，前置平台失败时保留草稿，禁止不完整发布
   desktop-linux:
     needs: [desktop, android]
-    if: ${{ !cancelled() && !inputs.tag }}
+    if: ${{ !inputs.tag }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -111,10 +176,11 @@ jobs:
           releaseName: 'LightRead 轻阅 ${{ github.ref_name }}'
           releaseBody: |
             ${{ github.event.head_commit.message }}
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
 
   rust-floor:
+    needs: preflight
     if: ${{ !inputs.tag }}
     runs-on: ubuntu-22.04
     steps:
@@ -129,16 +195,23 @@ jobs:
         with:
           workspaces: src-tauri
       - name: 检查声明的 Rust 最低版本
-        run: cargo check --manifest-path src-tauri/Cargo.toml
+        run: cargo check --locked --manifest-path src-tauri/Cargo.toml
 
-  # Android 为实验性构建, 失败不阻塞发布
+  # Android 仍为实验性 debug 包，但签名/验证失败必须阻止正式发布。
   android:
+    needs: preflight
     runs-on: ubuntu-22.04
-    continue-on-error: true
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
+      # 审核策略来自本次 workflow 的固定 SHA；目标旧 tag 不必自带新版脚本。
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+      - name: 保存当前发版审核脚本
+        run: cp scripts/check-release.mjs "$RUNNER_TEMP/check-release.mjs"
+      - name: 检出需要审核和构建的目标版本
+        uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -157,8 +230,8 @@ jobs:
         with:
           packages: platform-tools
 
-      - name: 安装 NDK
-        run: sdkmanager "ndk;26.3.11579264"
+      - name: 安装 NDK 与 APK 校验工具
+        run: sdkmanager "ndk;26.3.11579264" "build-tools;35.0.0" "platforms;android-36"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -195,17 +268,19 @@ jobs:
           cp src-tauri/android/MainActivity.kt "$DST"
 
       # 固定签名: 每个版本的 APK 签名一致, 手机上才能直接覆盖升级 (保留藏书与进度)。
-      # 未配置密钥时退回 runner 临时生成的签名, 这样的 APK 无法覆盖安装旧版
+      # 不允许退回 runner 临时密钥；历史随机签名安装需另行备份/迁移。
       - name: 写入签名密钥
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
         run: |
           if [ -z "$KEYSTORE_B64" ]; then
-            echo "::warning::未配置 ANDROID_KEYSTORE_B64, APK 使用临时签名, 无法覆盖升级"
-            exit 0
+            echo "::error::未配置 ANDROID_KEYSTORE_B64，禁止发布临时签名 APK"
+            exit 1
           fi
           mkdir -p ~/.android
-          echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          umask 077
+          printf %s "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          test -s ~/.android/debug.keystore
 
       - name: 构建 APK (debug 签名, 可直接安装)
         env:
@@ -214,21 +289,57 @@ jobs:
           CARGO_PROFILE_DEV_DEBUG: 0
         run: npx tauri android build --apk --target aarch64 --debug
 
-      - name: 重命名并上传 APK
+      - name: 校验 APK 身份、版本、架构、API 与签名
+        env:
+          AAPT: ${{ env.ANDROID_SDK_ROOT }}/build-tools/35.0.0/aapt
+          APKSIGNER: ${{ env.ANDROID_SDK_ROOT }}/build-tools/35.0.0/apksigner
+          CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          mapfile -t APKS < <(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -type f)
+          test "${#APKS[@]}" -eq 1 || { echo "::error::预期恰好一个 arm64 APK，实际 ${#APKS[@]} 个"; exit 1; }
+          cp "${APKS[0]}" "LightRead_${RELEASE_TAG}_android_arm64.apk"
+          node "$RUNNER_TEMP/check-release.mjs" --tag "$RELEASE_TAG" --apk "LightRead_${RELEASE_TAG}_android_arm64.apk" --cert "$CERT_SHA256"
+          sha256sum -c "LightRead_${RELEASE_TAG}_android_arm64.apk.sha256"
+
+      - name: 上传已验证 APK 与校验报告
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          APK=$(find src-tauri/gen/android -name "*.apk" | head -1)
-          cp "$APK" "LightRead_${RELEASE_TAG}_android_arm64.apk"
-          # 桌面矩阵负责创建 Release；Android 偶尔先编译完，需要等待 Release 可见。
-          for attempt in $(seq 1 60); do
-            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-              break
-            fi
-            if [ "$attempt" -eq 60 ]; then
-              echo "Release $RELEASE_TAG was not created in time" >&2
-              exit 1
-            fi
-            sleep 10
-          done
-          gh release upload "$RELEASE_TAG" "LightRead_${RELEASE_TAG}_android_arm64.apk" --clobber
+          # preflight 已统一创建/确认 Release，无需等待桌面构建完成。
+          gh release view "$RELEASE_TAG" >/dev/null
+          gh release upload "$RELEASE_TAG" "LightRead_${RELEASE_TAG}_android_arm64.apk" "LightRead_${RELEASE_TAG}_android_arm64.apk.sha256" "LightRead_${RELEASE_TAG}_android_arm64.apk.json" --clobber
+
+  publish:
+    needs: [desktop, desktop-linux, rust-floor, android]
+    # tag 输入仅修复已有版本的 Android 资产，不改变该 Release 的公开/草稿状态。
+    if: ${{ !cancelled() && needs.android.result == 'success' && (inputs.tag || (needs.desktop.result == 'success' && needs.desktop-linux.result == 'success' && needs.rust-floor.result == 'success')) }}
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      REPAIR_ANDROID_ONLY: ${{ inputs.tag != '' }}
+    steps:
+      - name: 下载并核对 Release 资产，生成完整 SHA256 清单
+        run: |
+          mkdir release-assets
+          gh release download "$RELEASE_TAG" --dir release-assets --skip-existing
+          cd release-assets
+          test -f "LightRead_${RELEASE_TAG}_android_arm64.apk"
+          test -f "LightRead_${RELEASE_TAG}_android_arm64.apk.json"
+          sha256sum -c "LightRead_${RELEASE_TAG}_android_arm64.apk.sha256"
+          if [ "$REPAIR_ANDROID_ONLY" != true ]; then
+            compgen -G '*_aarch64.dmg' >/dev/null
+            compgen -G '*_x64.dmg' >/dev/null
+            compgen -G '*-setup.exe' >/dev/null
+            compgen -G '*.AppImage' >/dev/null
+            compgen -G '*.deb' >/dev/null
+          fi
+          # 不把旧清单包含进新清单，也不删除已上传的安装包。
+          rm -f SHA256SUMS
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          gh release upload "$RELEASE_TAG" SHA256SUMS --clobber
+      - name: 全部平台验证完成后公开 Release
+        if: ${{ !inputs.tag }}
+        run: gh release edit "$RELEASE_TAG" --draft=false

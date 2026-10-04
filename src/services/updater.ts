@@ -46,22 +46,33 @@ export function compareVersions(a: string, b: string): number {
 
 const CACHE_KEY = 'lightread-update-check'
 const CACHE_TTL = 6 * 60 * 60 * 1000
+const INCOMPLETE_CACHE_TTL = 60_000
+const FOREGROUND_CHECK_INTERVAL = 60_000
 
 export async function checkUpdate(force = false): Promise<UpdateInfo> {
   if (!force) {
     try {
       const cached = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '')
-      if (cached.at > Date.now() - CACHE_TTL && cached.info) {
+      const ttl = cached.info && pickRecommendedDownload(cached.info.assets)
+        ? CACHE_TTL : INCOMPLETE_CACHE_TTL
+      if (cached.at > Date.now() - ttl && cached.info) {
         // hasUpdate 与当前版本相关, 不能沿用缓存时刻的结论 (升级后读旧缓存会失真)
         return { ...cached.info, hasUpdate: compareVersions(cached.info.version, CURRENT_VERSION) > 0 }
       }
     } catch { /* 无缓存或已损坏 */ }
   }
 
-  const res = await fetchRemote(`https://api.github.com/repos/${REPO}/releases/latest`, undefined, {
-    headers: { accept: 'application/vnd.github+json' },
-  })
-  const data = await res.json()
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 30_000)
+  let data: any
+  try {
+    const res = await fetchRemote(`https://api.github.com/repos/${REPO}/releases/latest`, undefined, {
+      headers: { accept: 'application/vnd.github+json' }, signal: controller.signal,
+    })
+    data = await res.json()
+  } finally {
+    clearTimeout(timeout)
+  }
   const version = String(data.tag_name ?? '').replace(/^v/, '')
   if (!version) throw new Error(t('update.fetchFailed'))
 
@@ -77,8 +88,39 @@ export async function checkUpdate(force = false): Promise<UpdateInfo> {
       size: a.size,
     })),
   }
-  localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), info }))
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), info }))
+  } catch { /* 缓存不可写不应隐藏已获取的新版本。 */ }
   return info
+}
+
+/** 冷启动使用缓存；恢复前台/联网后刷新，并合并同一次恢复触发的多个事件。 */
+export function watchUpdateAvailability(onUpdate: (info: UpdateInfo) => void): () => void {
+  let stopped = false
+  let checking = false
+  let lastAttempt = -Infinity
+  async function refresh(force: boolean) {
+    if (stopped || checking || document.visibilityState === 'hidden'
+      || Date.now() - lastAttempt < FOREGROUND_CHECK_INTERVAL) return
+    checking = true
+    lastAttempt = Date.now()
+    try {
+      const info = await checkUpdate(force)
+      if (!stopped) onUpdate(info)
+    } catch { /* 自动检查失败时保留现有提示，不打断阅读。 */ }
+    finally { checking = false }
+  }
+  const onForeground = () => { void refresh(true) }
+  document.addEventListener('visibilitychange', onForeground)
+  window.addEventListener('focus', onForeground)
+  window.addEventListener('online', onForeground)
+  void refresh(false)
+  return () => {
+    stopped = true
+    document.removeEventListener('visibilitychange', onForeground)
+    window.removeEventListener('focus', onForeground)
+    window.removeEventListener('online', onForeground)
+  }
 }
 
 export interface DownloadOption {
@@ -90,8 +132,7 @@ export interface DownloadOption {
 }
 
 /** 按运行平台挑出对应的安装包, 推荐项排在前面 */
-export function pickDownloads(assets: ReleaseAsset[]): DownloadOption[] {
-  const ua = navigator.userAgent
+export function pickDownloads(assets: ReleaseAsset[], ua = navigator.userAgent): DownloadOption[] {
   const platform: 'mac' | 'windows' | 'linux' | 'android' =
     /Android/i.test(ua) ? 'android'
     : /Mac/i.test(ua) ? 'mac'
@@ -115,6 +156,11 @@ export function pickDownloads(assets: ReleaseAsset[]): DownloadOption[] {
     if (asset) options.push({ label: rule.label, url: asset.url, size: asset.size, recommended: rule.on === platform })
   }
   return [...options.filter(o => o.recommended), ...options.filter(o => !o.recommended)]
+}
+
+/** 当前平台没有产物时交给发布页；绝不推荐其他系统的安装包。 */
+export function pickRecommendedDownload(assets: ReleaseAsset[], ua = navigator.userAgent): DownloadOption | null {
+  return pickDownloads(assets, ua).find(item => item.recommended) ?? null
 }
 
 /** 桌面端交给系统浏览器下载, Web 端新开标签页 */

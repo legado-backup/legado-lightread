@@ -339,15 +339,21 @@ await step('PDF 200% 使用 96 DPI 百分比语义且不放大位图', async () 
   await page.locator('.dock-zoom').click()
   await page.locator('.zoom-item', { hasText: '200%' }).click()
   await page.waitForFunction(() => document.querySelector('.dock-zoom')?.textContent?.includes('200%'))
-  await page.waitForTimeout(500)
-  const quality = await page.locator('.spread-host canvas').evaluate(canvas => {
+  // Read dimensions atomically: resizing can hide/replace the canvas between
+  // separate wait/evaluate calls, even after the expected size was observed.
+  const qualityHandle = await page.waitForFunction(() => {
+    const canvas = document.querySelector('.spread-host canvas')
+    if (!canvas) return false
     const rect = canvas.getBoundingClientRect()
+    if (Math.abs(rect.width - 612 * 2 * (96 / 72)) >= 0.1) return false
     return {
       cssWidth: rect.width,
       bitmapToCss: canvas.width / rect.width,
       dpr: window.devicePixelRatio,
     }
-  })
+  }, undefined, { timeout: 15_000 })
+  const quality = await qualityHandle.jsonValue()
+  await qualityHandle.dispose()
   const expectedCssWidth = 612 * 2 * (96 / 72)
   if (Math.abs(quality.cssWidth - expectedCssWidth) > 0.1) {
     throw new Error(`200% 缩放未按 96 DPI 换算: ${quality.cssWidth.toFixed(2)} / ${expectedCssWidth.toFixed(2)}`)

@@ -467,8 +467,10 @@ const fmtSize = (bytes: number) => `${(bytes / 1048576).toFixed(0)} MB`
 async function download(url: string) {
   try {
     await openDownload(url)
+    return true
   } catch {
     toast(t('update.cannotOpenLink'), 'error')
+    return false
   }
 }
 
@@ -478,8 +480,7 @@ const installedPath = ref('')
 
 async function downloadOption(d: DownloadOption) {
   if (!canInAppInstall()) {
-    await download(d.url)
-    toast(t('update.browserDownloadStarted'), 'success')
+    if (await download(d.url)) toast(t('update.browserDownloadStarted'), 'success')
     return
   }
   if (installing.value) return
