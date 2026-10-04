@@ -214,7 +214,6 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-      LIGHTREAD_ANDROID_KEYSTORE: ${{ runner.temp }}/lightread-signing.jks
     steps:
       # 审核策略来自本次 workflow 的固定 SHA；目标旧 tag 不必自带新版脚本。
       - uses: actions/checkout@v4
@@ -286,6 +285,8 @@ jobs:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
         run: |
+          export LIGHTREAD_ANDROID_KEYSTORE="$RUNNER_TEMP/lightread-signing.jks"
+          printf 'LIGHTREAD_ANDROID_KEYSTORE=%s\n' "$LIGHTREAD_ANDROID_KEYSTORE" >> "$GITHUB_ENV"
           test -n "$KEYSTORE_B64" || { echo "::error::缺少固定签名密钥"; exit 1; }
           umask 077
           printf %s "$KEYSTORE_B64" | base64 -d > "$LIGHTREAD_ANDROID_KEYSTORE"
