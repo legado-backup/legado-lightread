@@ -8,12 +8,15 @@ package com.yzfly.lightread
 
 import android.graphics.Color
 import android.os.Bundle
+import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : TauriActivity() {
   @Volatile
@@ -53,7 +56,33 @@ class MainActivity : TauriActivity() {
     enableEdgeToEdge(style, style)
   }
 
+  /** 沉浸阅读: 隐藏状态栏与导航栏 (从屏幕边缘滑动可临时呼出) */
+  private fun applyImmersive(on: Boolean) {
+    val controller = WindowCompat.getInsetsController(window, window.decorView)
+    if (on) {
+      controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+      controller.hide(WindowInsetsCompat.Type.systemBars())
+    } else {
+      controller.show(WindowInsetsCompat.Type.systemBars())
+    }
+  }
+
+  private fun applyKeepScreenOn(on: Boolean) {
+    if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+  }
+
   private inner class InsetsBridge {
+    @JavascriptInterface
+    fun setImmersive(on: Boolean) {
+      runOnUiThread { applyImmersive(on) }
+    }
+
+    @JavascriptInterface
+    fun setKeepScreenOn(on: Boolean) {
+      runOnUiThread { applyKeepScreenOn(on) }
+    }
+
     @JavascriptInterface
     fun get(): String = insetsJson
 
