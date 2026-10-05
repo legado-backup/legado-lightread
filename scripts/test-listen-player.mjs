@@ -32,11 +32,11 @@ test('句末判断: 允许后随右引号, 逗号软切的半句不算', () => {
 })
 
 test('首块约一句, 尽快出声', () => {
-  const p = CHUNK_PROFILES.edge
-  const pending = [S('a', zh(30)), S('b', zh(30)), S('c', zh(30))]
+  const p = CHUNK_PROFILES.edge // firstMax 60
+  const pending = [S('a', zh(40)), S('b', zh(40)), S('c', zh(40))]
   assert.equal(nextChunkSize(pending, p, true, true), 1)
   // 两句短句合起来仍在首块上限内
-  assert.equal(nextChunkSize([S('a', zh(10)), S('b', zh(10)), S('c', zh(40))], p, true, true), 2)
+  assert.equal(nextChunkSize([S('a', zh(20)), S('b', zh(20)), S('c', zh(40))], p, true, true), 2)
   // 单句超过上限也整句成块, 不在句内切
   assert.equal(nextChunkSize([S('a', zh(150)), S('b', zh(5))], p, true, true), 1)
 })
@@ -52,13 +52,13 @@ test('章节末必断, 段末且够长时断, 短段与后文合并', () => {
   assert.equal(nextChunkSize(dialog, p, true, true), 1)
 })
 
-test('达到目标长度后优先在段末断, 段末太远就在句末断', () => {
-  const p = CHUNK_PROFILES.edge // target 120, max 200
-  const para = [S('a', zh(60)), S('b', zh(60)), S('c', zh(50), { paragraphEnd: true }), S('d', zh(30))]
-  assert.equal(nextChunkSize(para, p, false, true), 3, '段末在上限内: 一直读到段末')
-  const long = [S('a', zh(60)), S('b', zh(60)), S('c', zh(60)), S('d', zh(60), { paragraphEnd: true })]
+test('在线引擎以整段为块: 段末断; 超长段在句末断, 逗号软切的半句后面不断', () => {
+  const p = CHUNK_PROFILES.edge // target 500, max 600
+  const para = [S('a', zh(150)), S('b', zh(150)), S('c', zh(150), { paragraphEnd: true }), S('d', zh(30))]
+  assert.equal(nextChunkSize(para, p, false, true), 3, '整段在上限内: 一直读到段末')
+  const long = [S('a', zh(250)), S('b', zh(250)), S('c', zh(250)), S('d', zh(60), { paragraphEnd: true })]
   assert.equal(nextChunkSize(long, p, false, true), 2, '段末超出上限: 在达到目标的那句后断')
-  const soft = [S('a', zh(60)), S('b', '字'.repeat(59) + '，'), S('c', zh(30)), S('d', zh(60)), S('e', zh(60))]
+  const soft = [S('a', zh(260)), S('b', '字'.repeat(249) + '，'), S('c', zh(80)), S('d', zh(250))]
   assert.equal(nextChunkSize(soft, p, false, true), 3, '逗号软切的半句后面不断, 延到句末')
 })
 
@@ -66,7 +66,7 @@ test('句子不够决定时要求读入更多, 读完时整批交付', () => {
   const p = CHUNK_PROFILES.edge
   assert.equal(nextChunkSize([S('a', zh(20)), S('b', zh(20))], p, false, false), 0)
   assert.equal(nextChunkSize([S('a', zh(20)), S('b', zh(20))], p, false, true), 2)
-  assert.equal(nextChunkSize([S('a', zh(60)), S('b', zh(70))], p, false, false), 0, '达到目标后还要看段末在不在上限内')
+  assert.equal(nextChunkSize([S('a', zh(260)), S('b', zh(260))], p, false, false), 0, '达到目标后还要看段末在不在上限内')
   assert.equal(nextChunkSize([], p, false, true), 0)
 })
 

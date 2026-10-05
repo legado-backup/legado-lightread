@@ -59,9 +59,16 @@ export interface ChunkProfile {
  *   长块并不更连贯, 只会让这一块等得更久 (弱 CPU 上推理慢于实时)。块小一些, 起播和换设置后恢复更快;
  *   同时不低于约 10 字, 过短的输入 Kokoro 语调会变差。
  */
+/**
+ * 在线 (Edge): 以整段为单位合成 —— 段内句与句由合成引擎自己衔接, 语调与停顿最自然;
+ * 只有超长段 (约 500 字以上) 才在句末切开。首块仍短, 保证起播快。
+ * 离线 (Kokoro): 本机推理慢, 块小一些, 但同样优先在段末断开。
+ * (2026-10-05 真机实测: 原先 120 字一块, 长段里每一两句就切一次, 每块独立合成都带「句终」语调,
+ *  接缝处再裁静音 + 插停顿, 听感就是句与句之间卡一下。)
+ */
 export const CHUNK_PROFILES: Record<'edge' | 'local', ChunkProfile> = {
-  edge: { firstMax: 50, target: 120, max: 200, minParagraph: 16 },
-  local: { firstMax: 30, target: 60, max: 100, minParagraph: 12 },
+  edge: { firstMax: 60, target: 500, max: 600, minParagraph: 16 },
+  local: { firstMax: 30, target: 100, max: 160, minParagraph: 12 },
 }
 
 /**
@@ -176,9 +183,10 @@ export function sentenceOffsets(weights: readonly number[], duration: number): n
 // ---------------- 块间停顿 ----------------
 
 /** 块间插入的静音 (秒), 倍速越快停顿越短; 裁剪后两端各留了少量余音, 这里是额外的停顿 */
+/** 块尾已保留约 140ms 的自然收音, 这里只补差额; 段内句末接缝要短, 听起来像同一口气读下去 */
 export const PAUSE_SECONDS: Record<ChunkPause, number> = {
-  clause: 0.08,
-  sentence: 0.18,
+  clause: 0.05,
+  sentence: 0.12,
   paragraph: 0.4,
   section: 0.75,
 }
@@ -214,13 +222,14 @@ export interface TrimOptions {
 }
 
 /**
- * 找出有声区间: 按 10ms 帧算均方根, 比最响帧低 28dB 以下 (或绝对底噪以下) 的帧算静音,
- * 去掉首尾的静音帧, 两端各留一点余量。TTS 输出两端常有几百毫秒空白, 块与块接起来就是「卡壳」。
+ * 找出有声区间: 按 10ms 帧算均方根, 比最响帧低 38dB 以下 (或绝对底噪以下) 的帧算静音,
+ * 去掉首尾的静音帧, 两端各留一点余量。TTS 输出两端常有几百毫秒空白, 块与块接起来就是「卡壳」;
+ * 但阈值太高会削掉轻声尾音 (「的」「了」), 余量也要够长, 否则接缝听着像被掐断。
  */
 export function analyzeSpeech(samples: Float32Array, sampleRate: number, opts: TrimOptions = {}): SpeechStats {
   const frame = Math.max(1, Math.round(sampleRate * (opts.frameMs ?? 10) / 1000))
-  const lead = Math.round(sampleRate * (opts.leadMs ?? 20) / 1000)
-  const tail = Math.round(sampleRate * (opts.tailMs ?? 60) / 1000)
+  const lead = Math.round(sampleRate * (opts.leadMs ?? 30) / 1000)
+  const tail = Math.round(sampleRate * (opts.tailMs ?? 140) / 1000)
   const n = samples.length
   const frames = Math.ceil(n / frame)
   const rms = new Float32Array(frames)
@@ -232,7 +241,7 @@ export function analyzeSpeech(samples: Float32Array, sampleRate: number, opts: T
     rms[f] = Math.sqrt(sum / Math.max(1, end - f * frame))
     if (rms[f] > maxRms) maxRms = rms[f]
   }
-  const silence = Math.max(0.0015, maxRms * 0.04)
+  const silence = Math.max(0.0012, maxRms * 0.0126)
   let first = -1
   let last = -1
   for (let f = 0; f < frames; f++) {
