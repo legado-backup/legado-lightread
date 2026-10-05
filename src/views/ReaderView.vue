@@ -414,8 +414,10 @@ function updateMarginals() {
   })
   // 左下: 本章剩余; 右下: 页码 / 百分比。双栏时分居左右两栏, 单栏时同一行两端对齐
   const feet: HTMLElement[] = r.feet
-  const left = policy.footLeft ? chapterLeftText.value : ''
-  const right = policy.footRight ? progressText.value : ''
+  // 打字机 / 歌词运行时, 页脚留白给阅读模式的状态条用
+  const guiding = modes.progressActive.value
+  const left = policy.footLeft && !guiding ? chapterLeftText.value : ''
+  const right = policy.footRight && !guiding ? progressText.value : ''
   feet.forEach(el => {
     el.replaceChildren()
     el.style.display = 'flex'
@@ -2032,6 +2034,12 @@ const typewriterProgress = computed<ReadingModeProgress | null>(() => {
 
 // 「几点读完」随时间刷新
 let twClockTimer: ReturnType<typeof setInterval> | undefined
+// 打字机 / 歌词开始: 收起工具栏, 页脚让给状态条; 结束后恢复页脚
+watch(() => modes.progressActive.value, on => {
+  if (on) hideBars()
+  updateMarginals()
+})
+
 watch(() => modes.progressActive.value, on => {
   clearInterval(twClockTimer)
   if (on) {

@@ -54,14 +54,20 @@ function wake() {
 }
 
 watch([state, () => props.barsVisible, guide], wake, { immediate: true })
+
+/**
+ * 工具栏隐藏时 (正常阅读) 收成一条细条, 停在正文下方的页脚留白里, 不压正文、不用卡片底;
+ * 工具栏出现时才以完整卡片浮在底栏上方 (此时工具栏本就遮着正文)。
+ */
+const docked = computed(() => !props.barsVisible)
 onBeforeUnmount(() => clearTimeout(fadeTimer))
 </script>
 
 <template>
   <div
     v-if="visible"
-    class="rm-mini card"
-    :class="{ faded: faded && !barsVisible, lifted: barsVisible }"
+    class="rm-mini"
+    :class="docked ? 'docked' : 'card lifted'"
     role="group"
     :aria-label="label"
     @pointerenter="wake"
@@ -94,7 +100,7 @@ onBeforeUnmount(() => clearTimeout(fadeTimer))
         <template v-if="paced">{{ modes.speedText.value }}<template v-if="progress"> · </template></template><template v-if="progress">{{ progress.chapterLeftShort ? t('readingMode.miniLeft', { time: progress.chapterLeftShort }) : progress.percent }}</template>
       </span>
     </span>
-    <template v-if="paced">
+    <template v-if="paced && !docked">
       <button
         type="button"
         class="rm-mini-btn"
@@ -161,6 +167,50 @@ onBeforeUnmount(() => clearTimeout(fadeTimer))
 .rm-mini.faded {
   opacity: 0;
   visibility: hidden;
+}
+/* 停靠: 页脚留白里的一条细条, 透明底, 跟随正文颜色, 低对比 */
+.rm-mini.docked {
+  left: 0;
+  right: 0;
+  transform: none;
+  bottom: var(--safe-bottom, 0px);
+  height: 36px;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+  opacity: 0.72;
+}
+.rm-mini.docked .rm-mini-btn {
+  width: 30px;
+  height: 30px;
+  color: inherit;
+}
+.rm-mini.docked .rm-mini-btn.primary {
+  background: none;
+  color: inherit;
+}
+.rm-mini.docked .rm-mini-btn:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.rm-mini.docked .rm-mini-status {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.rm-mini.docked .rm-mini-state,
+.rm-mini.docked .rm-mini-speed {
+  color: inherit;
+  font-size: 12px;
+}
+@media (min-width: 601px) {
+  .rm-mini.docked {
+    height: 48px;
+  }
 }
 .rm-mini-btn {
   width: 36px;
