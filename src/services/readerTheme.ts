@@ -60,6 +60,30 @@ export function getReaderCSS(prefs: ReaderPrefs, appDark: boolean): string {
     a:any-link { color: ${colors.link}; }
     /* 脚注弹出场景保持可读 */
     aside[epub|type~="footnote"] { background: ${colors.bg}; }
+    ${readingModeCSS(colors)}
+  `
+}
+
+/** 6 位 / 3 位十六进制色 → rgba, 用于淡显后文 (不依赖 color-mix, 兼容 Highlight API 最早的 Chrome 105) */
+function withAlpha(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return hex
+  const h = m[1].length === 3 ? m[1].replace(/./g, c => c + c) : m[1]
+  const n = parseInt(h, 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
+}
+
+/**
+ * 阅读模式 (打字机) 的静态样式: 开关模式只增删 Highlight 对象, 不调用 setStyles, 所以不会重排。
+ * ::highlight 只允许改颜色类属性; 不支持它的旧 WebView 忽略这些规则, 改走 overlayer 遮罩。
+ */
+function readingModeCSS(colors: ReaderThemeColors): string {
+  const ghost = withAlpha(colors.fg, 0.18)
+  return `
+    ::highlight(lr-tw-hidden) { color: transparent; -webkit-text-fill-color: transparent; text-shadow: none; text-decoration-color: transparent; }
+    ::highlight(lr-tw-ghost) { color: ${ghost}; -webkit-text-fill-color: ${ghost}; text-shadow: none; text-decoration-color: ${ghost}; }
+    ::highlight(lr-tw-fresh) { color: ${colors.link}; -webkit-text-fill-color: ${colors.link}; }
+    [data-lr-pending] { visibility: hidden !important; }
   `
 }
 

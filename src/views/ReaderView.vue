@@ -23,6 +23,9 @@ import { t } from '../i18n'
 import { searchBook, type SearchHit } from '../services/bookSearch'
 import { chatStream, aiConfigured, readerSystemPrompt, explainPrompt, type AiMessage } from '../services/ai'
 import TocList, { type TocItem } from '../components/TocList.vue'
+import ReadingModePanel from '../components/ReadingModePanel.vue'
+import ReadingModeMini from '../components/ReadingModeMini.vue'
+import { useReadingModes } from '../composables/useReadingModes'
 import { buildSmartToc, findCurrentSmartItem, flattenToc } from '../services/smartToc'
 import {
   sectionSizes, sectionPageCounts, fallbackBytesPerPage, pagePosition, pageToFraction, fractionToPage, parseJumpInput,
@@ -56,7 +59,7 @@ const barsVisible = ref(true)
 let barsTimer: ReturnType<typeof setTimeout> | undefined
 
 const anyOverlayOpen = () =>
-  panel.value !== 'none' || settingsOpen.value || ttsPanel.value || autoPanel.value || !!activeAnnotation.value || jumpOpen.value
+  panel.value !== 'none' || settingsOpen.value || ttsPanel.value || modes.panelOpen.value || !!activeAnnotation.value || jumpOpen.value
 
 /** 显示工具栏; autoHide 时若几秒内无交互且无面板打开则自动隐去 */
 function showBars(autoHide = false) {
@@ -83,7 +86,7 @@ function closeOverlays() {
   panel.value = 'none'
   settingsOpen.value = false
   ttsPanel.value = false
-  autoPanel.value = false
+  modes.closePanel()
   activeAnnotation.value = null
   jumpOpen.value = false
 }
@@ -100,14 +103,8 @@ function toggleSettings() {
   settingsOpen.value = next
 }
 
-function toggleAutoPanel() {
-  const next = !autoPanel.value
-  closeOverlays()
-  autoPanel.value = next
-}
-
 /** 手机端抽屉打开时显示遮罩 (桌面端遮罩由 CSS 隐藏) */
-const sheetOpen = computed(() => panel.value !== 'none' || settingsOpen.value || ttsPanel.value)
+const sheetOpen = computed(() => panel.value !== 'none' || settingsOpen.value || ttsPanel.value || modes.panelOpen.value)
 
 // ---- 一键全屏沉浸 ----
 const isFullscreen = ref(false)
@@ -252,7 +249,6 @@ function stopAi() {
 }
 
 // 自动阅读
-const autoPanel = ref(false)
 const autoReading = ref(false)
 let autoTimer: ReturnType<typeof setInterval> | undefined
 
@@ -334,8 +330,9 @@ watch([() => settings.reader, appDark], () => {
 }, { deep: true })
 
 function onRelocate(e: CustomEvent) {
-  // 朗读跟随翻页属于自动推进, 不能无限续命计时
-  if (ttsState.value === 'playing') pingReadingAuto()
+  modes.onRelocate(e.detail)
+  // 朗读跟随翻页 / 打字机自动翻页属于自动推进, 不能无限续命计时
+  if (ttsState.value === 'playing' || modes.typewriterActive.value) pingReadingAuto()
   else pingReading()
   const { cfi, fraction: frac, tocItem } = e.detail
   fraction.value = frac ?? 0
@@ -661,19 +658,21 @@ function handleKeydown(e: KeyboardEvent) {
   // 在输入框里打字 (跳页 / 搜索 / AI) 时, 方向键和空格属于输入框
   const el = e.target as HTMLElement | null
   if (e.key !== 'Escape' && el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return
+  // 阅读模式快捷键 (M 面板 / Shift+T 打字机; 打字机运行中空格暂停等)
+  if (modes.handleKey(e)) return
   if (e.key === 'ArrowLeft' || e.key === 'PageUp') turnPage('left')
   else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') turnPage('right')
   else if (e.key === 'Escape') {
     if (isFullscreen.value && isTauri()) toggleFullscreen()
     panel.value = 'none'
     settingsOpen.value = false
-    autoPanel.value = false
     jumpOpen.value = false
     stopAutoRead()
   }
 }
 
 function startAutoRead() {
+  modes.stopTypewriterFor('auto')
   stopAutoRead()
   autoReading.value = true
   autoTimer = setInterval(() => {
@@ -1132,6 +1131,7 @@ type ListenFrom = 'auto' | 'page' | 'bookmark' | { range: Range }
 /** 开始朗读: auto = 断点在本页则接着断点, 否则从本页第一句 */
 async function startTTS(from: ListenFrom = 'auto') {
   if (!view) return
+  modes.stopTypewriterFor('tts')
   if (view.isFixedLayout) {
     toast(t('tts.fixedLayoutUnsupported'), 'error')
     return
@@ -1354,6 +1354,8 @@ function clearMediaSession() {
 }
 
 function onSectionLoad(e: CustomEvent) {
+  // 打字机: 在新章节首次绘制前隐藏未打出的文字
+  modes.onSectionLoad(e.detail)
   const { doc, index } = e.detail
   for (const resolve of sectionLoadResolvers.splice(0)) resolve()
   const custom = selectedCustomFont()
@@ -1503,6 +1505,12 @@ function onContentClick(clientX: number, doc: Document, target?: Element | null)
   const sel = doc.getSelection()
   if (sel && !sel.isCollapsed) return
   if (target?.closest?.('a[href]')) return
+  // 打字机运行时轻点任意处只切换暂停, 不翻页
+  const tap = modes.onContentTap()
+  if (tap) {
+    tap === 'paused' ? showBars() : hideBars()
+    return
+  }
   // iframe 内坐标换算到窗口坐标 (分页模式下 iframe 比可视区宽且随翻页平移)
   const frameRect = doc.defaultView?.frameElement?.getBoundingClientRect()
   const contentRect = container.value?.getBoundingClientRect()
@@ -1817,6 +1825,22 @@ function goJumpBack() {
   view?.goTo(back.cfi).catch(() => toast(t('reader.cantGoto'), 'error'))
 }
 
+// ---- 阅读模式 (打字机等, 见 docs/reading-modes.md); 选项都是闭包, 用到时才取值 ----
+const modes = useReadingModes({
+  getView: () => view,
+  getColors: () => themeColors.value,
+  pingReadingAuto,
+  onExclusiveStart: () => {
+    stopAutoRead()
+    if (ttsState.value === 'playing') pauseTTS()
+  },
+  isAutoReading: () => autoReading.value,
+  isTTSActive: () => ttsState.value === 'playing',
+  pauseWhen: () => panel.value !== 'none' || settingsOpen.value || ttsPanel.value || jumpOpen.value || !!activeAnnotation.value,
+  beforePanelOpen: closeOverlays,
+})
+const readingModeActive = computed(() => modes.panelOpen.value || autoReading.value || modes.typewriterActive.value)
+
 onMounted(async () => {
   window.addEventListener('keydown', handleKeydown)
   document.addEventListener('fullscreenchange', syncFullscreenState)
@@ -1925,6 +1949,7 @@ onBeforeUnmount(() => {
   }
   stopAutoRead()
   stopTTS()
+  modes.dispose()
   view?.close?.()
   view?.remove()
 })
@@ -2001,9 +2026,10 @@ onBeforeUnmount(() => {
         </button>
         <button
           class="icon-btn desk-only"
-          :class="{ 'auto-on': autoReading }"
-          :title="t('reader.autoRead')"
-          @click="toggleAutoPanel"
+          :class="{ 'auto-on': readingModeActive }"
+          :title="t('readingMode.title')"
+          :aria-label="t('readingMode.title')"
+          @click="modes.togglePanel()"
         >
           <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm-1.8 4.4 5.4 3.1a.6.6 0 0 1 0 1l-5.4 3.1a.6.6 0 0 1-.9-.5V8.9a.6.6 0 0 1 .9-.5z"/></svg>
         </button>
@@ -2095,9 +2121,9 @@ onBeforeUnmount(() => {
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 3a7 7 0 0 0-7 7v1.1A3.5 3.5 0 0 0 3 14.5v2A3.5 3.5 0 0 0 6.5 20H8a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-.9A5 5 0 0 1 12 5a5 5 0 0 1 4.9 6H16a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h1.5a3.5 3.5 0 0 0 3.5-3.5v-2a3.5 3.5 0 0 0-2-3.16V10a7 7 0 0 0-7-7z"/></svg>
           <span>{{ t('tts.title') }}</span>
         </button>
-        <button :class="{ active: autoPanel || autoReading }" @click="toggleAutoPanel">
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm-1.8 4.4 5.4 3.1a.6.6 0 0 1 0 1l-5.4 3.1a.6.6 0 0 1-.9-.5V8.9a.6.6 0 0 1 .9-.5z"/></svg>
-          <span>{{ t('reader.dockAuto') }}</span>
+        <button :class="{ active: readingModeActive }" :aria-label="t('readingMode.title')" @click="modes.togglePanel()">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M6 3h9.59L20 7.41V20a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm1 2v14h11V8.24L14.76 5H7zm2 4h6a1 1 0 1 1 0 2H9a1 1 0 1 1 0-2zm0 4h3a1 1 0 1 1 0 2H9a1 1 0 1 1 0-2zm6 0h.5a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 .5-1z"/></svg>
+          <span>{{ t('readingMode.dock') }}</span>
         </button>
         <button :class="{ active: settingsOpen }" @click="toggleSettings">
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M11.1 4.55a1 1 0 0 1 1.8 0l5.6 12.02a1 1 0 1 1-1.81.86L15.3 14.5H8.7l-1.39 2.93a1 1 0 1 1-1.8-.86L11.1 4.55zM9.64 12.5h4.72L12 7.36 9.64 12.5z"/></svg>
@@ -2147,16 +2173,17 @@ onBeforeUnmount(() => {
       {{ jumpBack.label }}
     </button>
 
-    <!-- 自动阅读控制条 -->
-    <div v-if="autoPanel" class="auto-panel card">
-      <button class="btn btn-sm" @click="autoReading ? stopAutoRead() : startAutoRead()">
-        {{ autoReading ? '⏸ ' + t('common.pause') : '▶ ' + t('common.start') }}
-      </button>
-      <label>{{ t('reader.speed') }}</label>
-      <input v-model.number="settings.autoReadSeconds" type="range" min="3" max="60" step="1" />
-      <span class="auto-speed">{{ t('reader.secPerPage', { n: settings.autoReadSeconds }) }}</span>
-      <button class="icon-btn" :title="t('common.close')" @click="autoPanel = false; stopAutoRead()">✕</button>
-    </div>
+    <!-- 阅读模式: 自动翻页 / 打字机 -->
+    <ReadingModePanel
+      v-if="modes.panelOpen.value"
+      :modes="modes"
+      :auto-reading="autoReading"
+      v-model:auto-read-seconds="settings.autoReadSeconds"
+      @start-auto="startAutoRead"
+      @stop-auto="stopAutoRead"
+      @close="modes.closePanel()"
+    />
+    <ReadingModeMini :modes="modes" :bars-visible="barsVisible" />
 
     <!-- 高亮选区浮条 -->
     <div v-if="selection" class="highlight-bar card">
@@ -2862,30 +2889,6 @@ onBeforeUnmount(() => {
 .icon-btn.auto-on {
   color: var(--brand);
 }
-.auto-panel {
-  position: absolute;
-  bottom: calc(12px + var(--safe-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-}
-.auto-panel label {
-  font-size: 13px;
-  color: var(--text-2);
-}
-.auto-panel input[type='range'] {
-  width: 160px;
-  accent-color: var(--brand);
-}
-.auto-speed {
-  font-size: 12px;
-  color: var(--text-3);
-  width: 64px;
-}
 .highlight-bar {
   position: absolute;
   top: calc(56px + var(--safe-top));
@@ -3565,9 +3568,6 @@ onBeforeUnmount(() => {
 .bar.bottom.hidden {
   transform: translateY(100%);
 }
-.bars-on .auto-panel {
-  bottom: calc(var(--footer-h) + 12px + var(--safe-bottom));
-}
 .chapter-btn {
   flex-shrink: 0;
 }
@@ -3758,16 +3758,6 @@ onBeforeUnmount(() => {
   .hl-color {
     width: 28px;
     height: 28px;
-  }
-  .auto-panel {
-    left: 12px;
-    right: 12px;
-    transform: none;
-  }
-  .auto-panel input[type='range'] {
-    width: auto;
-    flex: 1;
-    min-width: 0;
   }
   .nav {
     display: none;

@@ -162,13 +162,14 @@ check('书内搜索', await page.locator('.search-item').count() > 0)
 await page.click('.btn:has-text("清除并关闭")')
 
 // 自动阅读
-await clickBar('[title="自动阅读"]')
+await clickBar('[title="阅读模式"]')
+await page.click('.rm-panel button:has-text("自动翻页")')
 await page.locator('.auto-panel input[type=range]').fill('3')
 await page.click('.auto-panel .btn')
 const pctAuto = await page.textContent('.percent')
 await page.waitForTimeout(3800)
 check('自动阅读推进', (await page.textContent('.percent')) !== pctAuto)
-await page.click('.auto-panel .icon-btn')
+await page.click('.rm-panel .rm-close')
 
 // 听书 (打桩)
 await clickBar('[title="听书"]')

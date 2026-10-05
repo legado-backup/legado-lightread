@@ -29,6 +29,41 @@ export interface PdfPrefs {
   spreadMode: 'single' | 'facing' | 'book'
 }
 
+/** 打字机模式 (docs/reading-modes.md §3.1) */
+export interface TypewriterPrefs {
+  /** 粒度: 逐字 / 逐句 / 逐行 */
+  unit: 'char' | 'sentence' | 'line'
+  /** 中文书速度, 字/分 (60–1200) */
+  cpm: number
+  /** 西文书速度, 词/分 (40–800) */
+  wpm: number
+  /** 后文: 隐藏 / 淡显 */
+  upcoming: 'hidden' | 'ghost'
+  punctuationPause: boolean
+  /** 墨迹未干: 最新出现的字用强调色 */
+  freshInk: boolean
+  /** 打字声 (WebAudio 合成) */
+  sound: boolean
+  /** 打完一页后停留多久再自动翻页, 毫秒 */
+  pageDwellMs: number
+}
+
+/** 阅读模式 (打字机 / 行聚焦 / 词块引导); 行聚焦与词块引导为后续分期, 先占位设置结构 */
+export interface ReadingModePrefs {
+  typewriter: TypewriterPrefs
+  lineFocus: {
+    enabled: boolean
+    lines: 1 | 3 | 5
+    style: 'shade' | 'bar' | 'box'
+    driver: 'manual' | 'pace' | 'tts'
+  }
+  wordGuide: {
+    enabled: boolean
+    style: 'auto' | 'alternate' | 'fixation'
+    strength: 'light' | 'normal'
+  }
+}
+
 /** 结构版本: 修正历史默认值时递增 */
 const SETTINGS_VERSION = 10
 
@@ -98,6 +133,8 @@ interface SettingsState {
   webdavSyncFiles: boolean
   /** 阅读记录: 每日阅读目标 (分钟), 0 表示不设目标 */
   dailyGoalMinutes: number
+  /** 阅读模式 (打字机等) */
+  readingMode: ReadingModePrefs
 }
 
 const STORAGE_KEY = 'lightread-settings'
@@ -149,6 +186,34 @@ const defaults: SettingsState = {
   webdavSyncAuto: false,
   webdavSyncFiles: true,
   dailyGoalMinutes: 30,
+  readingMode: {
+    typewriter: {
+      unit: 'char',
+      cpm: 300,
+      wpm: 200,
+      upcoming: 'hidden',
+      punctuationPause: true,
+      freshInk: true,
+      sound: false,
+      pageDwellMs: 800,
+    },
+    lineFocus: { enabled: false, lines: 1, style: 'shade', driver: 'manual' },
+    wordGuide: { enabled: false, style: 'auto', strength: 'light' },
+  },
+}
+
+/** 阅读模式是嵌套对象: 逐层合并, 以后新增字段时旧存档自动补默认值 */
+function mergeReadingMode(saved: unknown): ReadingModePrefs {
+  const d = structuredClone(defaults.readingMode)
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return d
+  const s = saved as Partial<Record<keyof ReadingModePrefs, unknown>>
+  const part = <T extends object>(base: T, v: unknown): T =>
+    v && typeof v === 'object' && !Array.isArray(v) ? { ...base, ...(v as Partial<T>) } : base
+  return {
+    typewriter: part(d.typewriter, s.typewriter),
+    lineFocus: part(d.lineFocus, s.lineFocus),
+    wordGuide: part(d.wordGuide, s.wordGuide),
+  }
 }
 
 function load(): SettingsState {
@@ -167,6 +232,7 @@ function load(): SettingsState {
       reader: { ...defaults.reader, ...saved.reader },
       pdf: { ...defaults.pdf, ...saved.pdf },
       paperAgentExecutables: { ...defaults.paperAgentExecutables, ...savedAgentExecutables },
+      readingMode: mergeReadingMode(saved.readingMode),
     }
     if (!['codex', 'claude', 'pi'].includes(merged.paperAgentEngine)) merged.paperAgentEngine = 'pi'
     if (!['system', 'light', 'dark'].includes(merged.appearance)) merged.appearance = 'system'

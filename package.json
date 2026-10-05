@@ -27,8 +27,10 @@
     "test:updater": "node --experimental-strip-types --test scripts/test-updater.mjs",
     "check:release": "node scripts/check-release.mjs",
     "test:listen-eta": "node --experimental-strip-types --test scripts/test-listen-eta.mjs",
+    "test:read-aloud": "node --experimental-strip-types --test scripts/test-read-aloud.mjs scripts/test-listen-player.mjs scripts/test-voice-catalog.mjs",
     "test:reader-pages": "node --experimental-strip-types --test scripts/test-reader-pages.mjs",
     "test:tts": "node --experimental-strip-types --test scripts/test-tts.mjs",
+    "test:reading-modes": "node --experimental-strip-types --test scripts/test-reading-modes.mjs",
     "e2e:sync": "node scripts/e2e-sync.mjs",
     "e2e:account": "node scripts/e2e-account.mjs",
     "deploy": "npm run build && wrangler deploy"
