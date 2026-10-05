@@ -33,7 +33,7 @@ GitHub Release 公开后，自动把同一版本的全部安装包同步到 GitC
 scripts/mirror-gitcode-cli.sh vX.Y.Z
 ```
 
-脚本是幂等的：已存在且校验一致的文件会跳过。**GitCode 上只留最新版**：本版本全部上传并校验后，脚本会删除比它旧的 `vX.Y.Z` Release（离线语音包 `tts-models` 保留；设 `KEEP_OLD=1` 可跳过）。CLI 自带的 `release upload` 有 30 秒超时，传不完大文件，所以脚本用 CLI 获取预签名上传地址，再用 curl 直传。
+脚本是幂等的：已存在且校验一致的文件会跳过。**GitCode 上只留最新版**：本版本全部上传并校验后，脚本会尝试删除比它旧的 `vX.Y.Z` Release（离线语音包 `tts-models` 保留；设 `KEEP_OLD=1` 可跳过）。GitCode API 目前不支持删除 Release（HTTP 405），脚本会列出需要手动删除的版本，到 GitCode 网页的 Releases 页面删除即可；应用内更新只看最新版，旧版本残留不影响更新。CLI 自带的 `release upload` 有 30 秒超时，传不完大文件，所以脚本用 CLI 获取预签名上传地址，再用 curl 直传。
 
 ## 负责人一次性设置（让 CI 自动镜像，可选）
 

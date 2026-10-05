@@ -92,9 +92,13 @@ for r in json.load(sys.stdin):
     t = r.get("tag_name", "")
     v = lambda x: tuple(int(n) for n in x[1:].split("."))
     if re.fullmatch(r"v\d+\.\d+\.\d+", t) and v(t) < v(sys.argv[1]): print(t)' "$TAG")
+  # GitCode API 不支持删除 Release (HTTP 405, 2026-10-05 实测), 删不掉时只提醒去网页删除, 不让镜像失败。
   for t in $old; do
-    "$GC" release delete "$t" -R "$GC_REPO" --yes --no-interactive >/dev/null
-    echo "  - 已删除旧版本 $t"
+    if "$GC" release delete "$t" -R "$GC_REPO" --yes --no-interactive >/dev/null 2>&1; then
+      echo "  - 已删除旧版本 $t"
+    else
+      echo "  ! 旧版本 $t 需在网页手动删除: https://gitcode.com/$GC_REPO/releases"
+    fi
   done
 fi
 echo "完成: https://gitcode.com/$GC_REPO/releases"
