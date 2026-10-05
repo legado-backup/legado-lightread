@@ -38,3 +38,6 @@ dev-dist
 !.dev.vars.example
 .env*
 !.env.example
+
+# 本地暂存 (可能含凭据)
+temp/

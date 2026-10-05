@@ -203,7 +203,8 @@ Agent 上下文保存在系统应用数据目录的 `paper-agents/<论文 ID>/` 
 - 维基文库支持 EPUB 导出，Internet Archive 按需读取真实 EPUB / PDF / TXT 下载链接并导入。Open Library 结果标注公开阅读、需登录借阅或暂无电子版。
 - 补充 Standard Ebooks、书格、Global Grey、Faded Page、Z-Library、Anna’s Archive 的浏览器入口；支持的站点可带关键词搜索。Z-Library / Anna’s Archive 可能有登录、验证、额度或等待要求，入口可用性取决于站点和网络。
 - 网页版访问缺少跨域许可的来源需配置书源代理；维基文库等下载也可直接在浏览器完成，再导入文件。桌面版和 Android 使用原生网络请求；来源要求人机验证时，通过浏览器下载后导入。
-- 支持 OPDS 以及带账号验证的 calibre-web。
+- 支持 OPDS 以及带账号验证的 calibre-web。自己添加的 OPDS 书库会出现在「统一搜书」最前面；书库给出的连接信息整段粘贴即可添加。
+- **自建书库**：把自己的书放到服务器、NAS 或网盘上，在各设备的轻阅里搜索、下载，搭建方法见 [自建书库指南](docs/self-hosted-library.md)。
 - 桌面版可以直接连接本机 Calibre 书库文件夹，读取书目、作者和封面。
 - 支持 HTTP / HTTPS / SOCKS4 / SOCKS5 网络代理。
 - `.okf.zip` 藏书包包含藏书、论文、进度、标注和书源；采用开放的 [Open Library OKF Profile](docs/library-okf-profile.md)，其他软件无需 LightRead SDK 即可实现读写。
