@@ -62,6 +62,12 @@ use tauri::{AppHandle, Emitter, Manager};
 const MODEL_DIR: &str = "tts-models/kokoro-multi-lang-v1_1";
 const MODEL_URL: &str =
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2";
+/// 国内镜像 (GitCode 上 yzfly/LightRead 的 tts-models release, 由发版工作流从 GitHub 原样复制);
+/// 内容与 GitHub 完全一致, 同样按 SHA256 校验, 被替换的文件装不上
+const MODEL_MIRROR_URLS: &[&str] = &[
+    "https://gitcode.com/yzfly/LightRead/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2",
+];
+
 /// GitHub release 资产公布的摘要与大小 (2026-10-05 经 GitHub API 核对)
 const MODEL_SHA256: &str = "a3f4c73d043860e3fd2e5b06f36795eb81de0fc8e8de6df703245edddd87dbad";
 const MODEL_SIZE: u64 = 364_816_464;
@@ -86,7 +92,7 @@ pub(crate) fn normalize_proxy(raw: &str) -> Option<String> {
 /// 把 reqwest 的错误说成人话
 fn describe_error(e: &reqwest::Error, via_proxy: bool) -> String {
     if e.is_connect() {
-        if via_proxy { "连不上代理".into() } else { "连不上 GitHub".into() }
+        if via_proxy { "连不上代理".into() } else { "连不上服务器".into() }
     } else if e.is_timeout() {
         "连接超时".into()
     } else {
@@ -112,12 +118,13 @@ pub(crate) fn download_routes(proxy: Option<String>) -> Vec<Route> {
 
 #[cfg(test)]
 pub(crate) async fn download_archive_for_test(path: &Path, route: &Route) -> Result<(), String> {
-    download_archive(path, route, &std::sync::Arc::new(|_: u64, _: u64, _: &str| {})).await
+    download_archive(path, MODEL_URL, route, &std::sync::Arc::new(|_: u64, _: u64, _: &str| {})).await
 }
 
 /// 下载模型包到 path, 期间推送进度; 校验大小与 SHA256
 async fn download_archive(
     path: &Path,
+    url: &str,
     route: &Route,
     emit: &std::sync::Arc<impl Fn(u64, u64, &str) + Send + Sync + 'static>,
 ) -> Result<(), String> {
@@ -137,7 +144,7 @@ async fn download_archive(
     }
     let client = builder.build().map_err(|e| e.to_string())?;
     let mut resp = client
-        .get(MODEL_URL)
+        .get(url)
         .send()
         .await
         .map_err(|e| describe_error(&e, via_proxy))?;
@@ -247,17 +254,21 @@ pub async fn local_tts_download(app: AppHandle, proxy: Option<String>) -> Result
     let proxy = proxy.as_deref().and_then(normalize_proxy);
     let mut errors: Vec<String> = Vec::new();
     let mut ok = false;
-    for route in download_routes(proxy.clone()) {
-        match download_archive(&archive_path, &route, &emit).await {
-            Ok(()) => {
-                ok = true;
-                break;
+    // 先 GitHub, 再国内镜像; 每个来源都按「代理 → 直连」各试一次
+    'sources: for (si, url) in std::iter::once(MODEL_URL).chain(MODEL_MIRROR_URLS.iter().copied()).enumerate() {
+        let source = if si == 0 { "GitHub" } else { "国内镜像" };
+        for route in download_routes(proxy.clone()) {
+            match download_archive(&archive_path, url, &route, &emit).await {
+                Ok(()) => {
+                    ok = true;
+                    break 'sources;
+                }
+                Err(e) => errors.push(match &route {
+                    Route::Proxy(p) => format!("{source} 经代理 {p}: {e}"),
+                    Route::System => format!("{source} 经系统代理: {e}"),
+                    Route::Direct => format!("{source} 直连: {e}"),
+                }),
             }
-            Err(e) => errors.push(match &route {
-                Route::Proxy(p) => format!("经代理 {p}: {e}"),
-                Route::System => format!("经系统代理: {e}"),
-                Route::Direct => format!("直连: {e}"),
-            }),
         }
     }
     if !ok {
