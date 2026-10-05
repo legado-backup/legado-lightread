@@ -7,24 +7,29 @@
  *  - 登录: 邮箱 6 位验证码 (Resend 发信), 10 分钟有效, 每码最多试 5 次
  *  - 鉴权: Bearer token (32 字节随机数 base64url), 服务端只存 SHA-256, 登出即吊销
  *
- * 部署: cd sync-server && npx wrangler deploy
- * 配置密钥: npx wrangler secret put RESEND_API_KEY
+ *  - 匿名使用统计: POST /v1/ping 心跳, GET /v1/admin/stats + /admin 统计页 (ADMIN_TOKEN 保护), 见 src/stats.ts
+ *
+ * 部署: cd sync-server && npx wrangler deploy -c wrangler.jsonc
+ * 配置密钥: npx wrangler secret put RESEND_API_KEY -c wrangler.jsonc (以及 ADMIN_TOKEN)
  * 建表 (一次): npx wrangler d1 execute lightread-sync --remote --file schema.sql
  */
 
+import ADMIN_HTML from './admin.html'
+import { MAX_STATS_DAYS, beijingDay, computeStats, parsePing, recordPing, rollupStatements } from './stats'
+
 // ---- 运行时类型 (只声明用到的部分, 免装 @cloudflare/workers-types) ----
 
-interface D1Result<T = Record<string, unknown>> {
+export interface D1Result<T = Record<string, unknown>> {
   results: T[]
   meta: { changes: number }
 }
-interface D1PreparedStatement {
+export interface D1PreparedStatement {
   bind(...values: unknown[]): D1PreparedStatement
   first<T = Record<string, unknown>>(): Promise<T | null>
   run(): Promise<D1Result>
   all<T = Record<string, unknown>>(): Promise<D1Result<T>>
 }
-interface D1Database {
+export interface D1Database {
   prepare(sql: string): D1PreparedStatement
   batch(statements: D1PreparedStatement[]): Promise<D1Result[]>
 }
@@ -56,6 +61,8 @@ export interface Env {
   RESEND_API_KEY?: string
   /** 仅本地测试: '1' 时 /v1/auth/code 直接返回验证码而不发邮件. 生产绝不能设 */
   DEV_EXPOSE_CODE?: string
+  /** 使用统计管理员令牌 (secret): GET /v1/admin/stats 的 Bearer. 未设则统计接口一律 401 */
+  ADMIN_TOKEN?: string
 }
 
 // ---- 常量 ----
@@ -72,6 +79,9 @@ const DAILY_PUTS = 2000
 const MAX_DOC_BYTES = 8 * 1024 * 1024
 /** 登录类请求体很小, 超过即视为非法 */
 const MAX_AUTH_BODY = 4 * 1024
+/** 匿名统计: 心跳请求体上限; 每个 IP 每个北京日最多 120 次 (客户端每天至多 2 次, 约 60 个安装共用一个出口 IP) */
+const MAX_PING_BODY = 1024
+const PING_IP_DAILY = 120
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -504,6 +514,83 @@ async function webdavRelay(request: Request, provider: string, rest: string, sea
   return new Response(method === 'HEAD' ? null : res.body, { status: res.status, headers: out })
 }
 
+// ---- 匿名使用统计 (见 src/stats.ts) ----
+
+/** 距下一个北京时间零点的秒数 */
+const secondsToBeijingMidnight = (now = Date.now()) => {
+  const t = now + 8 * HOUR
+  return Math.max(1, Math.ceil((DAY - (t % DAY)) / 1000))
+}
+
+/**
+ * 心跳限流键: IP 不落库, 只存 HMAC(当天, IP) 的前 32 位十六进制; 密钥是 ADMIN_TOKEN (secret),
+ * 没有它无法从键反推 IP. 计数行两天后被定时任务删除.
+ */
+async function pingRateKey(env: Env, ip: string, day: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(`lightread-ping:${env.ADMIN_TOKEN ?? ''}`),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${day}|${ip}`)))
+  return 'ping:' + [...mac.slice(0, 16)].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function handlePing(request: Request, env: Env): Promise<Response> {
+  const ping = parsePing(await readJson(request, MAX_PING_BODY))
+  if (!ping) return fail(400, 'invalid_ping')
+  const now = Date.now()
+  const day = beijingDay(now)
+  const ip = request.headers.get('cf-connecting-ip') ?? 'unknown'
+  if ((await bump(env.DB, await pingRateKey(env, ip, day), day)) > PING_IP_DAILY) {
+    return fail(429, 'rate_limited', secondsToBeijingMidnight(now))
+  }
+  await recordPing(env.DB, ping, day)
+  return noContent()
+}
+
+/** Bearer 与 ADMIN_TOKEN 比对: 先各自 SHA-256 再定长逐字节异或, 不因前缀匹配长度泄露时间差 */
+async function isAdmin(request: Request, env: Env): Promise<boolean> {
+  const expected = env.ADMIN_TOKEN
+  if (!expected) return false
+  const m = /^Bearer\s+(\S{1,512})$/.exec(request.headers.get('authorization') ?? '')
+  if (!m) return false
+  const digest = async (s: string) =>
+    new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))
+  const [a, b] = await Promise.all([digest(m[1]), digest(expected)])
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i]
+  return diff === 0
+}
+
+const NO_STORE = { 'cache-control': 'no-store' }
+
+async function adminStats(request: Request, env: Env, search: string): Promise<Response> {
+  if (!(await isAdmin(request, env))) return json(401, { error: 'unauthorized' }, NO_STORE)
+  const raw = new URLSearchParams(search).get('days')
+  const days = raw === null ? 30 : /^\d{1,3}$/.test(raw) ? Number(raw) : NaN
+  if (!(days >= 1 && days <= MAX_STATS_DAYS)) return json(400, { error: 'invalid_days' }, NO_STORE)
+  const now = Date.now()
+  return json(200, await computeStats(env.DB, beijingDay(now), days, now), NO_STORE)
+}
+
+function adminPage(): Response {
+  return new Response(ADMIN_HTML, {
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'content-security-policy':
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; " +
+        "img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      'referrer-policy': 'no-referrer',
+      'x-content-type-options': 'nosniff',
+      'x-robots-tag': 'noindex, nofollow',
+    },
+  })
+}
+
 // ---- 路由 ----
 
 async function route(request: Request, env: Env): Promise<Response> {
@@ -517,6 +604,9 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (method === 'GET' && pathname === '/health') return json(200, { ok: true })
   if (method === 'POST' && pathname === '/v1/auth/code') return requestCode(request, env)
   if (method === 'POST' && pathname === '/v1/auth/verify') return verifyCode(request, env)
+  if (method === 'POST' && pathname === '/v1/ping') return handlePing(request, env)
+  if (method === 'GET' && pathname === '/v1/admin/stats') return adminStats(request, env, search)
+  if (method === 'GET' && (pathname === '/admin' || pathname === '/admin/')) return adminPage()
 
   const docMatch = /^\/v1\/docs\/([^/]+)$/.exec(pathname)
   const authed =
@@ -548,13 +638,14 @@ export default {
     }
   },
 
-  /** 每日清理: 过期验证码与两天前的计数 */
+  /** 每日清理: 过期验证码与两天前的计数; 90 天前的统计心跳聚合成按天计数后删除 */
   async scheduled(_event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
     const now = Date.now()
     ctx.waitUntil(
       env.DB.batch([
         env.DB.prepare('DELETE FROM codes WHERE expires_at < ?1').bind(now),
         env.DB.prepare('DELETE FROM counters WHERE day < ?1').bind(today(now - 2 * DAY)),
+        ...rollupStatements(env.DB, beijingDay(now)),
       ]),
     )
   },

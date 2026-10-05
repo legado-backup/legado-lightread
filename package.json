@@ -1,7 +1,7 @@
 {
   "name": "lightread",
   "private": true,
-  "version": "1.7.0",
+  "version": "1.7.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -29,12 +29,14 @@
     "test:listen-eta": "node --experimental-strip-types --test scripts/test-listen-eta.mjs",
     "test:read-aloud": "node --experimental-strip-types --test scripts/test-read-aloud.mjs scripts/test-listen-player.mjs scripts/test-voice-catalog.mjs",
     "test:dianjing": "node --experimental-strip-types --test scripts/test-dianjing.mjs",
+    "test:usage-stats": "node --experimental-strip-types --test scripts/test-usage-stats.mjs",
     "test:ambient": "node --experimental-strip-types --test scripts/test-ambient.mjs",
     "test:reader-pages": "node --experimental-strip-types --test scripts/test-reader-pages.mjs",
     "test:tts": "node --experimental-strip-types --test scripts/test-tts.mjs",
     "test:reading-modes": "node --experimental-strip-types --test scripts/test-reading-modes.mjs",
     "e2e:sync": "node scripts/e2e-sync.mjs",
     "e2e:account": "node scripts/e2e-account.mjs",
+    "stats": "node scripts/stats.mjs",
     "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {

@@ -1,5 +1,5 @@
 // 轻阅账号 / 多端同步后端 (sync.jiangshu.ai). 接口约定见 docs/account-api.md
-// 密钥不入库: npx wrangler secret put RESEND_API_KEY
+// 密钥不入库: npx wrangler secret put RESEND_API_KEY / ADMIN_TOKEN (统计管理员令牌) -c wrangler.jsonc
 // DEV_EXPOSE_CODE 只能出现在本地 .dev.vars (见 .dev.vars.example), 生产配置里绝不能设
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
@@ -8,7 +8,8 @@
   "compatibility_date": "2026-07-01",
   "routes": [{ "pattern": "sync.jiangshu.ai", "custom_domain": true }],
   "workers_dev": false,
-  "observability": { "enabled": true },
+  // 不记录调用日志 (其中含请求头, 即 IP / UA): 匿名统计承诺不留存这些; console.error 等自定义日志照常
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } },
   "d1_databases": [
     {
       "binding": "DB",
@@ -20,6 +21,6 @@
   "vars": {
     "MAIL_FROM": "轻阅 LightRead <noreply@jiangshu.ai>"
   },
-  // 每天清理过期的验证码与旧计数 (UTC 03:17)
+  // 每天清理过期的验证码与旧计数, 聚合 90 天前的统计心跳 (UTC 03:17)
   "triggers": { "crons": ["17 3 * * *"] }
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { pingUsage } from '../services/usageStats'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getStorage, type BookMeta } from '../storage'
@@ -123,6 +124,8 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 onMounted(async () => {
+  // 匿名使用统计: 今天打开过书 (每天一次, 设置 → 隐私 可关闭)
+  void pingUsage(true)
   window.addEventListener('keydown', handleKeydown)
   try {
     const storage = await getStorage()

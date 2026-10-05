@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { pingUsage } from './services/usageStats'
 import { useRoute, useRouter } from 'vue-router'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ToastHost from './components/ToastHost.vue'
@@ -99,6 +100,8 @@ onMounted(async () => {
   if (isTauri()) stopExternalOpen = await startExternalOpen(router)
   // 多端同步: 启动一次、切到后台、每 5 分钟 (未开启自动同步时引擎自己跳过)
   stopSync = startAutoSync()
+  // 匿名使用统计: 每天一次 (设置 → 隐私 可关闭)
+  void pingUsage()
 })
 onBeforeUnmount(() => {
   stopExternalOpen?.()

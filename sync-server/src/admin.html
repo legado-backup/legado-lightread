@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>轻阅使用统计</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f5f5f3;
+  --card: #fcfcfb;
+  --surface-2: #f0efec;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --text-3: #85847f;
+  --border: #e4e3df;
+  --grid: #ebeae6;
+  --brand: #2a78d6;
+  --danger: #c63b3a;
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;
+  --heat: 42, 120, 214;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #121211;
+    --card: #1a1a19;
+    --surface-2: #252523;
+    --text: #ffffff;
+    --text-2: #c3c2b7;
+    --text-3: #8e8d85;
+    --border: #2f2f2c;
+    --grid: #2a2a27;
+    --brand: #3987e5;
+    --danger: #e66767;
+    --s1: #3987e5;
+    --s2: #d95926;
+    --s3: #199e70;
+    --heat: 57, 135, 229;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1120px; margin: 0 auto; padding: 24px 16px 40px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-bottom: 20px; }
+header h1 { font-size: 20px; margin: 0; font-weight: 600; letter-spacing: .01em; }
+header .meta { color: var(--text-3); font-size: 13px; }
+header .spacer { flex: 1; }
+.seg { display: inline-flex; background: var(--surface-2); border-radius: 8px; padding: 2px; }
+.seg button { border: 0; background: transparent; color: var(--text-2); padding: 4px 12px; border-radius: 6px; font: inherit; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.btn { border: 1px solid var(--border); background: var(--card); color: var(--text); padding: 5px 12px; border-radius: 8px; font: inherit; cursor: pointer; }
+.btn:hover { border-color: var(--text-3); }
+.btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+.btn.link { border: 0; background: none; color: var(--text-3); padding: 5px 4px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+.card h2 { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
+.card h2 small { color: var(--text-3); font-weight: 400; margin-left: 6px; }
+.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 12px; }
+.kpi .label { color: var(--text-2); font-size: 13px; }
+.kpi .value { font-size: 28px; font-weight: 600; line-height: 1.2; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+.kpi .sub { color: var(--text-3); font-size: 12px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--text-2); margin: -4px 0 8px; }
+.legend i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: 260px; }
+.chart .axis { fill: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart .gridline { stroke: var(--grid); stroke-width: 1; }
+.chart .baseline { stroke: var(--border); stroke-width: 1; }
+.chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .cross { stroke: var(--text-3); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart .dot { stroke: var(--card); stroke-width: 2; }
+.s1 { stroke: var(--s1); fill: var(--s1); }
+.s2 { stroke: var(--s2); fill: var(--s2); }
+.s3 { stroke: var(--s3); fill: var(--s3); }
+.bg-s1 { background: var(--s1); } .bg-s2 { background: var(--s2); } .bg-s3 { background: var(--s3); }
+.tip { position: absolute; pointer-events: none; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.12); white-space: nowrap; display: none; z-index: 2; }
+.tip b { display: block; font-weight: 600; margin-bottom: 2px; }
+.tip .row { display: flex; align-items: center; gap: 6px; color: var(--text-2); }
+.tip .row span:last-child { margin-left: auto; padding-left: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
+.tip i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+details { margin-top: 8px; }
+details summary { cursor: pointer; color: var(--text-3); font-size: 13px; }
+.bars { display: grid; gap: 8px; }
+.bar { display: grid; grid-template-columns: 84px 1fr 92px; align-items: center; gap: 10px; font-size: 13px; }
+.bar .name { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar .track { height: 10px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--s1); border-radius: 0 4px 4px 0; min-width: 2px; }
+.bar .num { text-align: right; font-variant-numeric: tabular-nums; }
+.bar .num small { color: var(--text-3); margin-left: 4px; }
+.empty { color: var(--text-3); font-size: 13px; padding: 8px 0; }
+.ret-sum { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-bottom: 12px; }
+.ret-sum div { font-size: 13px; color: var(--text-2); }
+.ret-sum b { font-size: 20px; color: var(--text); margin-left: 6px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ret-sum small { color: var(--text-3); margin-left: 4px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--text-3); font-weight: 500; }
+td.na { color: var(--text-3); }
+td small { color: var(--text-3); margin-left: 4px; }
+.note { color: var(--text-3); font-size: 12px; margin-top: 12px; }
+footer { margin-top: 24px; color: var(--text-3); font-size: 12px; text-align: center; }
+.gate { max-width: 420px; margin: 12vh auto 0; }
+.gate p { color: var(--text-2); font-size: 13px; margin: 0 0 12px; }
+.gate form { display: flex; gap: 8px; }
+.gate input { flex: 1; min-width: 0; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 8px; padding: 6px 10px; font: inherit; }
+.gate input:focus { outline: 2px solid var(--brand); outline-offset: -1px; }
+.err { color: var(--danger); font-size: 13px; margin-top: 8px; min-height: 1.5em; }
+.status { color: var(--text-3); font-size: 13px; padding: 40px 0; text-align: center; }
+[hidden] { display: none !important; }
+@media (max-width: 960px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+@media (max-width: 480px) {
+  .kpis { grid-template-columns: repeat(2, 1fr); }
+  .kpi .value { font-size: 24px; }
+  .bar { grid-template-columns: 64px 1fr 84px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section id="gate" class="gate card" hidden>
+    <h2>轻阅使用统计</h2>
+    <p>请输入管理员令牌。令牌只保存在这个浏览器里（localStorage），可随时点「退出」清除。</p>
+    <form id="gate-form" autocomplete="off">
+      <input id="gate-token" type="password" placeholder="管理员令牌" aria-label="管理员令牌" required>
+      <button class="btn primary" type="submit">进入</button>
+    </form>
+    <div class="err" id="gate-err" role="alert"></div>
+  </section>
+
+  <main id="app" hidden>
+    <header>
+      <h1>轻阅使用统计</h1>
+      <span class="meta" id="meta"></span>
+      <span class="spacer"></span>
+      <div class="seg" role="group" aria-label="时间范围">
+        <button type="button" data-days="30" aria-pressed="true">30 天</button>
+        <button type="button" data-days="90" aria-pressed="false">90 天</button>
+      </div>
+      <button class="btn" type="button" id="refresh">刷新</button>
+      <button class="btn link" type="button" id="logout">退出</button>
+    </header>
+
+    <div id="status" class="status">加载中…</div>
+    <div id="content" hidden>
+      <div class="kpis" id="kpis"></div>
+
+      <section class="card">
+        <h2>每日趋势 <small id="range-label"></small></h2>
+        <div class="legend" id="legend"></div>
+        <div class="chart" id="chart"><div class="tip" id="tip"></div></div>
+        <details>
+          <summary>查看数据表</summary>
+          <div class="tablewrap"><table id="daily-table"></table></div>
+        </details>
+      </section>
+
+      <div class="grid2">
+        <section class="card">
+          <h2>平台 <small>按月活</small></h2>
+          <div class="bars" id="platforms"></div>
+        </section>
+        <section class="card">
+          <h2>版本 <small>近 7 天活跃</small></h2>
+          <div class="bars" id="versions"></div>
+        </section>
+      </div>
+
+      <section class="card" style="margin-top:12px">
+        <h2>留存 <small>按首次出现日分组；次日 / 7 日 / 30 日当天回来的比例</small></h2>
+        <div class="ret-sum" id="ret-sum"></div>
+        <div class="tablewrap"><table id="cohorts"></table></div>
+        <p class="note" id="note"></p>
+      </section>
+    </div>
+  </main>
+
+  <footer>数据只含随机安装 ID、平台、版本、语言（以及当天是否打开过阅读器）；不记录 IP、设备信息、账号或任何阅读内容。</footer>
+</div>
+
+<script>
+(function () {
+  'use strict'
+  var KEY = 'lightread-stats-admin-token'
+  var SERIES = [
+    { key: 'actives', name: '日活', cls: 's1' },
+    { key: 'readers', name: '打开阅读器', cls: 's2' },
+    { key: 'newInstalls', name: '新增', cls: 's3' }
+  ]
+  var PLATFORM_NAMES = { windows: 'Windows', macos: 'macOS', linux: 'Linux', android: 'Android', ios: 'iOS', web: '网页版', other: '其他' }
+  var days = 30
+  var data = null
+
+  function $(id) { return document.getElementById(id) }
+  function getToken() { try { return localStorage.getItem(KEY) || '' } catch (e) { return memToken } }
+  var memToken = ''
+  function setToken(v) {
+    memToken = v
+    try { if (v) localStorage.setItem(KEY, v); else localStorage.removeItem(KEY) } catch (e) {}
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] })
+  }
+  function fmt(n) { return Number(n || 0).toLocaleString('zh-CN') }
+  function pct(r, digits) { return r === null || r === undefined ? '—' : (r * 100).toFixed(digits === undefined ? 1 : digits) + '%' }
+  function md(day) { return day.slice(5).replace('-', '/') }
+
+  function showGate(msg) {
+    $('app').hidden = true
+    $('gate').hidden = false
+    $('gate-err').textContent = msg || ''
+    $('gate-token').value = ''
+    $('gate-token').focus()
+  }
+
+  $('gate-form').addEventListener('submit', function (e) {
+    e.preventDefault()
+    var v = $('gate-token').value.trim()
+    if (!v) return
+    setToken(v)
+    load()
+  })
+  $('logout').addEventListener('click', function () { setToken(''); showGate('') })
+  $('refresh').addEventListener('click', function () { load() })
+  Array.prototype.forEach.call(document.querySelectorAll('.seg button'), function (b) {
+    b.addEventListener('click', function () {
+      days = Number(b.getAttribute('data-days'))
+      Array.prototype.forEach.call(document.querySelectorAll('.seg button'), function (x) {
+        x.setAttribute('aria-pressed', String(x === b))
+      })
+      load()
+    })
+  })
+
+  function load() {
+    var token = getToken()
+    if (!token) { showGate(''); return }
+    $('gate').hidden = true
+    $('app').hidden = false
+    $('status').hidden = false
+    $('status').textContent = '加载中…'
+    fetch('/v1/admin/stats?days=' + days, { headers: { authorization: 'Bearer ' + token }, cache: 'no-store' })
+      .then(function (res) {
+        if (res.status === 401) { setToken(''); showGate('令牌不正确，请重新输入。'); return null }
+        if (!res.ok) throw new Error('HTTP ' + res.status)
+        return res.json()
+      })
+      .then(function (json) {
+        if (!json) return
+        data = json
+        $('status').hidden = true
+        $('content').hidden = false
+        render()
+      })
+      .catch(function (err) {
+        $('content').hidden = true
+        $('status').hidden = false
+        $('status').textContent = '加载失败：' + err.message + '。稍后点「刷新」重试。'
+      })
+  }
+
+  function render() {
+    var d = data
+    $('meta').textContent = '截至 ' + d.today + '（北京时间） · 更新于 ' + new Date(d.generatedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    var a = d.active, t = d.totals
+    var kpis = [
+      ['累计装机', fmt(t.installs), '近 30 天新增 ' + fmt(t.new30d)],
+      ['今日新增', fmt(t.newToday), '近 7 天 ' + fmt(t.new7d)],
+      ['日活', fmt(a.dau), '今天至今 · 昨日 ' + fmt(a.dauYesterday)],
+      ['周活', fmt(a.wau), '近 7 天'],
+      ['月活', fmt(a.mau), '近 30 天'],
+      ['黏性', pct(a.stickiness, 0), '平均日活 ' + a.avgDau30 + ' / 月活']
+    ]
+    $('kpis').innerHTML = kpis.map(function (k) {
+      return '<div class="card kpi"><div class="label">' + esc(k[0]) + '</div><div class="value">' + esc(k[1]) +
+        '</div><div class="sub">' + esc(k[2]) + '</div></div>'
+    }).join('')
+
+    $('range-label').textContent = '近 ' + d.days + ' 天'
+    $('legend').innerHTML = SERIES.map(function (s) {
+      return '<span><i class="bg-' + s.cls + '"></i>' + esc(s.name) + '</span>'
+    }).join('')
+    drawChart()
+    $('daily-table').innerHTML = '<thead><tr><th>日期</th>' + SERIES.map(function (s) { return '<th>' + esc(s.name) + '</th>' }).join('') +
+      '</tr></thead><tbody>' + d.daily.slice().reverse().map(function (p) {
+        return '<tr><td>' + esc(p.day) + '</td>' + SERIES.map(function (s) { return '<td>' + fmt(p[s.key]) + '</td>' }).join('') + '</tr>'
+      }).join('') + '</tbody>'
+
+    bars($('platforms'), d.platforms, function (n) { return PLATFORM_NAMES[n] || n })
+    bars($('versions'), d.versions.slice(0, 10), function (n) { return 'v' + n })
+
+    var r = d.retention
+    $('ret-sum').innerHTML = [['次日留存', r.d1], ['7 日留存', r.d7], ['30 日留存', r.d30]].map(function (x) {
+      return '<div>' + x[0] + '<b>' + pct(x[1].rate) + '</b><small>' + (x[1].cohortSize ? '基于 ' + fmt(x[1].cohortSize) + ' 个安装' : '数据不足') + '</small></div>'
+    }).join('')
+    var rows = r.cohorts.slice(0, 30)
+    $('cohorts').innerHTML = rows.length
+      ? '<thead><tr><th>首日</th><th>新增</th><th>次日</th><th>7 日</th><th>30 日</th></tr></thead><tbody>' +
+        rows.map(function (c) {
+          return '<tr><td>' + esc(c.day) + '</td><td>' + fmt(c.size) + '</td>' +
+            cell(c.d1, c.d1n) + cell(c.d7, c.d7n) + cell(c.d30, c.d30n) + '</tr>'
+        }).join('') + '</tbody>'
+      : '<tbody><tr><td class="na">还没有可计算留存的新增安装。</td></tr></tbody>'
+    $('note').textContent = d.note
+  }
+
+  function cell(rate, count) {
+    if (rate === null || rate === undefined) return '<td class="na">—</td>'
+    var alpha = (0.08 + rate * 0.5).toFixed(2)
+    return '<td style="background: rgba(var(--heat), ' + alpha + ')">' + pct(rate) + '<small>' + fmt(count) + '</small></td>'
+  }
+
+  function bars(el, list, label) {
+    if (!list.length) { el.innerHTML = '<div class="empty">暂无数据</div>'; return }
+    var total = list.reduce(function (s, x) { return s + x.installs }, 0)
+    var max = Math.max.apply(null, list.map(function (x) { return x.installs }))
+    el.innerHTML = list.map(function (x) {
+      var name = label(x.name)
+      return '<div class="bar" title="' + esc(name + '：' + x.installs) + '"><span class="name">' + esc(name) + '</span>' +
+        '<span class="track"><span class="fill" style="display:block;width:' + (max ? (x.installs / max) * 100 : 0).toFixed(1) + '%"></span></span>' +
+        '<span class="num">' + fmt(x.installs) + '<small>' + pct(total ? x.installs / total : 0, 0) + '</small></span></div>'
+    }).join('')
+  }
+
+  function niceScale(max) {
+    if (max <= 0) return { top: 4, step: 1 }
+    var raw = max / 4
+    var mag = Math.pow(10, Math.floor(Math.log10(raw)))
+    var step = [1, 2, 2.5, 5, 10].map(function (m) { return m * mag }).filter(function (s) { return s >= raw })[0]
+    step = Math.max(1, step)
+    return { top: Math.ceil(max / step) * step, step: step }
+  }
+
+  function drawChart() {
+    var box = $('chart'), tip = $('tip')
+    var pts = data.daily
+    var W = Math.max(280, box.clientWidth), H = 260
+    var m = { l: 40, r: 14, t: 10, b: 26 }
+    var iw = W - m.l - m.r, ih = H - m.t - m.b
+    var max = 0
+    pts.forEach(function (p) { SERIES.forEach(function (s) { max = Math.max(max, p[s.key]) }) })
+    var sc = niceScale(max)
+    var n = pts.length
+    function x(i) { return m.l + (n <= 1 ? iw / 2 : (i * iw) / (n - 1)) }
+    function y(v) { return m.t + ih - (v / sc.top) * ih }
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="每日日活、打开阅读器与新增趋势">'
+    for (var v = 0; v <= sc.top + 1e-9; v += sc.step) {
+      var yy = y(v).toFixed(1)
+      svg += '<line class="' + (v === 0 ? 'baseline' : 'gridline') + '" x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + yy + '" y2="' + yy + '"/>'
+      svg += '<text class="axis" x="' + (m.l - 8) + '" y="' + yy + '" dy="0.32em" text-anchor="end">' + fmt(v) + '</text>'
+    }
+    var every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(iw / 64))))
+    for (var i = n - 1; i >= 0; i -= every) {
+      svg += '<text class="axis" x="' + x(i).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + (i === n - 1 ? 'end' : 'middle') + '">' + md(pts[i].day) + '</text>'
+    }
+    SERIES.forEach(function (s) {
+      var dPath = pts.map(function (p, i) { return (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p[s.key]).toFixed(1) }).join('')
+      svg += '<path class="line ' + s.cls + '" style="fill:none" d="' + dPath + '"/>'
+    })
+    svg += '<g id="hover" style="display:none"><line class="cross" id="cross" y1="' + m.t + '" y2="' + (m.t + ih) + '"/>' +
+      SERIES.map(function (s) { return '<circle class="dot ' + s.cls + '" r="4" data-k="' + s.key + '"/>' }).join('') + '</g>'
+    svg += '<rect id="hit" x="' + m.l + '" y="' + m.t + '" width="' + iw + '" height="' + ih + '" fill="transparent"/>'
+    svg += '</svg>'
+    box.innerHTML = svg
+    box.appendChild(tip)
+
+    var hover = box.querySelector('#hover'), cross = box.querySelector('#cross'), hit = box.querySelector('#hit')
+    function move(ev) {
+      var rect = box.querySelector('svg').getBoundingClientRect()
+      var px = ((ev.clientX - rect.left) / rect.width) * W
+      var i = n <= 1 ? 0 : Math.round(((px - m.l) / iw) * (n - 1))
+      i = Math.max(0, Math.min(n - 1, i))
+      var p = pts[i], cx = x(i)
+      hover.style.display = ''
+      cross.setAttribute('x1', cx); cross.setAttribute('x2', cx)
+      Array.prototype.forEach.call(hover.querySelectorAll('circle'), function (c) {
+        c.setAttribute('cx', cx); c.setAttribute('cy', y(p[c.getAttribute('data-k')]))
+      })
+      tip.innerHTML = '<b>' + esc(p.day) + '</b>' + SERIES.map(function (s) {
+        return '<div class="row"><i class="bg-' + s.cls + '"></i><span>' + esc(s.name) + '</span><span>' + fmt(p[s.key]) + '</span></div>'
+      }).join('')
+      tip.style.display = 'block'
+      var left = (cx / W) * rect.width + 12
+      if (left + tip.offsetWidth > rect.width) left = (cx / W) * rect.width - tip.offsetWidth - 12
+      tip.style.left = Math.max(0, left) + 'px'
+      tip.style.top = '8px'
+    }
+    function leave() { hover.style.display = 'none'; tip.style.display = 'none' }
+    hit.addEventListener('pointermove', move)
+    hit.addEventListener('pointerdown', move)
+    hit.addEventListener('pointerleave', leave)
+  }
+
+  var resizeTimer = 0
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(function () { if (data && !$('content').hidden) drawChart() }, 150)
+  })
+
+  load()
+})()
+</script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { resetInstallId } from '../services/usageStats'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { getStorage, isTauri } from '../storage'
 import { useSettings } from '../stores/settings'
@@ -1213,6 +1214,27 @@ const APPEARANCE_OPTIONS = [
     </section>
 
     <section class="card section">
+      <h2>{{ t('settings.privacy') }}</h2>
+      <label class="toggle-row">
+        <span class="toggle-text">
+          <span class="row-title">{{ t('settings.usageStats') }}</span>
+          <span class="row-desc">{{ t('settings.usageStatsDesc') }}</span>
+        </span>
+        <span class="switch">
+          <input v-model="settings.usageStats" type="checkbox" role="switch" :aria-checked="settings.usageStats" />
+          <span class="switch-track" aria-hidden="true"></span>
+        </span>
+      </label>
+      <div class="row">
+        <div>
+          <div class="row-title">{{ t('settings.resetStatsId') }}</div>
+          <div class="row-desc">{{ t('settings.resetStatsIdDesc') }}</div>
+        </div>
+        <button class="btn" @click="resetInstallId(); toast(t('settings.resetStatsIdDone'), 'success')">{{ t('settings.resetStatsId') }}</button>
+      </div>
+    </section>
+
+    <section class="card section">
       <h2>{{ t('settings.about') }}</h2>
 
       <div class="app-identity">
@@ -1343,7 +1365,7 @@ const APPEARANCE_OPTIONS = [
 <style scoped>
 .about-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-shrink: 0;
   gap: 8px;
 }
 .settings {
@@ -1928,6 +1950,7 @@ h2 {
 }
 .app-identity {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 14px;
   padding: 6px 0 14px;
@@ -2142,6 +2165,13 @@ h2 {
   font-size: 12px;
 }
 @media (max-width: 600px) {
+  /* 关于: 手机上按钮另起一行铺满, 不挤压应用名与简介 */
+  .about-actions {
+    width: 100%;
+  }
+  .about-actions .btn {
+    flex: 1;
+  }
   .settings {
     padding: 16px 14px calc(28px + var(--lr-safe-bottom));
   }

@@ -5,24 +5,30 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
 import { createTestHarness } from 'wrangler'
+import { addDays, beijingDay } from '../src/stats.ts'
 
+const ADMIN_TOKEN = 'test-admin-token-0123456789abcdef'
 const root = fileURLToPath(new URL('..', import.meta.url))
 const server = createTestHarness({
   root,
   // DEV_EXPOSE_CODE 只在测试里打开: /v1/auth/code 直接返回验证码
-  workers: [{ configPath: './wrangler.jsonc', vars: { DEV_EXPOSE_CODE: '1' } }],
+  workers: [{ configPath: './wrangler.jsonc', vars: { DEV_EXPOSE_CODE: '1', ADMIN_TOKEN } }],
 })
 
 const BASE = 'http://sync.test'
 let ipSeq = 0
 
-/** 每次发码用不同 IP, 避免撞上单 IP 每日 30 次上限 */
+/** 每次发码 / 心跳用不同 IP, 避免撞上单 IP 每日上限 */
 function call(method, path, { body, token, raw, headers = {} } = {}) {
   const h = { ...headers }
   if (token) h.authorization = `Bearer ${token}`
   if (body !== undefined && !raw) h['content-type'] = 'application/json'
-  if (path === '/v1/auth/code' && !h['cf-connecting-ip']) h['cf-connecting-ip'] = `10.0.0.${++ipSeq}`
+  if ((path === '/v1/auth/code' || path === '/v1/ping') && !h['cf-connecting-ip']) {
+    ++ipSeq
+    h['cf-connecting-ip'] = `10.${(ipSeq >> 16) & 255}.${(ipSeq >> 8) & 255}.${ipSeq & 255}`
+  }
   return server.fetch(BASE + path, {
     method,
     headers: h,
@@ -363,4 +369,267 @@ test('默认配置 (未开 DEV_EXPOSE_CODE, 无 RESEND_API_KEY): 不泄露验证
   } finally {
     await prod.close()
   }
+})
+
+// ---- 匿名使用统计 ----
+
+const pingBody = (over = {}) => ({
+  id: randomUUID(),
+  platform: 'windows',
+  version: '1.8.0',
+  lang: 'zh',
+  reader: false,
+  ...over,
+})
+
+const admin = (path, token = ADMIN_TOKEN) =>
+  call('GET', path, { headers: token === null ? {} : { authorization: `Bearer ${token}` } })
+
+test('北京日切分: UTC 16:00 起算第二天', () => {
+  assert.equal(beijingDay(Date.UTC(2026, 9, 4, 15, 59, 59)), '2026-10-04')
+  assert.equal(beijingDay(Date.UTC(2026, 9, 4, 16, 0, 0)), '2026-10-05')
+  assert.equal(beijingDay(Date.UTC(2026, 11, 31, 16, 30)), '2027-01-01')
+  assert.equal(addDays('2026-03-01', -1), '2026-02-28')
+  assert.equal(addDays('2026-12-31', 1), '2027-01-01')
+})
+
+test('心跳: 合法 → 204 带 CORS; 预检放行; 严格校验, 多余字段忽略', async () => {
+  const pre = await call('OPTIONS', '/v1/ping', {
+    headers: { origin: 'https://app.example', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' },
+  })
+  assert.equal(pre.status, 204)
+  assert.equal(pre.headers.get('access-control-allow-origin'), '*')
+  assert.match(pre.headers.get('access-control-allow-headers'), /content-type/)
+  assert.match(pre.headers.get('access-control-allow-methods'), /POST/)
+
+  const ok = await call('POST', '/v1/ping', { body: pingBody({ extra: 'x', email: 'a@b.c' }) })
+  assert.equal(ok.status, 204)
+  assert.equal(ok.headers.get('access-control-allow-origin'), '*')
+
+  const bad = [
+    {},
+    pingBody({ id: undefined }),
+    pingBody({ id: 'not-a-uuid' }),
+    pingBody({ id: '6ba7b810-9dad-11d1-80b4-00c04fd430c8' }), // v1
+    pingBody({ id: 123 }),
+    pingBody({ platform: 'beos' }),
+    pingBody({ platform: 'Windows' }),
+    pingBody({ version: '1.2' }),
+    pingBody({ version: '1.2.3-beta' }),
+    pingBody({ version: 'v1.2.3' }),
+    pingBody({ version: '01.2.3' }),
+    pingBody({ version: 1 }),
+    pingBody({ lang: 'fr' }),
+    pingBody({ lang: undefined }),
+    pingBody({ reader: 'true' }),
+    pingBody({ reader: 1 }),
+    pingBody({ reader: undefined }),
+    [pingBody()],
+    null,
+    'ping',
+  ]
+  for (const body of bad) {
+    const res = await call('POST', '/v1/ping', { body })
+    assert.equal(res.status, 400, JSON.stringify(body))
+    assert.deepEqual(await jsonOf(res), { error: 'invalid_ping' })
+  }
+  const notJson = await call('POST', '/v1/ping', { body: '{oops', raw: true })
+  assert.equal(notJson.status, 400)
+  const tooBig = await call('POST', '/v1/ping', { body: pingBody({ pad: 'x'.repeat(2000) }) })
+  assert.equal(tooBig.status, 400)
+  assert.equal((await call('GET', '/v1/ping')).status, 404)
+
+  // 表里只有约定的列, 没有 IP / UA
+  const env = await server.getWorker().getEnv()
+  const cols = async table =>
+    (await env.DB.prepare(`PRAGMA table_info(${table})`).all()).results.map(r => r.name).sort()
+  assert.deepEqual(await cols('pings'), ['day', 'install_id', 'lang', 'platform', 'reader', 'version'])
+  assert.deepEqual(await cols('installs'), ['first_day', 'install_id', 'last_day', 'platform', 'version'])
+})
+
+test('心跳: 同一安装同一天一行; reader 取或; 平台 / 版本取最新; 按北京日入库', async () => {
+  const env = await server.getWorker().getEnv()
+  const id = randomUUID()
+  const before = beijingDay()
+  for (const [over, status] of [
+    [{ reader: false, version: '1.7.0', platform: 'android' }, 204],
+    [{ reader: true, version: '1.7.0', platform: 'android' }, 204],
+    [{ reader: false, version: '1.8.0', platform: 'android', lang: 'en' }, 204],
+  ]) {
+    // 大写 UUID 也接受, 统一存小写
+    const res = await call('POST', '/v1/ping', { body: pingBody({ id: id.toUpperCase(), ...over }) })
+    assert.equal(res.status, status)
+  }
+  const after = beijingDay()
+  const rows = (await env.DB.prepare('SELECT * FROM pings WHERE install_id = ?1').bind(id).all()).results
+  assert.equal(rows.length, 1)
+  const row = rows[0]
+  assert.ok([before, after].includes(row.day), `day ${row.day}`)
+  assert.equal(row.reader, 1)
+  assert.equal(row.version, '1.8.0')
+  assert.equal(row.lang, 'en')
+  const inst = await env.DB.prepare('SELECT * FROM installs WHERE install_id = ?1').bind(id).first()
+  assert.equal(inst.first_day, row.day)
+  assert.equal(inst.last_day, row.day)
+  assert.equal(inst.version, '1.8.0')
+  assert.equal(inst.platform, 'android')
+})
+
+test('心跳限流: 每个 IP 每天 120 次; 限流键不含原始 IP', async () => {
+  const env = await server.getWorker().getEnv()
+  const ip = '203.0.113.77'
+  const keysBefore = new Set(
+    (await env.DB.prepare("SELECT key FROM counters WHERE key LIKE 'ping:%'").all()).results.map(r => r.key),
+  )
+  assert.equal((await call('POST', '/v1/ping', { body: pingBody(), headers: { 'cf-connecting-ip': ip } })).status, 204)
+  const fresh = (await env.DB.prepare("SELECT key, day, count FROM counters WHERE key LIKE 'ping:%'").all()).results.filter(
+    r => !keysBefore.has(r.key),
+  )
+  assert.equal(fresh.length, 1)
+  assert.match(fresh[0].key, /^ping:[0-9a-f]{32}$/)
+  assert.equal(fresh[0].count, 1)
+  const all = (await env.DB.prepare('SELECT key FROM counters').all()).results
+  assert.ok(!all.some(r => r.key.includes(ip)))
+
+  await env.DB.prepare('UPDATE counters SET count = 120 WHERE key = ?1 AND day = ?2').bind(fresh[0].key, fresh[0].day).run()
+  const limited = await call('POST', '/v1/ping', { body: pingBody(), headers: { 'cf-connecting-ip': ip } })
+  assert.equal(limited.status, 429)
+  const body = await jsonOf(limited)
+  assert.equal(body.error, 'rate_limited')
+  assert.ok(body.retryAfter > 0 && body.retryAfter <= 86400)
+  // 非法请求不计数, 其它 IP 不受影响
+  assert.equal((await call('POST', '/v1/ping', { body: pingBody(), headers: { 'cf-connecting-ip': '203.0.113.78' } })).status, 204)
+})
+
+test('统计接口鉴权: 无令牌 / 错令牌 → 401; days 越界 → 400; /admin 返回统计页', async () => {
+  for (const token of [null, 'wrong-token', ADMIN_TOKEN + 'x', '']) {
+    const res = await admin('/v1/admin/stats', token)
+    assert.equal(res.status, 401, String(token))
+    assert.deepEqual(await jsonOf(res), { error: 'unauthorized' })
+  }
+  const basic = await call('GET', '/v1/admin/stats', { headers: { authorization: `Basic ${ADMIN_TOKEN}` } })
+  assert.equal(basic.status, 401)
+  const ok = await admin('/v1/admin/stats')
+  assert.equal(ok.status, 200)
+  assert.equal(ok.headers.get('cache-control'), 'no-store')
+  for (const d of ['0', '366', 'abc', '-1', '7.5']) {
+    assert.equal((await admin(`/v1/admin/stats?days=${d}`)).status, 400, d)
+  }
+  const page = await call('GET', '/admin')
+  assert.equal(page.status, 200)
+  assert.match(page.headers.get('content-type'), /text\/html/)
+  assert.match(page.headers.get('content-security-policy'), /default-src 'none'/)
+  const html = await page.text()
+  assert.match(html, /轻阅使用统计/)
+  assert.match(html, /数据只含随机安装 ID、平台、版本、语言/)
+  assert.doesNotMatch(html, /<script[^>]+src=/)
+})
+
+/** 清空统计表并写入一组相对今天 (北京日) 的固定数据 */
+async function seedStats(env, T) {
+  await env.DB.batch(['pings', 'installs', 'ping_daily'].map(t => env.DB.prepare(`DELETE FROM ${t}`)))
+  const A = randomUUID(), B = randomUUID(), C = randomUUID(), D = randomUUID()
+  const ins = (id, first, last, platform, version) =>
+    env.DB.prepare('INSERT INTO installs VALUES(?1, ?2, ?3, ?4, ?5)').bind(id, first, last, platform, version)
+  const p = (day, id, platform, version, reader = 0, lang = 'zh') =>
+    env.DB.prepare('INSERT INTO pings VALUES(?1, ?2, ?3, ?4, ?5, ?6)').bind(day, id, platform, version, lang, reader)
+  await env.DB.batch([
+    ins(A, addDays(T, -8), addDays(T, -1), 'windows', '1.7.0'),
+    ins(B, addDays(T, -8), addDays(T, -8), 'android', '1.6.0'),
+    ins(C, addDays(T, -1), addDays(T, -1), 'android', '1.7.0'),
+    ins(D, addDays(T, -100), addDays(T, -40), 'linux', '1.0.0'),
+    p(addDays(T, -8), A, 'windows', '1.7.0'),
+    p(addDays(T, -7), A, 'windows', '1.7.0', 1),
+    p(addDays(T, -1), A, 'windows', '1.7.0', 0, 'en'),
+    p(addDays(T, -8), B, 'android', '1.6.0'),
+    p(addDays(T, -1), C, 'android', '1.7.0'),
+    p(addDays(T, -40), D, 'linux', '1.0.0'),
+  ])
+  return { A, B, C, D }
+}
+
+test('统计: 装机 / 日活 / 周活 / 月活 / 黏性 / 每日序列 / 分布 / 留存', async () => {
+  const env = await server.getWorker().getEnv()
+  const T = beijingDay()
+  const { C } = await seedStats(env, T)
+  // 今天: C 再次出现 (打开了阅读器, 升级到 1.8.0), E 首次出现
+  assert.equal((await call('POST', '/v1/ping', { body: pingBody({ id: C, platform: 'android', version: '1.8.0', reader: true }) })).status, 204)
+  assert.equal((await call('POST', '/v1/ping', { body: pingBody({ platform: 'web', version: '1.8.0' }) })).status, 204)
+
+  const s = await jsonOf(await admin('/v1/admin/stats'))
+  assert.equal(s.today, T)
+  assert.equal(s.timezone, 'Asia/Shanghai')
+  assert.equal(s.days, 30)
+  assert.match(s.note, /安装/)
+  assert.deepEqual(s.totals, { installs: 5, newToday: 1, new7d: 2, new30d: 4 })
+  assert.deepEqual(s.active, { dau: 2, dauYesterday: 2, wau: 3, mau: 4, avgDau30: 0.6, stickiness: 0.1563 })
+
+  assert.equal(s.daily.length, 30)
+  assert.equal(s.daily[0].day, addDays(T, -29))
+  assert.equal(s.daily.at(-1).day, T)
+  const at = k => s.daily.find(d => d.day === addDays(T, k))
+  assert.deepEqual(at(-8), { day: addDays(T, -8), actives: 2, readers: 0, newInstalls: 2 })
+  assert.deepEqual(at(-7), { day: addDays(T, -7), actives: 1, readers: 1, newInstalls: 0 })
+  assert.deepEqual(at(-1), { day: addDays(T, -1), actives: 2, readers: 0, newInstalls: 1 })
+  assert.deepEqual(at(0), { day: T, actives: 2, readers: 1, newInstalls: 1 })
+  assert.deepEqual(at(-2), { day: addDays(T, -2), actives: 0, readers: 0, newInstalls: 0 })
+
+  assert.equal(s.platforms[0].name, 'android')
+  assert.deepEqual(Object.fromEntries(s.platforms.map(p => [p.name, p.installs])), { android: 2, web: 1, windows: 1 })
+  assert.deepEqual(s.versions, [{ name: '1.8.0', installs: 2 }, { name: '1.7.0', installs: 1 }])
+  assert.deepEqual(
+    Object.fromEntries(s.langs.map(l => [l.name, l.installs])),
+    { zh: 3, en: 1 }, // A 最近一天是 en
+  )
+
+  const r = s.retention
+  assert.deepEqual(r.d1, { rate: 0.5, cohortSize: 2 })
+  assert.deepEqual(r.d7, { rate: 0.5, cohortSize: 2 })
+  assert.deepEqual(r.d30, { rate: null, cohortSize: 0 })
+  assert.deepEqual(r.cohorts, [
+    { day: addDays(T, -1), size: 1, d1n: null, d7n: null, d30n: null, d1: null, d7: null, d30: null },
+    { day: addDays(T, -8), size: 2, d1n: 1, d7n: 1, d30n: null, d1: 0.5, d7: 0.5, d30: null },
+  ])
+
+  // 90 天视图能看到 40 天前的那次活跃
+  const s90 = await jsonOf(await admin('/v1/admin/stats?days=90'))
+  assert.equal(s90.daily.length, 90)
+  assert.equal(s90.daily.find(d => d.day === addDays(T, -40)).actives, 1)
+})
+
+test('定时任务: 90 天前的心跳聚合进 ping_daily 后删除, installs 保留, 统计仍可见', async () => {
+  const env = await server.getWorker().getEnv()
+  const T = beijingDay()
+  const { A, B, D } = await seedStats(env, T)
+  const old = addDays(T, -95)
+  await env.DB.batch([
+    env.DB.prepare('UPDATE installs SET first_day = ?1 WHERE install_id = ?2').bind(old, A),
+    env.DB.prepare('INSERT INTO pings VALUES(?1, ?2, ?3, ?4, ?5, ?6)').bind(old, A, 'windows', '1.5.0', 'zh', 1),
+    env.DB.prepare('INSERT INTO pings VALUES(?1, ?2, ?3, ?4, ?5, ?6)').bind(old, B, 'windows', '1.5.0', 'zh', 0),
+    env.DB.prepare('INSERT INTO pings VALUES(?1, ?2, ?3, ?4, ?5, ?6)').bind(old, D, 'linux', '1.0.0', 'en', 0),
+    env.DB.prepare('INSERT INTO pings VALUES(?1, ?2, ?3, ?4, ?5, ?6)').bind(addDays(T, -91), D, 'linux', '1.0.0', 'en', 0),
+    env.DB.prepare('INSERT INTO pings VALUES(?1, ?2, ?3, ?4, ?5, ?6)').bind(addDays(T, -90), D, 'linux', '1.0.0', 'en', 0),
+  ])
+  const res = await server.getWorker().scheduled({ cron: '17 3 * * *', scheduledTime: new Date() })
+  assert.equal(res.outcome, 'ok')
+
+  const daily = (await env.DB.prepare('SELECT * FROM ping_daily ORDER BY day, platform').all()).results
+  assert.deepEqual(daily, [
+    { day: old, platform: 'linux', version: '1.0.0', actives: 1, readers: 0, new_installs: 0 },
+    { day: old, platform: 'windows', version: '1.5.0', actives: 2, readers: 1, new_installs: 1 },
+    { day: addDays(T, -91), platform: 'linux', version: '1.0.0', actives: 1, readers: 0, new_installs: 0 },
+  ])
+  const left = await env.DB.prepare('SELECT MIN(day) AS d FROM pings').first()
+  assert.equal(left.d, addDays(T, -90)) // 正好 90 天前的保留
+  assert.equal((await env.DB.prepare('SELECT COUNT(*) AS n FROM installs').first()).n, 4)
+
+  // 重跑不重复累计
+  await server.getWorker().scheduled({ cron: '17 3 * * *', scheduledTime: new Date() })
+  assert.equal((await env.DB.prepare('SELECT SUM(actives) AS n FROM ping_daily').first()).n, 4)
+
+  const s = await jsonOf(await admin('/v1/admin/stats?days=120'))
+  assert.deepEqual(
+    s.daily.find(d => d.day === old),
+    { day: old, actives: 3, readers: 1, newInstalls: 1 },
+  )
 })

@@ -5,7 +5,9 @@ Cloudflare Worker（`https://sync.jiangshu.ai`）：邮箱验证码登录 + 按�
 - D1 `lightread-sync`：账号、验证码、会话、按 UTC 日的限流计数（`schema.sql`）
 - R2 `lightread-sync`：每台设备的文档，键 `u/<userId>/devices/<deviceId>.json`
 - 发信：Resend REST API，发件人见 `wrangler.jsonc` 的 `MAIL_FROM`
-- 每天 UTC 03:17 的 Cron 清理过期验证码与两天前的计数
+- 匿名使用统计：`POST /v1/ping` 心跳、`GET /v1/admin/stats` 与 `/admin` 统计页（secret `ADMIN_TOKEN` 保护，本机备份 `~/.config/lightread/stats-admin-token`），见 `src/stats.ts` 与 account-api.md「匿名使用统计」
+- 每天 UTC 03:17 的 Cron 清理过期验证码与两天前的计数，并把 90 天前的统计心跳聚合进 `ping_daily`
+- 调用日志（invocation logs）已关闭，Cloudflare 不留请求头 / IP；`console.error` 等自定义日志照常
 
 ## 部署
 
@@ -18,8 +20,11 @@ npx wrangler d1 create lightread-sync                  # 把输出的 database_i
 npx wrangler d1 execute lightread-sync -c wrangler.jsonc --remote --file schema.sql   # 建表 (幂等, 可重跑)
 npx wrangler r2 bucket create lightread-sync           # 已建则跳过
 npx wrangler secret put RESEND_API_KEY -c wrangler.jsonc   # 粘贴 Resend API Key
+tr -d '\n' < ~/.config/lightread/stats-admin-token | npx wrangler secret put ADMIN_TOKEN -c wrangler.jsonc   # 统计管理员令牌
 npx wrangler deploy -c wrangler.jsonc                  # 同时绑定自定义域名 sync.jiangshu.ai
 ```
+
+建表用的 `schema.sql` 是幂等的。`~/.config/tokenssh-ai/cloudflare-workers-token` 没有 D1 权限，用它部署时改表要走 Cloudflare MCP 的 D1 query API（把 `schema.sql` 里新增的 `CREATE … IF NOT EXISTS` 发过去）。
 
 之后改代码只需重跑最后一条；轮换 Key 重跑 `secret put`。验证：`curl https://sync.jiangshu.ai/health` → `{"ok":true}`。
 

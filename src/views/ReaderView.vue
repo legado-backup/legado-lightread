@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { pingUsage } from '../services/usageStats'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getStorage, type AnnotationRec, type BookMeta } from '../storage'
@@ -2040,6 +2041,8 @@ watch(() => modes.progressActive.value, on => {
 })
 
 onMounted(async () => {
+  // 匿名使用统计: 今天打开过书 (每天一次, 设置 → 隐私 可关闭)
+  void pingUsage(true)
   // 手机切后台时背景音暂停, 但听书在播时跟随听书的后台策略
   ambient.setPauseWhenHidden(() => ttsState.value !== 'playing')
   window.addEventListener('keydown', handleKeydown)

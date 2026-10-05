@@ -183,6 +183,8 @@ interface SettingsState {
   /** 书库存储根目录 (桌面端), 空为默认应用数据目录 */
   libraryRoot: string
   /** AI 助手: 预设 id / 接口地址 / 密钥 / 模型 */
+  /** 匿名使用统计 (设置 → 隐私); 默认开启, 可关闭, 见 services/usageStats.ts */
+  usageStats: boolean
   aiProvider: string
   aiBaseUrl: string
   aiApiKey: string
@@ -247,6 +249,7 @@ const defaults: SettingsState = {
   httpProxy: '',
   calibrePath: '',
   libraryRoot: '',
+  usageStats: true,
   aiProvider: 'trial',
   aiBaseUrl: 'https://lightread-ai.jiangshu.ai/v1',
   aiApiKey: '',

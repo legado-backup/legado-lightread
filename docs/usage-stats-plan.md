@@ -1,5 +1,12 @@
 # 轻阅使用统计：现状与方案
 
+> **状态（2026-10-05）：服务端已实现并上线。** 管理员已拍板：**默认开启、可随时关闭**（opt-out）；统计页用管理员令牌保护 + 命令行脚本。
+> - 接口：`POST https://sync.jiangshu.ai/v1/ping`、`GET /v1/admin/stats`（契约见 [`account-api.md`](account-api.md)「匿名使用统计」），实现 `sync-server/src/stats.ts`
+> - 统计页：<https://sync.jiangshu.ai/admin>，令牌在服务器 `~/.config/lightread/stats-admin-token`；终端：`npm run stats`（`-- --days 90`）
+> - 表：`pings`（每安装每天一行，北京时间切天，保留 90 天）、`installs`（随机 ID 的首次 / 最近出现日）、`ping_daily`（90 天前的按天聚合）
+> - 隐私：不存 IP / UA；限流键是 IP 的带密钥 HMAC；Worker 关闭了调用日志
+> - 客户端（设置开关、上报时机）另行实现，见 `src/services/usageStats.ts`
+
 > 2026-10-05。用户（管理员）想知道：有多少用户、日活 / 月活、装机量等使用统计。
 > 轻阅是本地优先、开源的应用，目前**没有任何使用统计上报**；下面先列现在就能看到的数据，再给出补齐日活 / 月活的方案。
 
@@ -28,7 +35,7 @@
 - 次日 / 7 日 / 30 日留存
 - 平台、版本分布（也能看出多少人还没升级）
 
-**放在哪**：账号后端同一个 Cloudflare 账号新建 Worker 接口 `POST /v1/ping` + D1 表 `pings(day, install_id, platform, version, lang)`，主键 (day, install_id) 天然去重；90 天后只保留按天的聚合数。
+**放在哪**：账号后端 Worker（`sync.jiangshu.ai`）的 `POST /v1/ping` + D1 表 `pings(day, install_id, platform, version, lang, reader)`，主键 (day, install_id) 天然去重；90 天后只保留按天的聚合数（`ping_daily`）。
 
 **怎么看**：
 - 一个只有管理员能打开的统计页（Cloudflare Access 或管理员令牌保护），展示上面的指标和趋势图；
@@ -39,7 +46,7 @@
 - README 和使用手册写明；
 - 网页版、桌面版、Android 一致。
 
-## 3. 需要拍板
+## 3. 已拍板（2026-10-05）
 
-- **默认开还是默认关？** 推荐**默认开、可随时关闭**，首次启动在设置页和手册中说明（不弹窗打扰）。默认关的话，数据只能代表愿意主动开启的少数人，日活 / 月活会严重偏低。
-- **统计页形态**：推荐受保护的网页统计页 + 命令行脚本。
+- **默认开还是默认关？** → **默认开、可随时关闭**（已采纳）。原推荐理由：**默认开、可随时关闭**，首次启动在设置页和手册中说明（不弹窗打扰）。默认关的话，数据只能代表愿意主动开启的少数人，日活 / 月活会严重偏低。
+- **统计页形态**：受管理员令牌保护的网页统计页 + 命令行脚本（已实现）。

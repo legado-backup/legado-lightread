@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS sessions_user_id ON sessions(user_id);
 
--- 按 UTC 日计数的限流: key 形如 'code:email:<email>' 'code:ip:<ip>' 'put:<userId>'
+-- 按日计数的限流: key 形如 'code:email:<email>' 'code:ip:<ip>' 'put:<userId>' (UTC 日);
+-- 'ping:<HMAC(日, IP) 前 32 位十六进制>' (北京日, 不存原始 IP)
 CREATE TABLE IF NOT EXISTS counters (
   key   TEXT    NOT NULL,
   day   TEXT    NOT NULL,                   -- YYYY-MM-DD (UTC)
@@ -35,3 +36,41 @@ CREATE TABLE IF NOT EXISTS counters (
   PRIMARY KEY (key, day)
 );
 CREATE INDEX IF NOT EXISTS counters_day ON counters(day);
+
+-- ---- 匿名使用统计 (docs/usage-stats-plan.md) ----
+-- 只有随机安装 ID (客户端生成的 UUID v4)、平台、版本、语言、当天是否打开过阅读器. 不存 IP / UA.
+-- day 一律为北京时间 (Asia/Shanghai) 日期 YYYY-MM-DD
+
+-- 每个安装每天一行; reader 取「或」(一旦为 1 当天保持 1). 保留 90 天, 之后聚合进 ping_daily
+CREATE TABLE IF NOT EXISTS pings (
+  day        TEXT    NOT NULL,
+  install_id TEXT    NOT NULL,
+  platform   TEXT    NOT NULL,              -- windows|macos|linux|android|ios|web|other
+  version    TEXT    NOT NULL,              -- x.y.z
+  lang       TEXT    NOT NULL,              -- zh|en
+  reader     INTEGER NOT NULL DEFAULT 0,    -- 0|1
+  PRIMARY KEY (day, install_id)
+);
+CREATE INDEX IF NOT EXISTS pings_install ON pings(install_id, day);
+
+-- 每个安装一行, 长期保留 (装机量 / 新增 / 留存). platform / version 为最近一次上报
+CREATE TABLE IF NOT EXISTS installs (
+  install_id TEXT PRIMARY KEY,
+  first_day  TEXT NOT NULL,
+  last_day   TEXT NOT NULL,
+  platform   TEXT NOT NULL,
+  version    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS installs_first_day ON installs(first_day);
+CREATE INDEX IF NOT EXISTS installs_last_day ON installs(last_day);
+
+-- 90 天前的 pings 按 (天, 平台, 版本) 聚合后的计数 (定时任务写入)
+CREATE TABLE IF NOT EXISTS ping_daily (
+  day          TEXT    NOT NULL,
+  platform     TEXT    NOT NULL,
+  version      TEXT    NOT NULL,
+  actives      INTEGER NOT NULL,
+  readers      INTEGER NOT NULL,
+  new_installs INTEGER NOT NULL,
+  PRIMARY KEY (day, platform, version)
+);
