@@ -890,7 +890,7 @@ export default {
   'dianjing.statusOffline': 'Offline · cached parts still show; continues when you\'re back online',
   'dianjing.statusError': 'Spotlight failed for now, retrying shortly',
   'dianjing.statusAuth': 'The AI service rejected the request. Check your key in Settings → AI Assistant',
-  'dianjing.statusConfig': 'Set up your own service in Settings → AI Assistant, or switch to the built-in channel',
+  'dianjing.statusConfig': 'The service in Settings → AI Assistant is incomplete (address, model or key missing). Complete it, or tap "Use the built-in channel" in the AI sidebar',
   'dianjing.statusIdle': 'Off',
   'dianjing.unsupported': 'Spotlight Reading doesn\'t support this format yet',
   'dianjing.remaining': '{n} built-in characters left today',

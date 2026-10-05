@@ -727,6 +727,8 @@ function handleKeydown(e: KeyboardEvent) {
 
 function startAutoRead() {
   modes.stopForExternal('auto')
+  // 带读同一时间只运行一个: 自动翻页开始时暂停听书 (听书会自己跟着翻页, 两者抢位置)
+  if (ttsState.value === 'playing') pauseTTS()
   stopAutoRead()
   autoReading.value = true
   autoTimer = setInterval(() => {
@@ -1213,6 +1215,7 @@ type ListenFrom = 'auto' | 'page' | 'bookmark' | { range: Range }
 async function startTTS(from: ListenFrom = 'auto') {
   if (!view) return
   modes.stopForExternal('tts')
+  stopAutoRead()
   if (view.isFixedLayout) {
     toast(t('tts.fixedLayoutUnsupported'), 'error')
     return

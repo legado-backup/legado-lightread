@@ -890,7 +890,7 @@ export default {
   'dianjing.statusOffline': '离线 · 已缓存的部分照常显示，联网后继续',
   'dianjing.statusError': '点睛暂时失败，稍后自动重试',
   'dianjing.statusAuth': 'AI 服务拒绝了请求，请检查「设置 → AI 助手」里的密钥',
-  'dianjing.statusConfig': '请先在「设置 → AI 助手」配置自己的服务，或把通道改为内置',
+  'dianjing.statusConfig': '「设置 → AI 助手」里的服务还没配置完整（缺地址、模型或密钥）。补全后再试，或在 AI 助手里点「直接使用内置通道」',
   'dianjing.statusIdle': '已关闭',
   'dianjing.unsupported': '本格式暂不支持点睛阅读',
   'dianjing.remaining': '今日内置额度剩余 {n} 字',
