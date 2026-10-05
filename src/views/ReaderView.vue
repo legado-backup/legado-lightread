@@ -25,6 +25,7 @@ import {
   sectionSizes, sectionPageCounts, fallbackBytesPerPage, pagePosition, pageToFraction, fractionToPage, parseJumpInput,
   type PageMeasure, type PagePosition,
 } from '../services/readerPages'
+import { countSpeechChars, recordPace, paceCps, humanizeDuration, finishClock, type SpeechPace } from '../services/listenEta'
 
 const route = useRoute()
 const router = useRouter()
@@ -396,6 +397,8 @@ const PAGE_MEASURE_KEY = `lightread-pages:${bookId}`
 /** 目录项落点, 用于算「本章剩几页」(TXT 等一个分节会装多章, 不能按分节算) */
 let tocAnchors: Array<{ index: number; label: string; anchor?: (doc: Document) => Element | Range | null }> = []
 let tocFractions: Array<{ fraction: number; label: string }> = []
+/** tocFractions 是普通数组, 用它通知依赖方重算 */
+const tocFractionsReady = ref(0)
 let tocFractionTimer: ReturnType<typeof setTimeout> | undefined
 
 const showPage = computed(() => !!pageInfo.value && settings.reader.progressDisplay !== 'percent')
@@ -462,6 +465,7 @@ async function buildTocAnchors() {
   // 按分节排序 (稳定排序保留同一分节内的目录顺序)
   tocAnchors = out.sort((a, b) => a.index - b.index)
   tocFractions = []
+  tocFractionsReady.value = 0
   clearTimeout(tocFractionTimer)
   tocFractionTimer = setTimeout(() => void buildTocFractions(v), 1200)
 }
@@ -504,7 +508,10 @@ async function buildTocFractions(v: any) {
     const before = secSizes.slice(0, a.index).reduce((x, y) => x + y, 0)
     out.push({ fraction: (before + ratio * secSizes[a.index]) / sizeTotal, label: a.label })
   }
-  if (v === view) tocFractions = out.sort((x, y) => x.fraction - y.fraction)
+  if (v === view) {
+    tocFractions = out.sort((x, y) => x.fraction - y.fraction)
+    tocFractionsReady.value++
+  }
 }
 
 /** 全书进度所在章名 */
@@ -565,6 +572,7 @@ function updatePages(detail: any) {
   pagesPerScreen = per
   const pos = pagePosition(secCounts, index, (screen - 1) * per + 1, per)
   pageInfo.value = pos
+  calibrateCharsPerPage(index)
   chapterLeft.value = computeChapterLeft(index, pos, detail?.range, per, scrolled, size)
 }
 
@@ -700,6 +708,162 @@ watch(() => settings.autoReadSeconds, () => {
 
 // ---- 听书 ----
 
+// ---- 听书胶囊: 默认停在页眉留白处 (不挡正文), 可拖到任意位置并记住 ----
+const MINI_POS_KEY = 'lightread-tts-mini-pos'
+/** 胶囊中心点占阅读区宽高的比例; null 为默认停靠位置 */
+const miniPos = ref<{ x: number; y: number } | null>(null)
+try {
+  const saved = JSON.parse(localStorage.getItem(MINI_POS_KEY) || 'null')
+  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) miniPos.value = saved
+} catch { /* 用默认位置 */ }
+const miniEl = ref<HTMLElement>()
+let miniDrag: { id: number; sx: number; sy: number; moved: boolean; dx: number; dy: number } | null = null
+const miniStyle = computed(() => miniPos.value
+  ? { left: `${miniPos.value.x * 100}%`, top: `${miniPos.value.y * 100}%` }
+  : undefined)
+
+/** 浮动胶囊: 沉浸阅读时停在页眉留白; 用户拖过则一直停在那里 */
+const ttsMiniFloating = computed(() => !ttsPanel.value && ttsState.value !== 'stopped' && (!barsVisible.value || !!miniPos.value))
+/** 工具栏显示且胶囊未被拖走时, 改为嵌在顶栏中间 */
+const ttsChipInBar = computed(() => ttsState.value !== 'stopped' && barsVisible.value && !miniPos.value)
+
+function onMiniDown(e: PointerEvent) {
+  if (e.button !== 0 || !miniEl.value) return
+  const r = miniEl.value.getBoundingClientRect()
+  miniDrag = {
+    id: e.pointerId, sx: e.clientX, sy: e.clientY, moved: false,
+    dx: e.clientX - (r.left + r.width / 2), dy: e.clientY - (r.top + r.height / 2),
+  }
+  miniEl.value.setPointerCapture?.(e.pointerId)
+}
+
+function onMiniMove(e: PointerEvent) {
+  const d = miniDrag
+  const el = miniEl.value
+  const host = el?.offsetParent as HTMLElement | null
+  if (!d || !el || !host || e.pointerId !== d.id) return
+  if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6) return
+  d.moved = true
+  const h = host.getBoundingClientRect()
+  const halfW = el.offsetWidth / 2 + 6
+  const halfH = el.offsetHeight / 2 + 6
+  const cx = Math.min(h.width - halfW, Math.max(halfW, e.clientX - d.dx - h.left))
+  const cy = Math.min(h.height - halfH, Math.max(halfH, e.clientY - d.dy - h.top))
+  miniPos.value = { x: cx / h.width, y: cy / h.height }
+}
+
+function onMiniUp(e: PointerEvent) {
+  const d = miniDrag
+  if (!d || e.pointerId !== d.id) return
+  miniDrag = null
+  if (!d.moved) {
+    ttsPanel.value = true
+    return
+  }
+  try { localStorage.setItem(MINI_POS_KEY, JSON.stringify(miniPos.value)) } catch { /* 忽略 */ }
+}
+
+/** 双击胶囊回到默认停靠位置 */
+function resetMiniPos() {
+  miniPos.value = null
+  try { localStorage.removeItem(MINI_POS_KEY) } catch { /* 忽略 */ }
+}
+
+// ---- 听书进度与剩余时间 (见 services/listenEta) ----
+/** 每页字数 (只数文字), 由当前分节正文字数 / 页数得出; 0 为未知 */
+const charsPerPage = ref(0)
+const sectionChars = new Map<number, number>()
+const bookCjk = ref(true)
+/** 按引擎分别记语速: 在线 / 离线 / 系统语音快慢差别很大 */
+const paceKey = () => `lightread-tts-pace:${settings.ttsEngine}`
+const pace = ref<SpeechPace>({ cps: 0, samples: 0 })
+let pausedAt = 0
+let pausedTotal = 0
+/** 每分钟刷新一次「几点听完」 */
+const nowTick = ref(Date.now())
+let nowTimer: ReturnType<typeof setInterval> | undefined
+
+function loadPace() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(paceKey()) || 'null')
+    pace.value = saved && saved.cps > 0 ? { cps: saved.cps, samples: Math.min(saved.samples, 5) } : { cps: 0, samples: 0 }
+  } catch { pace.value = { cps: 0, samples: 0 } }
+}
+loadPace()
+watch(() => settings.ttsEngine, loadPace)
+
+function notePace(text: string, seconds: number) {
+  const next = recordPace(pace.value, countSpeechChars(text), seconds, settings.ttsRate)
+  if (next === pace.value) return
+  pace.value = next
+  try { localStorage.setItem(paceKey(), JSON.stringify(next)) } catch { /* 忽略 */ }
+}
+
+function calibrateCharsPerPage(index: number) {
+  if (!sectionChars.has(index)) {
+    const doc: Document | undefined = view?.renderer?.getContents?.()?.find((c: any) => c.index === index)?.doc
+    if (!doc?.body) return
+    sectionChars.set(index, countSpeechChars(doc.body.textContent))
+  }
+  const chars = sectionChars.get(index) ?? 0
+  // 只有插图的分节 (封面等) 字数太少, 用它算每页字数会严重偏低
+  if (chars >= 200 && secCounts[index]) charsPerPage.value = chars / secCounts[index]
+}
+
+/** 本章 / 全书还要听多少秒 */
+const listenEta = computed(() => {
+  const p = pageInfo.value
+  if (!p || fixedLayout.value || !charsPerPage.value) return null
+  const cps = paceCps(pace.value, settings.ttsRate, bookCjk.value)
+  // 当前这一屏按读了一半算
+  const chapterPages = (chapterLeft.value ?? p.sectionLeft) + (p.last - p.current + 1) / 2
+  const bookPages = p.total - p.last + (p.last - p.current + 1) / 2
+  return {
+    chapter: chapterPages * charsPerPage.value / cps,
+    book: bookPages * charsPerPage.value / cps,
+  }
+})
+
+function humanTime(seconds: number) {
+  const d = humanizeDuration(seconds)
+  if (d.kind === 'lessThanMinute') return t('tts.lessThanMinute')
+  if (d.kind === 'minutes') return t('tts.aboutMinutes', { n: d.m })
+  if (d.kind === 'hours') return t('tts.aboutHours', { n: d.h })
+  return t('tts.aboutHoursMinutes', { h: d.h, m: d.m })
+}
+
+function clockText(seconds: number) {
+  const c = finishClock(seconds, new Date(nowTick.value))
+  if (!c) return ''
+  const clock = `${c.hh}:${c.mm}`
+  return c.dayOffset > 0 ? t('tts.finishTomorrow', { clock }) : t('tts.finishAt', { clock })
+}
+
+const chapterEtaText = computed(() => listenEta.value ? t('tts.chapterLeft', { time: humanTime(listenEta.value.chapter) }) : '')
+const chapterFinishText = computed(() => listenEta.value ? clockText(listenEta.value.chapter) : '')
+const bookFinishText = computed(() => listenEta.value ? clockText(listenEta.value.book) : '')
+
+/** 本章进度 (0–1): 按目录项在全书的位置; 目录位置还没算出时为 null */
+const chapterProgress = computed(() => {
+  const f = fraction.value
+  if (!tocFractionsReady.value || !tocFractions.length) return null
+  let start = 0
+  let end = 1
+  for (const item of tocFractions) {
+    if (item.fraction <= f + 1e-6) start = item.fraction
+    else { end = item.fraction; break }
+  }
+  return end > start ? Math.min(1, Math.max(0, (f - start) / (end - start))) : null
+})
+
+watch(() => ttsState.value !== 'stopped' || ttsPanel.value, on => {
+  clearInterval(nowTimer)
+  if (on) {
+    nowTick.value = Date.now()
+    nowTimer = setInterval(() => { nowTick.value = Date.now() }, 30000)
+  }
+})
+
 const waitSectionLoad = () => new Promise<void>(resolve => {
   sectionLoadResolvers.push(resolve)
   setTimeout(resolve, 3000)
@@ -821,6 +985,7 @@ async function startTTS() {
     await view.initTTS('sentence')
     // 从当前可视位置开始朗读, 而不是本章开头; 无定位信息时回退到章首
     let ssml: string | undefined = ttsFirstSsml()
+    let firstSegment = true
     while (session === ttsSession && !ttsStopped()) {
       await waitWhilePaused()
       if (session !== ttsSession) break
@@ -837,12 +1002,19 @@ async function startTTS() {
         continue
       }
       const text = ssmlToText(ssml)
+      const startedAt = performance.now()
+      const pausedBefore = pausedTotal
       const speaking = text ? speakText(text) : undefined
       // 当前段入队后预取后续两段: 合成慢于实时时也保持 1–2 段缓冲, 段间不再等合成
       if (settings.ttsEngine !== 'system') {
         peekUpcomingTexts(2).forEach((upcoming, i) => prefetchSpeech(upcoming, i + 1))
       }
       if (speaking) await speaking
+      // 首段含合成 / 模型加载等待, 不计入语速
+      if (text && !firstSegment && session === ttsSession && !ttsStopped()) {
+        notePace(text, (performance.now() - startedAt - (pausedTotal - pausedBefore)) / 1000)
+      }
+      firstSegment = false
       pingReadingAuto()
       if (session !== ttsSession || ttsStopped()) break
       await waitWhilePaused()
@@ -861,11 +1033,14 @@ async function startTTS() {
 
 function pauseTTS() {
   ttsState.value = 'paused'
+  pausedAt = performance.now()
   pauseSpeech()
 }
 
 function resumeTTS() {
   ttsState.value = 'playing'
+  if (pausedAt) pausedTotal += performance.now() - pausedAt
+  pausedAt = 0
   // 暂停期间翻过页: 原朗读循环已终止, 从当前页面重新开始
   if (ttsInterrupted) {
     ttsInterrupted = false
@@ -876,6 +1051,8 @@ function resumeTTS() {
 }
 
 function stopTTS() {
+  if (pausedAt) pausedTotal += performance.now() - pausedAt
+  pausedAt = 0
   ttsSession++
   ttsState.value = 'stopped'
   clearTimeout(ttsResyncTimer)
@@ -1407,6 +1584,7 @@ onMounted(async () => {
     await view.open(await makeFoliateBook(file))
     toc.value = view.book?.toc ?? []
     secSizes = sectionSizes(view.book?.sections ?? [])
+    bookCjk.value = view.language?.isCJK ?? true
     loadPageMeasure()
     void buildTocAnchors()
     applyPrefs()
@@ -1446,6 +1624,7 @@ onBeforeUnmount(() => {
   clearTimeout(pageSaveTimer)
   clearTimeout(jumpBackTimer)
   clearTimeout(tocFractionTimer)
+  clearInterval(nowTimer)
   document.removeEventListener('pointerdown', onJumpOutside, true)
   if (pageMeasure.key) {
     try { localStorage.setItem(PAGE_MEASURE_KEY, JSON.stringify(pageMeasure)) } catch { /* 忽略 */ }
@@ -1481,6 +1660,22 @@ onBeforeUnmount(() => {
       <div class="book-title">
         <strong>{{ meta?.title }}</strong>
         <span v-if="chapterLabel" class="chapter">{{ chapterLabel }}</span>
+      </div>
+      <!-- 听书中且工具栏显示时, 胶囊收进顶栏中间 -->
+      <div v-if="ttsChipInBar" class="tts-chip" role="group" :aria-label="t('tts.title')">
+        <button class="tts-chip-main" :title="t('tts.expandPanel')" @click="openTTSPanel">
+          <span class="tts-mini-dot" :class="{ paused: ttsState === 'paused' }" />
+          <span class="tts-chip-text">{{ listenEta ? humanTime(listenEta.chapter) : (ttsState === 'playing' ? t('tts.reading') : t('tts.paused')) }}</span>
+        </button>
+        <button
+          class="tts-mini-btn"
+          :title="ttsState === 'playing' ? t('common.pause') : t('common.resume')"
+          :aria-label="ttsState === 'playing' ? t('common.pause') : t('common.resume')"
+          @click="ttsState === 'playing' ? pauseTTS() : resumeTTS()"
+        >
+          <template v-if="ttsState === 'playing'"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 5a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-3 0v-11A1.5 1.5 0 0 1 8 5zm8 0a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-3 0v-11A1.5 1.5 0 0 1 16 5z"/></svg></template>
+          <template v-else><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8.5 5.2a1 1 0 0 1 1.02.03l9 5.95a1 1 0 0 1 0 1.66l-9 5.95A1 1 0 0 1 8 17.95V6.05a1 1 0 0 1 .5-.85z"/></svg></template>
+        </button>
       </div>
       <div class="bar-actions">
         <button class="icon-btn desk-only" :title="t('reader.toc')" @click="togglePanel('toc')">
@@ -1702,31 +1897,72 @@ onBeforeUnmount(() => {
 
     <!-- 听书迷你胶囊: 面板收起但会话未停止时显示 -->
     <div
-      v-if="!ttsPanel && ttsState !== 'stopped'"
+      v-if="ttsMiniFloating"
+      ref="miniEl"
       class="tts-mini card"
-      :title="t('tts.expandPanel')"
-      @click="ttsPanel = true"
+      :class="{ placed: !!miniPos }"
+      :style="miniStyle"
+      :title="t('tts.miniHint')"
+      role="button"
+      tabindex="0"
+      :aria-label="t('tts.expandPanel')"
+      @pointerdown="onMiniDown"
+      @pointermove="onMiniMove"
+      @pointerup="onMiniUp"
+      @pointercancel="miniDrag = null"
+      @dblclick="resetMiniPos"
+      @keydown.enter.prevent="ttsPanel = true"
     >
       <span class="tts-mini-dot" :class="{ paused: ttsState === 'paused' }" />
-      <span class="tts-mini-label">{{ ttsState === 'playing' ? t('tts.reading') : t('tts.paused') }}</span>
+      <span class="tts-mini-label">
+        {{ ttsState === 'playing' ? t('tts.reading') : t('tts.paused') }}<template v-if="listenEta"> · <span class="tts-mini-eta">{{ chapterEtaText }}</span></template>
+      </span>
       <button
         class="tts-mini-btn"
         :title="ttsState === 'playing' ? t('common.pause') : t('common.resume')"
+        :aria-label="ttsState === 'playing' ? t('common.pause') : t('common.resume')"
+        @pointerdown.stop
         @click.stop="ttsState === 'playing' ? pauseTTS() : resumeTTS()"
-      >{{ ttsState === 'playing' ? '⏸' : '▶' }}</button>
-      <button class="tts-mini-btn" :title="t('common.stop')" @click.stop="stopTTS()">⏹</button>
+      >
+        <template v-if="ttsState === 'playing'"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 5a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-3 0v-11A1.5 1.5 0 0 1 8 5zm8 0a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-3 0v-11A1.5 1.5 0 0 1 16 5z"/></svg></template>
+        <template v-else><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8.5 5.2a1 1 0 0 1 1.02.03l9 5.95a1 1 0 0 1 0 1.66l-9 5.95A1 1 0 0 1 8 17.95V6.05a1 1 0 0 1 .5-.85z"/></svg></template>
+      </button>
+      <button class="tts-mini-btn" :title="t('common.stop')" :aria-label="t('common.stop')" @pointerdown.stop @click.stop="stopTTS()"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></svg></button>
     </div>
 
     <!-- 听书控制条 -->
     <div v-if="ttsPanel" class="tts-panel card">
+      <!-- 听到哪了、还要多久 -->
+      <div v-if="listenEta" class="tts-progress">
+        <div class="tts-progress-head">
+          <span class="tts-progress-chapter">{{ chapterLabel || meta?.title }}</span>
+          <span class="tts-progress-eta">{{ chapterEtaText }}</span>
+        </div>
+        <div
+          class="tts-progress-track"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="Math.round((chapterProgress ?? fraction) * 100)"
+          :aria-label="chapterProgress != null ? t('tts.chapterProgress') : t('reader.progress')"
+        >
+          <span :style="{ width: `${(chapterProgress ?? fraction) * 100}%` }" />
+        </div>
+        <div class="tts-progress-sub">
+          <span>{{ chapterFinishText }}</span>
+          <span :title="bookFinishText">{{ t('tts.bookSummary', { pct: percentText, time: listenEta ? humanTime(listenEta.book) : '' }) }}</span>
+        </div>
+        <p v-if="!pace.samples" class="tts-progress-hint">{{ t('tts.etaLearning') }}</p>
+      </div>
       <div class="tts-row">
         <button
           class="btn btn-sm btn-primary"
           @click="ttsState === 'playing' ? pauseTTS() : ttsState === 'paused' ? resumeTTS() : startTTS()"
         >
-          {{ ttsState === 'playing' ? '⏸ ' + t('common.pause') : ttsState === 'paused' ? '▶ ' + t('common.resume') : '▶ ' + t('tts.startReading') }}
+          <template v-if="ttsState === 'playing'"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 5a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-3 0v-11A1.5 1.5 0 0 1 8 5zm8 0a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-3 0v-11A1.5 1.5 0 0 1 16 5z"/></svg>{{ t('common.pause') }}</template>
+          <template v-else><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8.5 5.2a1 1 0 0 1 1.02.03l9 5.95a1 1 0 0 1 0 1.66l-9 5.95A1 1 0 0 1 8 17.95V6.05a1 1 0 0 1 .5-.85z"/></svg>{{ ttsState === 'paused' ? t('common.resume') : t('tts.startReading') }}</template>
         </button>
-        <button class="btn btn-sm" :disabled="ttsState === 'stopped'" @click="stopTTS">⏹ {{ t('common.stop') }}</button>
+        <button class="btn btn-sm" :disabled="ttsState === 'stopped'" @click="stopTTS"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></svg>{{ t('common.stop') }}</button>
         <span style="flex: 1" />
         <button class="btn btn-sm" :title="t('tts.collapseHint')" @click="ttsPanel = false">{{ t('tts.collapse') }}</button>
       </div>
@@ -2467,19 +2703,34 @@ onBeforeUnmount(() => {
 .note-input:focus {
   border-color: var(--brand);
 }
+/* 听书胶囊: 默认停在页眉留白 (章节名那一条), 不压正文; 工具栏出现时让到其下方; 拖动后停在用户放的位置 */
 .tts-mini {
+  --head-band: 48px;
   position: absolute;
-  bottom: calc(12px + var(--safe-bottom));
+  top: calc(var(--safe-top) + (var(--head-band) - 32px) / 2);
   left: 50%;
   transform: translateX(-50%);
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px 6px 14px;
-  border-radius: 999px;
-  cursor: pointer;
+  gap: 6px;
+  height: 32px;
+  padding: 0 4px 0 12px;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-md);
+  cursor: grab;
   user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  white-space: nowrap;
+  transition: top 0.25s;
+}
+.tts-mini:active {
+  cursor: grabbing;
+}
+.tts-mini.placed {
+  transform: translate(-50%, -50%);
+  transition: none;
 }
 .tts-mini-dot {
   width: 8px;
@@ -2497,12 +2748,12 @@ onBeforeUnmount(() => {
   50% { opacity: 0.4; transform: scale(0.75); }
 }
 .tts-mini-label {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-2);
 }
 .tts-mini-btn {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: none;
   border-radius: 50%;
   background: var(--bg);
@@ -2515,6 +2766,100 @@ onBeforeUnmount(() => {
 .tts-mini-btn:hover {
   background: var(--brand-light);
   color: var(--brand);
+}
+.tts-mini-eta {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.tts-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.tts-progress-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.tts-progress-chapter {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.tts-progress-eta {
+  flex-shrink: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.tts-progress-track {
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.tts-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--brand);
+  transition: width 0.4s ease;
+}
+.tts-progress-sub {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.tts-progress-sub span {
+  white-space: nowrap;
+}
+.tts-progress-sub span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+/* 顶栏里的听书胶囊 */
+.tts-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 2px 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-soft);
+}
+.tts-chip-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 6px;
+  border: none;
+  background: none;
+  color: var(--brand);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tts-chip .tts-mini-btn {
+  background: var(--card);
+}
+.tts-progress-hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 11px;
 }
 .tts-panel {
   position: absolute;
@@ -2781,8 +3126,7 @@ onBeforeUnmount(() => {
 .bar.bottom.hidden {
   transform: translateY(100%);
 }
-.bars-on .auto-panel,
-.bars-on .tts-mini {
+.bars-on .auto-panel {
   bottom: calc(var(--footer-h) + 12px + var(--safe-bottom));
 }
 .chapter-btn {
@@ -2811,6 +3155,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 600px) {
+  /* 手机页眉留白较窄 (见 applyPrefs 的 margin) */
+  .tts-mini {
+    --head-band: 36px;
+  }
   .reader {
     --footer-h: 112px;
   }
