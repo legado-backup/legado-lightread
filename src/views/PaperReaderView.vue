@@ -70,7 +70,8 @@ import {
 } from '../services/tts'
 import { EDGE_VOICES, edgeAvailable, playAudio } from '../services/edgeTts'
 import { KOKORO_VOICES, DEFAULT_KOKORO_SID, kokoroVoiceLabel } from '../services/kokoroVoices'
-import { localTtsAvailable, localTtsDownload, localTtsStatus, localTtsSynthesize } from '../services/localTts'
+import { localPack, localTtsSynthesize, refreshLocalPack } from '../services/localTts'
+import LocalTtsPack from '../components/LocalTtsPack.vue'
 import {
   dispatchPdfReaderShortcut,
   getPdfShortcutHelpRows,
@@ -3156,36 +3157,9 @@ const waitWhilePaused = async () => {
 /** await 期间状态可能被外部修改, 用函数取值绕开 TS 控制流收窄 */
 const ttsStopped = () => ttsState.value === 'stopped'
 
-const localInstalled = ref(false)
-const localDownloading = ref(false)
-const localProgress = ref('')
-
-async function refreshLocalStatus() {
-  if (!localTtsAvailable()) return
-  try {
-    localInstalled.value = (await localTtsStatus()).installed
-  } catch {
-    localInstalled.value = false
-  }
-}
-
-async function downloadLocal() {
-  localDownloading.value = true
-  localProgress.value = t('common.connecting')
-  try {
-    await localTtsDownload(p => {
-      localProgress.value = p.phase === 'extracting'
-        ? t('reader.extracting')
-        : `${(p.downloaded / 1048576).toFixed(0)}MB${p.total ? ' / ' + (p.total / 1048576).toFixed(0) + 'MB' : ''}`
-    })
-    localInstalled.value = true
-    toast(t('tts.localReady'), 'success')
-  } catch (e: any) {
-    toast(t('tts.localDownloadFailed', { msg: e?.message ?? e }), 'error', 6000)
-  } finally {
-    localDownloading.value = false
-  }
-}
+/** 语音包已装好且可用 (未因闪退暂停); 下载 / 恢复由 LocalTtsPack 处理 */
+const localInstalled = computed(() => localPack.installed && !localPack.crashed)
+const refreshLocalStatus = () => refreshLocalPack()
 
 async function auditionLocal() {
   try {
@@ -4561,9 +4535,7 @@ onBeforeUnmount(() => {
           </select>
           <button class="btn btn-sm" :disabled="ttsState !== 'stopped'" @click="auditionLocal">{{ t('tts.audition') }}</button>
         </template>
-        <button v-else class="btn btn-sm btn-primary" :disabled="localDownloading" @click="downloadLocal">
-          {{ localDownloading ? localProgress : t('tts.downloadLocal') }}
-        </button>
+        <LocalTtsPack v-else />
       </div>
       <div v-else class="tts-row">
         <label>{{ t('tts.voice') }}</label>

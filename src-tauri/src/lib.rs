@@ -5,6 +5,7 @@ mod edge_tts;
 mod fonts;
 mod http_upload;
 mod local_tts;
+mod tts_device;
 
 use std::{collections::HashSet, path::Path, sync::Mutex};
 use tauri::{Emitter, Manager};
@@ -162,6 +163,9 @@ pub fn run() {
       calibre::calibre_read_file,
       local_tts::local_tts_status,
       local_tts::local_tts_download,
+      local_tts::local_tts_download_state,
+      local_tts::local_tts_clear_crash,
+      tts_device::local_tts_device_check,
       local_tts::local_tts_remove,
       local_tts::local_tts_warmup,
       local_tts::local_tts_synthesize,
@@ -208,6 +212,10 @@ pub fn run() {
   app.run(|app_handle, event| {
     if matches!(&event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
       app_handle.state::<agent::AgentSupervisor>().stop_all();
+    }
+    // 正常退出时正在朗读不算闪退
+    if matches!(&event, tauri::RunEvent::Exit) {
+      local_tts::clear_crash_marker_on_exit(app_handle);
     }
     // macOS/移动端通过系统 Opened 事件交付关联文件；冷启动事件同样先进入队列。
     #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]

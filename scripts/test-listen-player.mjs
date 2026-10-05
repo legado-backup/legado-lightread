@@ -455,7 +455,9 @@ const mocks = {
     export const playAudio = async () => 'end'`,
   './localTts': `export const localTtsAvailable = () => true;
     export const localTtsWarmup = () => Promise.resolve();
-    export const localTtsSynthesize = ${fakeSynth}`,
+    export const localTtsSynthesize = ${fakeSynth};
+    export const localPack = { crashed: false };
+    export const isLocalCrashError = () => false`,
 }
 const hook = registerHooks({
   resolve(specifier, context, nextResolve) {

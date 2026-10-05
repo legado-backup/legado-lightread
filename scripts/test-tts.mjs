@@ -33,7 +33,9 @@ const modules = {
   '../i18n': 'export const t = key => key',
   './localTts': `export const localTtsAvailable = () => true;
     export const localTtsWarmup = () => globalThis.__ttsTest.warmup();
-    export const localTtsSynthesize = (...args) => globalThis.__ttsTest.synthesize(...args)`,
+    export const localTtsSynthesize = (...args) => globalThis.__ttsTest.synthesize(...args);
+    export const localPack = { crashed: false };
+    export const isLocalCrashError = e => String(e?.message ?? e).includes('LOCAL_TTS_CRASHED')`,
   './edgeTts': `export const edgeAvailable = () => false;
     export const edgePause = () => {};
     export const edgeResume = () => {};

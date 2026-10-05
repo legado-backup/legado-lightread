@@ -96,7 +96,7 @@ import { t } from '../i18n'
 import {
   edgeAvailable, edgePause, edgeResume, edgeStop, edgeSynthesize, playAudio,
 } from './edgeTts'
-import { localTtsAvailable, localTtsSynthesize, localTtsWarmup } from './localTts'
+import { isLocalCrashError, localPack, localTtsAvailable, localTtsSynthesize, localTtsWarmup } from './localTts'
 
 /** 神经引擎失败后本次会话回退系统语音, 避免每段都等超时 */
 let neuralFailed = false
@@ -213,6 +213,11 @@ export function reportNeuralFailure(error: unknown) {
   console.error(error)
   if (neuralFailed) return
   neuralFailed = true
+  if (isLocalCrashError(error)) {
+    localPack.crashed = true
+    toast(t('tts.localCrashedPaused'), 'error', 8000)
+    return
+  }
   toast(t('tts.neuralUnavailable'), 'error', 4000)
 }
 
@@ -224,7 +229,7 @@ export function forgetLocalModel() {
 /** 打开听书面板时预加载离线模型, 点「开始」时就不必再等; 失败静默 (未安装等) */
 export function warmUpSpeech() {
   const settings = useSettings()
-  if (neuralFailed || settings.ttsEngine !== 'local' || !localTtsAvailable()) return
+  if (neuralFailed || settings.ttsEngine !== 'local' || !localTtsAvailable() || localPack.crashed) return
   warmLocal().catch(() => { /* 开始朗读时再报错 */ })
 }
 

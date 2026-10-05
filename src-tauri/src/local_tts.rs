@@ -11,16 +11,37 @@ mod stub {
     pub struct LocalTtsStatus {
         pub installed: bool,
         pub path: String,
+        pub crashed: bool,
     }
 
     #[tauri::command]
     pub fn local_tts_status(_app: AppHandle) -> Result<LocalTtsStatus, String> {
-        Ok(LocalTtsStatus { installed: false, path: String::new() })
+        Ok(LocalTtsStatus { installed: false, path: String::new(), crashed: false })
     }
+
+    #[tauri::command]
+    pub fn local_tts_clear_crash(_app: AppHandle) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn clear_crash_marker_on_exit(_app: &AppHandle) {}
 
     #[tauri::command]
     pub async fn local_tts_download(_app: AppHandle, _proxy: Option<String>) -> Result<(), String> {
         Err("移动端暂不支持离线语音包".into())
+    }
+
+    #[derive(Serialize)]
+    pub struct LocalTtsDownloadState {
+        pub running: bool,
+        pub downloaded: u64,
+        pub total: u64,
+        pub phase: String,
+    }
+
+    #[tauri::command]
+    pub fn local_tts_download_state(_app: AppHandle) -> Result<LocalTtsDownloadState, String> {
+        Ok(LocalTtsDownloadState { running: false, downloaded: 0, total: 0, phase: "idle".into() })
     }
 
     #[tauri::command]
@@ -117,18 +138,59 @@ pub(crate) fn download_routes(proxy: Option<String>) -> Vec<Route> {
 }
 
 #[cfg(test)]
+pub(crate) async fn synthesize_for_test(root: PathBuf, text: String) -> Result<Vec<u8>, String> {
+    run_engine_task(move || synthesize_at(&root, &text, DEFAULT_SID, 1.0)).await
+}
+
+#[cfg(test)]
 pub(crate) async fn download_archive_for_test(path: &Path, route: &Route) -> Result<(), String> {
     download_archive(path, MODEL_URL, route, &std::sync::Arc::new(|_: u64, _: u64, _: &str| {})).await
 }
 
-/// 下载模型包到 path, 期间推送进度; 校验大小与 SHA256
+/// 已下载的半截文件: 返回其长度与对这些字节的 SHA256 状态 (续传时接着算)。
+/// 比完整包还大的文件是坏的, 清空重来。
+fn resume_state(path: &Path) -> Result<(u64, sha2::Sha256), String> {
+    use sha2::Digest;
+    use std::io::Read as _;
+    let mut hasher = sha2::Sha256::new();
+    let len = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    if len == 0 || len > MODEL_SIZE {
+        let _ = std::fs::remove_file(path);
+        return Ok((0, hasher));
+    }
+    let mut file = std::fs::File::open(path).map_err(|e| format!("读取已下载部分失败: {e}"))?;
+    let mut buf = vec![0u8; 1 << 20];
+    let mut read: u64 = 0;
+    loop {
+        let n = file.read(&mut buf).map_err(|e| format!("读取已下载部分失败: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        read += n as u64;
+    }
+    Ok((read, hasher))
+}
+
+/// 服务器的 Content-Range (`bytes 123-456/789`) 是否从 start 开始
+pub(crate) fn content_range_starts_at(header: Option<&str>, start: u64) -> bool {
+    header
+        .and_then(|v| v.trim().strip_prefix("bytes "))
+        .and_then(|v| v.split('-').next())
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        == Some(start)
+}
+
+/// 下载模型包到 path, 期间推送进度; 校验大小与 SHA256。
+/// 断点续传: path 已有半截文件时用 Range 请求接着下 (GitHub 与 GitCode 内容相同, 可以互相接);
+/// 服务器不支持 Range 就从头下。失败时保留半截文件, 下次接着下; 只有校验不通过才删掉。
 async fn download_archive(
     path: &Path,
     url: &str,
     route: &Route,
     emit: &std::sync::Arc<impl Fn(u64, u64, &str) + Send + Sync + 'static>,
 ) -> Result<(), String> {
-    use sha2::{Digest, Sha256};
+    use sha2::Digest;
     let mut builder = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(20))
         .read_timeout(std::time::Duration::from_secs(60));
@@ -143,35 +205,71 @@ async fn download_archive(
         Route::Direct => builder = builder.no_proxy(),
     }
     let client = builder.build().map_err(|e| e.to_string())?;
-    let mut resp = client
-        .get(url)
-        .send()
+
+    let owned = path.to_path_buf();
+    let (mut downloaded, mut hasher) = tokio::task::spawn_blocking(move || resume_state(&owned))
         .await
-        .map_err(|e| describe_error(&e, via_proxy))?;
-    if !resp.status().is_success() {
-        return Err(format!("服务器返回 {}", resp.status()));
-    }
-    let total = resp.content_length().unwrap_or(MODEL_SIZE);
-    let mut file = std::fs::File::create(path).map_err(|e| format!("写入失败: {e}"))?;
-    let mut hasher = Sha256::new();
-    let mut downloaded: u64 = 0;
-    let mut last_emit = std::time::Instant::now();
-    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("下载中断 ({})", describe_error(&e, via_proxy)))? {
-        file.write_all(&chunk).map_err(|e| format!("写入失败: {e}"))?;
-        hasher.update(&chunk);
-        downloaded += chunk.len() as u64;
-        if last_emit.elapsed().as_millis() > 200 {
-            emit(downloaded, total, "downloading");
-            last_emit = std::time::Instant::now();
+        .map_err(|e| format!("任务失败: {e}"))??;
+    let total = MODEL_SIZE;
+    emit(downloaded, total, "downloading");
+
+    if downloaded < MODEL_SIZE {
+        let mut req = client.get(url);
+        if downloaded > 0 {
+            req = req.header(reqwest::header::RANGE, format!("bytes={downloaded}-"));
         }
+        let mut resp = req.send().await.map_err(|e| describe_error(&e, via_proxy))?;
+        let status = resp.status();
+        let resumed = downloaded > 0
+            && status == reqwest::StatusCode::PARTIAL_CONTENT
+            && content_range_starts_at(
+                resp.headers().get(reqwest::header::CONTENT_RANGE).and_then(|v| v.to_str().ok()),
+                downloaded,
+            );
+        if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+            // 半截文件和服务器上的对不上, 丢掉, 下一次尝试从头下
+            let _ = std::fs::remove_file(path);
+            return Err("已下载的部分与服务器不一致, 已清除, 请重试".into());
+        }
+        if !status.is_success() {
+            return Err(format!("服务器返回 {status}"));
+        }
+        let mut file = if resumed {
+            std::fs::OpenOptions::new().append(true).open(path)
+        } else {
+            // 服务器不支持续传 (返回整包): 从头开始
+            downloaded = 0;
+            hasher = sha2::Sha256::new();
+            std::fs::File::create(path)
+        }
+        .map_err(|e| format!("写入失败: {e}"))?;
+        emit(downloaded, total, "downloading");
+        let mut last_emit = std::time::Instant::now();
+        while let Some(chunk) = resp.chunk().await.map_err(|e| format!("下载中断 ({})", describe_error(&e, via_proxy)))? {
+            if downloaded + chunk.len() as u64 > MODEL_SIZE {
+                drop(file);
+                let _ = std::fs::remove_file(path);
+                return Err("文件比预期大, 已丢弃".into());
+            }
+            file.write_all(&chunk).map_err(|e| format!("写入失败: {e}"))?;
+            hasher.update(&chunk);
+            downloaded += chunk.len() as u64;
+            if last_emit.elapsed().as_millis() > 200 {
+                emit(downloaded, total, "downloading");
+                last_emit = std::time::Instant::now();
+            }
+        }
+        file.flush().map_err(|e| format!("写入失败: {e}"))?;
+        drop(file);
+        emit(downloaded, total, "downloading");
     }
-    drop(file);
     if downloaded != MODEL_SIZE {
-        return Err(format!("文件不完整 ({downloaded}/{MODEL_SIZE} 字节)"));
+        return Err(format!("下载中断, 已保存 {} / {} MB, 重试会接着下", downloaded >> 20, MODEL_SIZE >> 20));
     }
     let digest = format!("{:x}", hasher.finalize());
     if digest != MODEL_SHA256 {
-        return Err("文件校验失败 (SHA256 不一致)".into());
+        let _ = std::fs::remove_file(path);
+        return Err("文件校验失败 (SHA256 不一致), 已删除, 重试会重新下载".into());
     }
     emit(downloaded, total, "extracting");
     Ok(())
@@ -193,16 +291,30 @@ fn model_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join(MODEL_DIR))
 }
 
-fn model_ready(root: &PathBuf) -> bool {
-    root.join("model.onnx").exists()
-        && root.join("voices.bin").exists()
-        && root.join("tokens.txt").exists()
+/// 关键文件及其大小 (2026-10-05 从模型包实测)。只看「文件存在」不够: 解压被打断 (关闭应用、
+/// 杀毒软件锁文件、磁盘满) 会留下截断的 model.onnx, 原生库加载它时会直接结束进程 (闪退),
+/// 而且每次启动预加载都会再闪退一次。大小不对就当作没装好, 重新下载 / 解压。
+const REQUIRED_FILES: &[(&str, u64)] = &[
+    ("model.onnx", 325_631_784),
+    ("voices.bin", 53_790_720),
+    ("tokens.txt", 1_111),
+    ("lexicon-zh.txt", 2_119_465),
+    ("lexicon-us-en.txt", 5_956_885),
+];
+
+fn model_ready(root: &Path) -> bool {
+    REQUIRED_FILES
+        .iter()
+        .all(|(name, size)| std::fs::metadata(root.join(name)).map(|m| m.len() == *size).unwrap_or(false))
+        && root.join("espeak-ng-data").is_dir()
 }
 
 #[derive(Serialize)]
 pub struct LocalTtsStatus {
     pub installed: bool,
     pub path: String,
+    /// 上次加载 / 推理离线语音时应用意外退出, 已暂停使用
+    pub crashed: bool,
 }
 
 #[tauri::command]
@@ -211,6 +323,7 @@ pub fn local_tts_status(app: AppHandle) -> Result<LocalTtsStatus, String> {
     Ok(LocalTtsStatus {
         installed: model_ready(&root),
         path: root.to_string_lossy().to_string(),
+        crashed: crashed_before(&root),
     })
 }
 
@@ -221,13 +334,110 @@ struct DownloadProgress {
     phase: String,
 }
 
-/// 下载并解压模型包; 进度经 `local-tts-progress` 事件推送
+/// 下载任务在后台独立运行, 与发起它的页面无关: 离开页面不会中断;
+/// 同一时间只有一个任务, 重复点击「下载」会接到正在进行的任务上, 不会开第二个去抢同一个文件。
+type JobResult = Option<Result<(), String>>;
+static DOWNLOAD_JOB: OnceLock<Mutex<Option<tokio::sync::watch::Receiver<JobResult>>>> = OnceLock::new();
+/// 最近一次进度, 供页面重新打开时显示
+static DOWNLOAD_PROGRESS: OnceLock<Mutex<Option<DownloadProgress>>> = OnceLock::new();
+
+fn archive_path(root: &Path) -> Result<PathBuf, String> {
+    Ok(root.parent().ok_or("路径异常")?.join("kokoro-download.tar.bz2"))
+}
+
+#[derive(Serialize)]
+pub struct LocalTtsDownloadState {
+    /// 后台是否正在下载 / 解压
+    pub running: bool,
+    pub downloaded: u64,
+    pub total: u64,
+    pub phase: String,
+}
+
+/// 当前下载状态: 正在下载时给出实时进度; 否则给出上次留下的半截文件大小 (可续传)
+#[tauri::command]
+pub fn local_tts_download_state(app: AppHandle) -> Result<LocalTtsDownloadState, String> {
+    let running = DOWNLOAD_JOB
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .map_err(|_| "下载状态锁已损坏")?
+        .as_ref()
+        .is_some_and(|rx| rx.borrow().is_none());
+    if running {
+        let last = DOWNLOAD_PROGRESS.get_or_init(|| Mutex::new(None)).lock().ok().and_then(|p| p.clone());
+        let p = last.unwrap_or(DownloadProgress { downloaded: 0, total: MODEL_SIZE, phase: "connecting".into() });
+        return Ok(LocalTtsDownloadState { running, downloaded: p.downloaded, total: p.total, phase: p.phase });
+    }
+    let partial = std::fs::metadata(archive_path(&model_root(&app)?)?)
+        .map(|m| m.len())
+        .unwrap_or(0)
+        .min(MODEL_SIZE);
+    Ok(LocalTtsDownloadState { running, downloaded: partial, total: MODEL_SIZE, phase: "idle".into() })
+}
+
+/// 把已校验的安装包解压到 root 同级的临时目录, 关键文件大小都对再整体换到 root。
+/// 失败时保留安装包 (已通过 SHA256), 重试不必重新下载。
+pub(crate) fn install_archive(archive: &Path, root: &Path) -> Result<(), String> {
+    let parent = root.parent().ok_or("路径异常")?;
+    let staging = parent.join("kokoro-unpack.partial");
+    let _ = std::fs::remove_dir_all(&staging);
+    std::fs::create_dir_all(&staging).map_err(|e| format!("创建目录失败: {e}"))?;
+    let file = std::fs::File::open(archive).map_err(|e| format!("读取包失败: {e}"))?;
+    let mut tar = tar::Archive::new(bzip2::read::BzDecoder::new(file));
+    let unpacked = staging.join(MODEL_DIR.rsplit('/').next().unwrap_or("kokoro-multi-lang-v1_1"));
+    let result = tar
+        .unpack(&staging)
+        .map_err(|e| format!("解压失败: {e} (磁盘空间不足或被杀毒软件拦截?)"))
+        .and_then(|()| {
+            if model_ready(&unpacked) {
+                Ok(())
+            } else {
+                Err("解压后的文件不完整 (磁盘空间不足或被杀毒软件拦截?)".to_string())
+            }
+        })
+        .and_then(|()| {
+            if root.exists() {
+                std::fs::remove_dir_all(root).map_err(|e| format!("清理旧文件失败: {e}"))?;
+            }
+            std::fs::rename(&unpacked, root).map_err(|e| format!("安装失败: {e}"))
+        });
+    let _ = std::fs::remove_dir_all(&staging);
+    result?;
+    let _ = std::fs::remove_file(archive);
+    Ok(())
+}
+
+/// 下载并解压模型包; 进度经 `local-tts-progress` 事件推送。已有任务时等待它的结果。
 #[tauri::command]
 pub async fn local_tts_download(app: AppHandle, proxy: Option<String>) -> Result<(), String> {
-    let root = model_root(&app)?;
-    if model_ready(&root) {
+    if model_ready(&model_root(&app)?) {
         return Ok(());
     }
+    let mut rx = {
+        let mut job = DOWNLOAD_JOB.get_or_init(|| Mutex::new(None)).lock().map_err(|_| "下载状态锁已损坏")?;
+        match job.as_ref() {
+            Some(rx) if rx.borrow().is_none() => rx.clone(),
+            _ => {
+                let (tx, rx) = tokio::sync::watch::channel(None);
+                *job = Some(rx.clone());
+                tauri::async_runtime::spawn(async move {
+                    let result = run_download(app, proxy).await;
+                    if let Ok(mut p) = DOWNLOAD_PROGRESS.get_or_init(|| Mutex::new(None)).lock() {
+                        *p = None;
+                    }
+                    let _ = tx.send(Some(result));
+                });
+                rx
+            }
+        }
+    };
+    let waited = rx.wait_for(|r| r.is_some()).await.ok().map(|r| r.clone());
+    let result = waited.unwrap_or_else(|| rx.borrow().clone());
+    result.unwrap_or_else(|| Err("下载任务意外结束".into()))
+}
+
+async fn run_download(app: AppHandle, proxy: Option<String>) -> Result<(), String> {
+    let root = model_root(&app)?;
     let parent = root
         .parent()
         .ok_or("路径异常")?
@@ -237,20 +447,19 @@ pub async fn local_tts_download(app: AppHandle, proxy: Option<String>) -> Result
     let emit = {
         let app = app.clone();
         std::sync::Arc::new(move |downloaded: u64, total: u64, phase: &str| {
-            let _ = app.emit(
-                "local-tts-progress",
-                DownloadProgress {
-                    downloaded,
-                    total,
-                    phase: phase.into(),
-                },
-            );
+            let progress = DownloadProgress { downloaded, total, phase: phase.into() };
+            if let Ok(mut p) = DOWNLOAD_PROGRESS.get_or_init(|| Mutex::new(None)).lock() {
+                *p = Some(progress.clone());
+            }
+            let _ = app.emit("local-tts-progress", progress);
         })
     };
+    emit(0, MODEL_SIZE, "connecting");
 
     // 下载: 先走设置里的代理, 代理连不上再直连 (未设代理时 reqwest 自动用系统代理);
-    // 边下边算 SHA256, 与 GitHub 公布的摘要不一致就丢弃 (半截文件、被劫持的内容都装不上)
-    let archive_path = parent.join("kokoro-download.tar.bz2");
+    // 边下边算 SHA256, 与 GitHub 公布的摘要不一致就丢弃 (被劫持的内容装不上);
+    // 每次尝试都从已下载的位置接着下, 换线路、换来源、重启应用后都不必从头来
+    let archive_path = archive_path(&root)?;
     let proxy = proxy.as_deref().and_then(normalize_proxy);
     let mut errors: Vec<String> = Vec::new();
     let mut ok = false;
@@ -272,33 +481,25 @@ pub async fn local_tts_download(app: AppHandle, proxy: Option<String>) -> Result
         }
     }
     if !ok {
-        let _ = std::fs::remove_file(&archive_path);
         let hint = if proxy.is_some() {
             "请检查「设置 → 网络」里的代理地址 (如 http://127.0.0.1:7890), 或清空后重试"
         } else {
             "请检查网络; 国内网络访问 GitHub 不稳定时, 可在「设置 → 网络」填写代理后重试"
         };
-        return Err(format!("{}。{hint}", errors.join("; ")));
+        let kept = std::fs::metadata(&archive_path).map(|m| m.len()).unwrap_or(0);
+        let resume = if kept > 0 { format!("。已下载的 {} MB 已保留, 重试会接着下", kept >> 20) } else { String::new() };
+        return Err(format!("{}{resume}。{hint}", errors.join("; ")));
     }
 
-    // 解压 (tar.bz2, 顶层目录即 kokoro-multi-lang-v1_1), blocking IO 放独立线程
+    // 解压 (tar.bz2, 顶层目录即 kokoro-multi-lang-v1_1) 到临时目录, 校验关键文件大小后再整体换到正式位置:
+    // 解压中断不会留下「看起来装好了、实际是坏的」模型。blocking IO 放独立线程。
     let archive = archive_path.clone();
-    let unpack_to = parent.clone();
-    let emit_done = emit.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let file = std::fs::File::open(&archive).map_err(|e| format!("读取包失败: {e}"))?;
-        let bz = bzip2::read::BzDecoder::new(file);
-        let mut tar = tar::Archive::new(bz);
-        tar.unpack(&unpack_to).map_err(|e| format!("解压失败: {e}"))?;
-        let _ = std::fs::remove_file(&archive);
-        emit_done(MODEL_SIZE, MODEL_SIZE, "done");
-        Ok(())
-    })
-    .await
-    .map_err(|e| format!("任务失败: {e}"))??;
+    tokio::task::spawn_blocking(move || install_archive(&archive, &root))
+        .await
+        .map_err(|e| format!("任务失败: {e}"))??;
+    emit(MODEL_SIZE, MODEL_SIZE, "done");
 
-    let root = model_root(&app)?;
-    if !model_ready(&root) {
+    if !model_ready(&model_root(&app)?) {
         return Err("解压后未找到模型文件".into());
     }
     Ok(())
@@ -313,6 +514,7 @@ pub async fn local_tts_remove(app: AppHandle) -> Result<(), String> {
         let lock = ENGINE.get_or_init(|| Mutex::new(None));
         let mut guard = lock.lock().map_err(|_| "语音引擎锁已损坏")?;
         *guard = None;
+        let _ = std::fs::remove_file(crash_marker(&root));
         std::fs::remove_dir_all(&root).map_err(|e| format!("删除失败: {e}"))
     })
     .await
@@ -360,6 +562,9 @@ fn existing_rule_fsts(root: &Path) -> Option<String> {
 }
 
 fn build_engine(root: &PathBuf, rule_fsts: Option<String>) -> Result<OfflineTts, String> {
+    let root = &crate::tts_device::engine_path(root)?;
+    // 规整规则也要按 (可能换成短路径的) 实际目录重新拼接
+    let rule_fsts = rule_fsts.and_then(|_| existing_rule_fsts(root));
     let p = |name: &str| Some(root.join(name).to_string_lossy().to_string());
     let lexicon = format!(
         "{},{}",
@@ -396,6 +601,62 @@ fn inference_threads() -> i32 {
     (cores / 2).clamp(1, 4) as i32
 }
 
+/// 防闪退: 加载 / 推理期间在数据目录留一个标记文件, 正常结束 (含 Rust panic) 时删除。
+/// 原生库直接崩溃时标记会留下; 下次启动发现它, 就不再自动加载模型, 免得每次打开都闪退。
+/// 用户在听书面板点「再试一次」(local_tts_clear_crash) 或删除语音包后才解除。
+pub(crate) const CRASHED_ERROR: &str = "LOCAL_TTS_CRASHED";
+static ENGINE_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn crash_marker(root: &Path) -> PathBuf {
+    root.with_file_name("kokoro-engine.running")
+}
+
+/// 上次加载 / 推理时应用是否意外退出 (本进程正在用引擎时不算)
+fn crashed_before(root: &Path) -> bool {
+    !ENGINE_BUSY.load(std::sync::atomic::Ordering::SeqCst) && crash_marker(root).exists()
+}
+
+struct CrashGuard(PathBuf);
+
+impl CrashGuard {
+    fn arm(root: &Path) -> Result<Self, String> {
+        let path = crash_marker(root);
+        if path.exists() {
+            return Err(CRASHED_ERROR.into());
+        }
+        ENGINE_BUSY.store(true, std::sync::atomic::Ordering::SeqCst);
+        // 写失败 (只读目录等) 不影响朗读, 只是少了这层保护
+        let _ = std::fs::write(&path, b"1");
+        Ok(Self(path))
+    }
+}
+
+impl Drop for CrashGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+        ENGINE_BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// 用户确认再试一次: 清除闪退标记
+#[tauri::command]
+pub fn local_tts_clear_crash(app: AppHandle) -> Result<(), String> {
+    let path = crash_marker(&model_root(&app)?);
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|e| format!("清除失败: {e}"))?;
+    }
+    Ok(())
+}
+
+/// 应用正常退出 (RunEvent::Exit) 时调用: 退出时恰好在合成的标记不算闪退
+pub fn clear_crash_marker_on_exit(app: &AppHandle) {
+    if ENGINE_BUSY.load(std::sync::atomic::Ordering::SeqCst) {
+        if let Ok(root) = model_root(app) {
+            let _ = std::fs::remove_file(crash_marker(&root));
+        }
+    }
+}
+
 /// 在引擎锁内取得 (必要时加载) 模型并执行 `f`; 模型只加载一次, 之后每段复用。
 /// 只有在中文/英文音色之间切换导致规整配置变化时才重新加载 (先释放旧模型再加载)。
 fn with_engine<T>(
@@ -408,6 +669,7 @@ fn with_engine<T>(
     if !model_ready(root) {
         return Err("离线语音包未安装".into());
     }
+    let _crash_guard = CrashGuard::arm(root)?;
     let rule_fsts = rule_fsts_for(root, sid);
     if guard.as_ref().map_or(true, |loaded| loaded.rule_fsts != rule_fsts) {
         *guard = None;
@@ -457,12 +719,23 @@ fn synthesize_at(root: &PathBuf, text: &str, sid: i32, speed: f32) -> Result<Vec
 }
 
 /// 模型加载、推理及锁等待必须在 blocking pool 执行；async 命令本身不会转移 CPU 工作。
+/// 用独立线程并给足 8MB 栈: 原生库分词用递归正则, 长句在默认 2MB 的线程栈上可能栈溢出 (直接闪退)。
 async fn run_engine_task<T: Send + 'static>(
     task: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(task)
-        .await
-        .map_err(|e| format!("离线语音任务失败: {e}"))?
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name("lightread-tts".into())
+        .stack_size(8 << 20)
+        .spawn(move || {
+            let _ = tx.send(std::panic::catch_unwind(std::panic::AssertUnwindSafe(task)));
+        })
+        .map_err(|e| format!("离线语音任务失败: {e}"))?;
+    match rx.await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("离线语音任务失败: 语音引擎内部错误".into()),
+        Err(e) => Err(format!("离线语音任务失败: {e}")),
+    }
 }
 
 /// 预加载模型 (首次约 10–20s), 让前端在开始朗读前就能提示「正在加载」并提前完成加载。
@@ -511,6 +784,33 @@ mod tests {
             panic!("simulated inference failure");
         }));
         assert!(result.unwrap_err().starts_with("离线语音任务失败:"));
+    }
+
+    #[test]
+    fn crash_marker_blocks_engine_until_cleared() {
+        let dir = std::env::temp_dir().join(format!("lightread-crash-guard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let root = dir.join("kokoro-multi-lang-v1_1");
+        {
+            let _g = CrashGuard::arm(&root).expect("first arm");
+            assert!(crash_marker(&root).exists());
+            assert!(!crashed_before(&root), "own in-flight work is not a crash");
+        }
+        assert!(!crash_marker(&root).exists(), "normal exit clears the marker");
+        // 模拟原生崩溃: 标记留下
+        std::fs::write(crash_marker(&root), b"1").unwrap();
+        assert!(crashed_before(&root));
+        assert_eq!(CrashGuard::arm(&root).err().as_deref(), Some(CRASHED_ERROR));
+        // panic 也会清除标记
+        std::fs::remove_file(crash_marker(&root)).unwrap();
+        let r = std::panic::catch_unwind(|| {
+            let _g = CrashGuard::arm(&root).unwrap();
+            panic!("boom");
+        });
+        assert!(r.is_err());
+        assert!(!crash_marker(&root).exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -592,7 +892,16 @@ pub use desktop::*;
 
 #[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
 mod download_tests {
-    use super::desktop::{download_routes, normalize_proxy, Route};
+    use super::desktop::{content_range_starts_at, download_routes, normalize_proxy, Route};
+
+    #[test]
+    fn content_range_must_continue_from_offset() {
+        assert!(content_range_starts_at(Some("bytes 100-999/1000"), 100));
+        assert!(content_range_starts_at(Some(" bytes 0-9/10"), 0));
+        assert!(!content_range_starts_at(Some("bytes 0-999/1000"), 100));
+        assert!(!content_range_starts_at(Some("bytes */1000"), 100));
+        assert!(!content_range_starts_at(None, 100));
+    }
 
     #[test]
     fn proxy_is_normalized() {
@@ -636,5 +945,47 @@ mod download_live {
         println!("errors before success: {errors:?}");
         assert!(ok, "download failed: {errors:?}");
         assert_eq!(errors.len(), 1, "bad proxy should fail once, then direct succeeds");
+    }
+
+    /// 完整安装: 下载 → 解压到含中文的目录 → 合成一句 (经独立大栈线程与闪退标记)。
+    /// cargo test local_tts::download_live -- --ignored
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore]
+    async fn installs_into_unicode_dir_and_synthesizes() {
+        use super::desktop::{install_archive, synthesize_for_test, Route};
+        let dir = std::env::temp_dir().join("轻阅 测试").join("tts-models");
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+        std::fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("kokoro-download.tar.bz2");
+        download_archive_for_test(&archive, &Route::Direct).await.expect("download");
+        let root = dir.join("kokoro-multi-lang-v1_1");
+        // 模拟上次解压中断留下的残缺目录: 应被替换
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("model.onnx"), b"truncated").unwrap();
+        install_archive(&archive, &root).expect("install");
+        assert!(!archive.exists(), "archive removed after install");
+        let wav = synthesize_for_test(root.clone(), "离线语音安装测试。".into()).await.expect("synthesize");
+        assert_eq!(&wav[..4], b"RIFF");
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    /// 下到一半中断 (模拟离开 / 断网), 再次下载应从已下载的位置续传并通过校验。
+    /// cargo test local_tts::download_live -- --ignored
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore]
+    async fn resumes_after_interruption() {
+        use super::desktop::Route;
+        let dir = std::env::temp_dir().join("lightread-kokoro-resume-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pack.tar.bz2");
+        let first = tokio::time::timeout(std::time::Duration::from_secs(4), download_archive_for_test(&path, &Route::Direct)).await;
+        assert!(first.is_err(), "first attempt should be cut off by the timeout");
+        let partial = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        assert!(partial > 0, "partial file should be kept");
+        let started = std::time::Instant::now();
+        download_archive_for_test(&path, &Route::Direct).await.expect("resume should finish and verify");
+        println!("partial before resume: {partial} bytes; resume took {:?}", started.elapsed());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1,19 +1,28 @@
 /** 本地离线神经语音 (sherpa-onnx + Kokoro v1.1-zh), 桌面版专属 */
 import { isTauri } from '../storage/types'
+import { reactive } from 'vue'
 import { useSettings } from '../stores/settings'
+import { toast } from './toast'
+import { t } from '../i18n'
 
 export const localTtsAvailable = () => isTauri()
 
 export interface LocalTtsStatus {
   installed: boolean
   path: string
+  /** 上次加载 / 合成离线语音时应用意外退出 (闪退), 已暂停使用, 需用户确认再试 */
+  crashed?: boolean
 }
 
 export interface DownloadProgress {
   downloaded: number
   total: number
-  phase: 'downloading' | 'extracting' | 'done'
+  phase: 'connecting' | 'downloading' | 'extracting' | 'done'
 }
+
+/** Rust 侧拒绝加载 (上次闪退) 时返回的错误 */
+export const LOCAL_TTS_CRASHED = 'LOCAL_TTS_CRASHED'
+export const isLocalCrashError = (e: unknown) => String((e as any)?.message ?? e).includes(LOCAL_TTS_CRASHED)
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core')
@@ -24,18 +33,110 @@ export function localTtsStatus(): Promise<LocalTtsStatus> {
   return invoke('local_tts_status')
 }
 
-/** 下载语音包 (~310MB), 进度回调; 走设置中的网络代理 */
-export async function localTtsDownload(
-  onProgress: (p: DownloadProgress) => void,
-): Promise<void> {
-  const { listen } = await import('@tauri-apps/api/event')
-  const unlisten = await listen<DownloadProgress>('local-tts-progress', e => onProgress(e.payload))
+/**
+ * 语音包状态, 全局共享: 下载在后台 (Rust) 独立进行, 离开阅读器不会中断;
+ * 回到页面时由 refreshLocalPack 接上进度, 重复点击也只会接到同一个下载任务上。
+ */
+export const localPack = reactive({
+  installed: false,
+  crashed: false,
+  /** 后台正在下载 / 解压 */
+  running: false,
+  downloaded: 0,
+  total: 0,
+  phase: 'idle' as DownloadProgress['phase'] | 'idle',
+})
+
+let progressListener: Promise<unknown> | null = null
+let downloadPromise: Promise<void> | null = null
+
+function listenProgress() {
+  progressListener ??= import('@tauri-apps/api/event').then(({ listen }) =>
+    listen<DownloadProgress>('local-tts-progress', e => {
+      // 后台只有一个下载任务, 进度就是它的 (含续传前已下载的部分)
+      const p = e.payload
+      localPack.downloaded = p.downloaded
+      localPack.total = p.total
+      localPack.phase = p.phase
+    }),
+  )
+  return progressListener
+}
+
+/** 读取安装状态与后台下载进度; 后台正在下载时接上它 (完成后照常提示) */
+export async function refreshLocalPack(): Promise<void> {
+  if (!localTtsAvailable()) return
   try {
-    const proxy = useSettings().httpProxy.trim()
-    await invoke('local_tts_download', { proxy: proxy || null })
-  } finally {
-    unlisten()
+    const status = await localTtsStatus()
+    localPack.installed = status.installed
+    localPack.crashed = !!status.crashed
+    if (status.installed) return
+    const state = await invoke<{ running: boolean; downloaded: number; total: number; phase: string }>('local_tts_download_state')
+    localPack.total = state.total
+    if (state.running) {
+      localPack.running = true
+      localPack.downloaded = state.downloaded
+      localPack.phase = state.phase as DownloadProgress['phase']
+      void startLocalDownload()
+    } else if (!downloadPromise) {
+      localPack.downloaded = state.downloaded
+      localPack.phase = 'idle'
+    }
+  } catch {
+    localPack.installed = false
   }
+}
+
+/** 下载语音包 (~350MB), 支持断点续传; 走设置中的网络代理。同一时间只有一个任务 */
+export function startLocalDownload(): Promise<void> {
+  downloadPromise ??= (async () => {
+    await listenProgress()
+    localPack.running = true
+    if (localPack.phase === 'idle') localPack.phase = 'connecting'
+    try {
+      const proxy = useSettings().httpProxy.trim()
+      await invoke('local_tts_download', { proxy: proxy || null })
+      localPack.installed = true
+      localPack.phase = 'done'
+      toast(t('tts.localReady'), 'success')
+    } catch (e: any) {
+      toast(t('tts.localDownloadFailed', { msg: e?.message ?? e }), 'error', 8000)
+      // 失败后显示保留下来的进度 (可续传)
+      try {
+        const state = await invoke<{ downloaded: number; total: number }>('local_tts_download_state')
+        localPack.downloaded = state.downloaded
+        localPack.total = state.total
+      } catch { /* 保持原样 */ }
+      localPack.phase = 'idle'
+    } finally {
+      localPack.running = false
+      downloadPromise = null
+    }
+  })()
+  return downloadPromise
+}
+
+export interface DeviceCheck {
+  /** false: 不推荐在本机使用离线语音, 不提供下载 */
+  ok: boolean
+  /** 不满足的原因 (已是用户可读的中文/英文短句) */
+  reasons: string[]
+}
+
+/** 下载前评估本机能否跑离线语音 (内存 / CPU 指令集 / 磁盘空间); 评估本身失败时不拦 */
+export async function localTtsDeviceCheck(): Promise<DeviceCheck> {
+  try {
+    const r = await invoke<{ ok: boolean; reasons: string[] }>('local_tts_device_check', { lang: useSettings().language === 'en' ? 'en' : 'zh' })
+    return { ok: r.ok, reasons: r.reasons ?? [] }
+  } catch {
+    return { ok: true, reasons: [] }
+  }
+}
+
+/** 用户确认「再试一次」: 清除闪退标记, 下次合成重新加载模型 */
+export async function localTtsClearCrash(): Promise<void> {
+  await invoke('local_tts_clear_crash')
+  localPack.crashed = false
 }
 
 export function localTtsRemove(): Promise<void> {

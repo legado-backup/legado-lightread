@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { pingUsage } from './services/usageStats'
+import { localPack, localTtsAvailable, refreshLocalPack } from './services/localTts'
 import { useRoute, useRouter } from 'vue-router'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ToastHost from './components/ToastHost.vue'
@@ -100,9 +101,20 @@ onMounted(async () => {
   if (isTauri()) stopExternalOpen = await startExternalOpen(router)
   // 多端同步: 启动一次、切到后台、每 5 分钟 (未开启自动同步时引擎自己跳过)
   stopSync = startAutoSync()
-  // 匿名使用统计: 每天一次 (设置 → 隐私 可关闭)
+  // 匿名使用统计: 每天一次, 后台进行
   void pingUsage()
+  void recoverFromLocalTtsCrash()
 })
+
+/** 上次加载离线语音时闪退: 本次启动自动改用在线朗读 (Rust 侧也会拒绝再加载), 并告诉用户 */
+async function recoverFromLocalTtsCrash() {
+  if (!localTtsAvailable()) return
+  await refreshLocalPack()
+  if (!localPack.crashed) return
+  const settings = useSettings()
+  if (settings.ttsEngine === 'local') settings.ttsEngine = 'edge'
+  toast(t('tts.localCrashedRecovered'), 'error', 12000)
+}
 onBeforeUnmount(() => {
   stopExternalOpen?.()
   stopSync?.()
