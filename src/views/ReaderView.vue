@@ -21,6 +21,10 @@ import { searchBook, type SearchHit } from '../services/bookSearch'
 import { chatStream, aiConfigured, readerSystemPrompt, explainPrompt, type AiMessage } from '../services/ai'
 import TocList, { type TocItem } from '../components/TocList.vue'
 import { buildSmartToc, findCurrentSmartItem, flattenToc } from '../services/smartToc'
+import {
+  sectionSizes, sectionPageCounts, fallbackBytesPerPage, pagePosition, pageToFraction, fractionToPage, parseJumpInput,
+  type PageMeasure, type PagePosition,
+} from '../services/readerPages'
 
 const route = useRoute()
 const router = useRouter()
@@ -48,7 +52,7 @@ const barsVisible = ref(true)
 let barsTimer: ReturnType<typeof setTimeout> | undefined
 
 const anyOverlayOpen = () =>
-  panel.value !== 'none' || settingsOpen.value || ttsPanel.value || autoPanel.value || !!activeAnnotation.value
+  panel.value !== 'none' || settingsOpen.value || ttsPanel.value || autoPanel.value || !!activeAnnotation.value || jumpOpen.value
 
 /** 显示工具栏; autoHide 时若几秒内无交互且无面板打开则自动隐去 */
 function showBars(autoHide = false) {
@@ -77,6 +81,7 @@ function closeOverlays() {
   ttsPanel.value = false
   autoPanel.value = false
   activeAnnotation.value = null
+  jumpOpen.value = false
 }
 
 function togglePanel(name: PanelName) {
@@ -335,6 +340,7 @@ function onRelocate(e: CustomEvent) {
   currentTocHref.value = tocItem?.href
   currentCfi.value = cfi ?? ''
   if (tocAuto.value) syncSmartTocPosition()
+  updatePages(e.detail)
   updateMarginals()
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
@@ -352,9 +358,255 @@ function updateMarginals() {
   r.heads.forEach((el: HTMLElement, i: number) => {
     el.textContent = i === 0 ? (chapterLabel.value || meta.value?.title || '') : ''
   })
-  r.feet.forEach((el: HTMLElement, i: number) => {
-    el.textContent = i === r.feet.length - 1 ? `${(fraction.value * 100).toFixed(1)}%` : ''
+  // 左下: 本章剩余; 右下: 页码 / 百分比。双栏时分居左右两栏, 单栏时同一行两端对齐
+  const feet: HTMLElement[] = r.feet
+  const left = chapterLeftText.value
+  const right = progressText.value
+  feet.forEach(el => {
+    el.replaceChildren()
+    el.style.display = 'flex'
+    el.style.gap = '1em'
   })
+  const put = (el: HTMLElement, text: string, end: boolean) => {
+    const span = document.createElement('span')
+    span.textContent = text
+    span.style.cssText = end ? 'margin-inline-start:auto;flex-shrink:0' : 'min-width:0;overflow:hidden;text-overflow:ellipsis'
+    el.append(span)
+  }
+  if (left) put(feet[0], left, false)
+  put(feet[feet.length - 1], right, true)
+}
+
+// ---- 页码 ----
+// 重排书的页数随排版变化: 读到的章记实测页数, 其余按密度推算 (见 services/readerPages)。
+// 同一排版下的实测按书存本地, 下次打开总页数直接稳定。
+const pageInfo = ref<PagePosition | null>(null)
+/** 固定版式 (漫画 / 版式 EPUB): 页数固定, 不需要「随排版变化」的提示 */
+const fixedLayout = ref(false)
+/** EPUB 自带纸书页码 (page-list) 时的当前页标签 */
+const printPage = ref('')
+/** 本章 (按目录) 剩余页; null 为未知 */
+const chapterLeft = ref<number | null>(null)
+let secSizes: number[] = []
+let secCounts: number[] = []
+let pagesPerScreen = 1
+let pageMeasure: PageMeasure = { key: '', pages: {} }
+let pageSaveTimer: ReturnType<typeof setTimeout> | undefined
+const PAGE_MEASURE_KEY = `lightread-pages:${bookId}`
+/** 目录项落点, 用于算「本章剩几页」(TXT 等一个分节会装多章, 不能按分节算) */
+let tocAnchors: Array<{ index: number; label: string; anchor?: (doc: Document) => Element | Range | null }> = []
+let tocFractions: Array<{ fraction: number; label: string }> = []
+let tocFractionTimer: ReturnType<typeof setTimeout> | undefined
+
+const showPage = computed(() => !!pageInfo.value && settings.reader.progressDisplay !== 'percent')
+const showPercent = computed(() => !pageInfo.value || settings.reader.progressDisplay !== 'page')
+const percentText = computed(() => `${(fraction.value * 100).toFixed(1)}%`)
+const pageRangeText = computed(() => {
+  const p = pageInfo.value
+  if (!p) return ''
+  return p.last > p.current ? `${p.current}–${p.last}` : String(p.current)
+})
+/** 页脚右侧 / 底栏的进度文案 */
+const progressText = computed(() => {
+  const parts: string[] = []
+  if (showPage.value) parts.push(`${pageRangeText.value} / ${pageInfo.value!.total}`)
+  if (showPercent.value) parts.push(percentText.value)
+  return parts.join(' · ')
+})
+const chapterLeftText = computed(() => {
+  if (!showPage.value || chapterLeft.value == null) return ''
+  return chapterLeft.value > 0 ? t('reader.chapterPagesLeft', { n: chapterLeft.value }) : t('reader.chapterLastPage')
+})
+watch(() => settings.reader.progressDisplay, () => updateMarginals())
+
+function loadPageMeasure() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PAGE_MEASURE_KEY) || 'null')
+    if (saved && typeof saved.key === 'string' && saved.pages && typeof saved.pages === 'object') pageMeasure = saved
+  } catch { /* 存储不可用: 本次现测 */ }
+}
+
+function savePageMeasure() {
+  clearTimeout(pageSaveTimer)
+  pageSaveTimer = setTimeout(() => {
+    try { localStorage.setItem(PAGE_MEASURE_KEY, JSON.stringify(pageMeasure)) } catch { /* 忽略 */ }
+  }, 1500)
+}
+
+/** 排版指纹: 影响分页的设置与版面尺寸; 取整到 8px, 避免亚像素抖动让测量反复作废 */
+function layoutSignature(per: number, scrolled: boolean) {
+  const p = settings.reader
+  const rect = container.value?.getBoundingClientRect()
+  const q = (n = 0) => Math.round(n / 8)
+  return [p.fontSize, p.lineHeight, p.gap, p.fontFamily, p.justify ? 1 : 0, scrolled ? 's' : 'p', per, q(rect?.width), q(rect?.height)].join('|')
+}
+
+async function buildTocAnchors() {
+  const v = view
+  const items = tocAuto.value ? smartTocFlat : flattenToc(toc.value)
+  const out: typeof tocAnchors = []
+  for (const item of items) {
+    if (!item.href) continue
+    try {
+      const resolved = await v.resolveNavigation(item.href)
+      if (typeof resolved?.index === 'number') {
+        out.push({
+          index: resolved.index,
+          label: item.label?.trim() ?? '',
+          anchor: typeof resolved.anchor === 'function' ? resolved.anchor : undefined,
+        })
+      }
+    } catch { /* 解析不了的目录项跳过 */ }
+  }
+  if (v !== view) return
+  // 按分节排序 (稳定排序保留同一分节内的目录顺序)
+  tocAnchors = out.sort((a, b) => a.index - b.index)
+  tocFractions = []
+  clearTimeout(tocFractionTimer)
+  tocFractionTimer = setTimeout(() => void buildTocFractions(v), 1200)
+}
+
+/**
+ * 每个目录项在全书中的进度位置, 供拖动进度条时显示「将跳到哪一章」。
+ * TXT 等一个分节装多章, 不能按分节取章名, 需要在分节文档里按字数定位标题。
+ * 打开书后空闲时算一次; 算不出 (格式不支持单独解析分节) 时退回按分节取章名。
+ */
+async function buildTocFractions(v: any) {
+  const sizeTotal = secSizes.reduce((a, b) => a + b, 0)
+  if (!sizeTotal || !tocAnchors.length) return
+  const docs = new Map<number, { doc: Document; length: number } | null>()
+  const out: typeof tocFractions = []
+  for (const a of tocAnchors) {
+    if (v !== view) return
+    if (!secSizes[a.index]) continue
+    let ratio = 0
+    if (a.anchor) {
+      if (!docs.has(a.index)) {
+        try {
+          const doc: Document = await v.book.sections[a.index].createDocument()
+          docs.set(a.index, { doc, length: doc.body?.textContent?.length ?? 0 })
+        } catch { docs.set(a.index, null) }
+      }
+      const entry = docs.get(a.index)
+      if (entry?.length) {
+        try {
+          const target = a.anchor(entry.doc)
+          if (target) {
+            const r = entry.doc.createRange()
+            r.setStart(entry.doc.body, 0)
+            if (target instanceof Range) r.setEnd(target.startContainer, target.startOffset)
+            else r.setEndBefore(target)
+            ratio = Math.min(1, r.toString().length / entry.length)
+          }
+        } catch { /* 定位失败按分节开头算 */ }
+      }
+    }
+    const before = secSizes.slice(0, a.index).reduce((x, y) => x + y, 0)
+    out.push({ fraction: (before + ratio * secSizes[a.index]) / sizeTotal, label: a.label })
+  }
+  if (v === view) tocFractions = out.sort((x, y) => x.fraction - y.fraction)
+}
+
+/** 全书进度所在章名 */
+function chapterAtFraction(value: number, index: number): string {
+  if (tocFractions.length) {
+    let label = ''
+    for (const item of tocFractions) {
+      if (item.fraction <= value + 1e-6) label = item.label
+      else break
+    }
+    return label
+  }
+  try { return view?.getProgressOf?.(index)?.tocItem?.label?.trim() ?? '' } catch { return '' }
+}
+
+function updatePages(detail: any) {
+  const r = view?.renderer
+  const index: number | undefined = detail?.section?.current
+  printPage.value = detail?.pageItem?.label?.trim?.() ?? ''
+  if (!r || typeof index !== 'number') return
+  // 固定版式 (漫画 / 版式 EPUB): 一个分节就是一页
+  fixedLayout.value = !!view.isFixedLayout
+  if (view.isFixedLayout) {
+    const total = view.book?.sections?.length || 1
+    pageInfo.value = { current: index + 1, last: index + 1, total, sectionLeft: total - index - 1 }
+    chapterLeft.value = null
+    return
+  }
+  if (!secSizes.length) return
+  const scrolled = !!r.scrolled
+  const per = scrolled ? 1 : Math.max(1, Number(r.columnCount) || 1)
+  const size = Number(r.size) || 0
+  let screens = 0
+  let screen = 1
+  if (scrolled) {
+    screens = size > 0 ? Math.max(1, Math.ceil(r.viewSize / size - 0.01)) : 0
+    screen = size > 0 ? Math.min(screens, Math.max(1, Math.ceil((r.start + size) / size - 0.01))) : 1
+  } else {
+    screens = Math.max(0, Number(r.pages) - 2)
+    screen = Math.min(screens, Math.max(1, Number(r.page) || 1))
+  }
+  if (!screens) return
+  const key = layoutSignature(per, scrolled)
+  if (pageMeasure.key !== key) pageMeasure = { key, pages: {} }
+  if (secSizes[index] && pageMeasure.pages[index] !== screens * per) {
+    pageMeasure.pages[index] = screens * per
+    savePageMeasure()
+  }
+  const rect = container.value?.getBoundingClientRect()
+  const fallback = fallbackBytesPerPage({
+    width: (rect?.width ?? 360) / per * 0.85,
+    height: (rect?.height ?? 640) - 96,
+    fontSize: settings.reader.fontSize,
+    lineHeight: settings.reader.lineHeight,
+    cjk: !!view.language?.isCJK,
+  })
+  secCounts = sectionPageCounts(secSizes, pageMeasure.pages, fallback)
+  pagesPerScreen = per
+  const pos = pagePosition(secCounts, index, (screen - 1) * per + 1, per)
+  pageInfo.value = pos
+  chapterLeft.value = computeChapterLeft(index, pos, detail?.range, per, scrolled, size)
+}
+
+/**
+ * 本章还剩几页: 当前分节里位于可见区之后的下一个目录项决定本章终点;
+ * 本分节没有后续目录项时, 本章延续到下一个有目录项的分节之前。
+ */
+function computeChapterLeft(index: number, pos: PagePosition, range: Range | undefined, per: number, scrolled: boolean, size: number): number | null {
+  if (!tocAnchors.length || !secCounts[index]) return null
+  const before = secCounts.slice(0, index).reduce((a, b) => a + b, 0)
+  const localLast = pos.last - before
+  const r = view.renderer
+  const doc: Document | undefined = r.getContents?.()?.find((c: any) => c.index === index)?.doc
+  // 横排从左到右才能由坐标直接换算页; 竖排 / 从右到左只按分节估算
+  const plain = scrolled || (r.getAttribute?.('dir') !== 'rtl' && !doc?.defaultView?.getComputedStyle(doc.body).writingMode?.startsWith('vertical'))
+  if (doc && range && plain && size > 0) {
+    const start = range.cloneRange()
+    start.collapse(true)
+    const colSize = scrolled ? size : size / per
+    const lineBox = settings.reader.fontSize * settings.reader.lineHeight * 1.5
+    for (const a of tocAnchors) {
+      if (a.index !== index || !a.anchor) continue
+      let target: Element | Range | null = null
+      try { target = a.anchor(doc) } catch { continue }
+      if (!target) continue
+      const node = target instanceof Range ? target.startContainer : target
+      const offset = target instanceof Range ? target.startOffset : 0
+      try { if (start.comparePoint(node, offset) <= 0) continue } catch { continue }
+      const box = target.getBoundingClientRect()
+      const at = scrolled ? box.top : box.left
+      let page = Math.floor(at / colSize) + 1
+      // 章标题正好在页首: 本章到上一页结束
+      const topInPage = scrolled ? box.top - (page - 1) * colSize : box.top
+      if (topInPage < lineBox && page > 1) page--
+      return Math.max(0, page - localLast)
+    }
+  }
+  let left = pos.sectionLeft
+  const next = tocAnchors.find(a => a.index > index)
+  const end = next ? next.index : secCounts.length
+  for (let i = index + 1; i < end; i++) left += secCounts[i]
+  return left
 }
 
 /** 智能目录不经 foliate 的 TOC 进度, 按当前 CFI 自行判定所在章节 */
@@ -374,6 +626,7 @@ async function applySmartToc() {
     toc.value = items
     tocAuto.value = true
     syncSmartTocPosition()
+    void buildTocAnchors()
   } catch (e) {
     console.warn('smart toc failed', e)
   }
@@ -409,6 +662,9 @@ function turnPage(dir: 'left' | 'right') {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  // 在输入框里打字 (跳页 / 搜索 / AI) 时, 方向键和空格属于输入框
+  const el = e.target as HTMLElement | null
+  if (e.key !== 'Escape' && el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return
   if (e.key === 'ArrowLeft' || e.key === 'PageUp') turnPage('left')
   else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') turnPage('right')
   else if (e.key === 'Escape') {
@@ -416,6 +672,7 @@ function handleKeydown(e: KeyboardEvent) {
     panel.value = 'none'
     settingsOpen.value = false
     autoPanel.value = false
+    jumpOpen.value = false
     stopAutoRead()
   }
 }
@@ -969,8 +1226,124 @@ function gotoChapter(dir: -1 | 1) {
 
 function onSlide(e: Event) {
   const value = parseFloat((e.target as HTMLInputElement).value)
+  slidePreview.value = null
+  void jumpTo({ fraction: value })
+}
+
+// ---- 拖动进度条预览: 松手前就知道会跳到哪一章、第几页 ----
+const slidePreview = ref<{ fraction: number; label: string; text: string } | null>(null)
+
+function onSlideInput(e: Event) {
+  const value = parseFloat((e.target as HTMLInputElement).value)
+  let label = ''
+  let page = 0
+  let total = 0
+  if (view?.isFixedLayout) {
+    total = pageInfo.value?.total ?? 0
+    page = total ? Math.min(total, Math.floor(value * total) + 1) : 0
+  } else {
+    const hit = fractionToPage(secSizes, secCounts, value)
+    if (hit) {
+      page = hit.page
+      total = pageInfo.value?.total ?? 0
+      label = chapterAtFraction(value, hit.index)
+    }
+  }
+  const parts: string[] = []
+  if (page && total && settings.reader.progressDisplay !== 'percent') parts.push(`${page} / ${total}`)
+  if (!parts.length || settings.reader.progressDisplay !== 'page') parts.push(`${(value * 100).toFixed(1)}%`)
+  slidePreview.value = { fraction: value, label, text: parts.join(' · ') }
+}
+
+// ---- 跳页: 点底栏页码输入页码或百分比; 跳转后可一键回到原来的位置 ----
+const jumpOpen = ref(false)
+const jumpText = ref('')
+const jumpError = ref('')
+const jumpInputEl = ref<HTMLInputElement>()
+const jumpPopEl = ref<HTMLElement>()
+/** 跳转前的位置; 有值时底栏上方出现「回到第 N 页」 */
+const jumpBack = ref<{ cfi: string; label: string } | null>(null)
+let jumpBackTimer: ReturnType<typeof setTimeout> | undefined
+
+const jumpMeta = computed(() => {
+  const p = pageInfo.value
+  const parts: string[] = []
+  if (p) parts.push(t('reader.pageOfTotal', { page: pageRangeText.value, total: p.total }))
+  if (printPage.value) parts.push(t('reader.printPage', { n: printPage.value }))
+  return parts.join(' · ')
+})
+
+function toggleJump() {
+  const next = !jumpOpen.value
+  closeOverlays()
+  jumpOpen.value = next
+  if (!next) return
+  jumpText.value = ''
+  jumpError.value = ''
+  showBars()
+  void nextTick(() => jumpInputEl.value?.focus())
+}
+
+/** 点浮层以外的地方收起 (桌面端没有遮罩) */
+function onJumpOutside(e: PointerEvent) {
+  const el = e.target as Node
+  if (jumpPopEl.value?.contains(el) || (el as HTMLElement).closest?.('.progress-label')) return
+  jumpOpen.value = false
+}
+watch(jumpOpen, open => {
+  if (open) document.addEventListener('pointerdown', onJumpOutside, true)
+  else document.removeEventListener('pointerdown', onJumpOutside, true)
+})
+
+async function jumpTo(target: { fraction: number } | number) {
+  if (!view) return
+  const from = currentCfi.value
+  const label = pageInfo.value && settings.reader.progressDisplay !== 'percent'
+    ? t('reader.jumpBack', { page: pageInfo.value.current })
+    : `${t('common.back')} ${percentText.value}`
   interruptTTSForReposition()
-  view?.goToFraction(value)
+  try {
+    await view.goTo(target)
+  } catch {
+    toast(t('reader.cantGoto'), 'error')
+    return
+  }
+  if (!from || from === currentCfi.value) return
+  jumpBack.value = { cfi: from, label }
+  clearTimeout(jumpBackTimer)
+  jumpBackTimer = setTimeout(() => { jumpBack.value = null }, 12000)
+  showBars(true)
+}
+
+async function confirmJump() {
+  const total = pageInfo.value?.total ?? 0
+  const parsed = parseJumpInput(jumpText.value, total)
+  if (!parsed) {
+    jumpError.value = t('reader.jumpInvalid', { total: total || 1 })
+    return
+  }
+  let target: { fraction: number } | number | null
+  if ('fraction' in parsed) target = { fraction: parsed.fraction }
+  else if (view?.isFixedLayout) target = parsed.page - 1
+  else {
+    const f = pageToFraction(secSizes, secCounts, parsed.page, {
+      perScreen: pagesPerScreen,
+      scrolled: settings.reader.flow === 'scrolled',
+    })
+    target = f == null ? null : { fraction: f }
+  }
+  if (target == null) return
+  jumpOpen.value = false
+  await jumpTo(target)
+}
+
+function goJumpBack() {
+  const back = jumpBack.value
+  jumpBack.value = null
+  clearTimeout(jumpBackTimer)
+  if (!back) return
+  interruptTTSForReposition()
+  view?.goTo(back.cfi).catch(() => toast(t('reader.cantGoto'), 'error'))
 }
 
 onMounted(async () => {
@@ -1033,6 +1406,9 @@ onMounted(async () => {
     const { makeFoliateBook } = await import('../services/foliateBook')
     await view.open(await makeFoliateBook(file))
     toc.value = view.book?.toc ?? []
+    secSizes = sectionSizes(view.book?.sections ?? [])
+    loadPageMeasure()
+    void buildTocAnchors()
     applyPrefs()
     // 文本类书籍的内存 EPUB 版式变过 (v2: 多章合为一个分节), 旧版式下存的 CFI 指向别处;
     // 这类书首次用新版式打开时按阅读进度比例定位, 之后照常用 CFI
@@ -1067,6 +1443,13 @@ onBeforeUnmount(() => {
   // 回藏书页时恢复窗口状态
   if (isFullscreen.value) toggleFullscreen()
   clearTimeout(saveTimer)
+  clearTimeout(pageSaveTimer)
+  clearTimeout(jumpBackTimer)
+  clearTimeout(tocFractionTimer)
+  document.removeEventListener('pointerdown', onJumpOutside, true)
+  if (pageMeasure.key) {
+    try { localStorage.setItem(PAGE_MEASURE_KEY, JSON.stringify(pageMeasure)) } catch { /* 忽略 */ }
+  }
   stopAutoRead()
   stopTTS()
   view?.close?.()
@@ -1167,20 +1550,47 @@ onBeforeUnmount(() => {
         <button class="icon-btn chapter-btn" :title="t('reader.prevChapter')" :aria-label="t('reader.prevChapter')" @click="gotoChapter(-1)">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M18.7 5.3a1 1 0 0 1 0 1.4L13.42 12l5.3 5.3a1 1 0 0 1-1.42 1.4l-6-6a1 1 0 0 1 0-1.4l6-6a1 1 0 0 1 1.42 0zM7 5a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0V6a1 1 0 0 1 1-1z"/></svg>
         </button>
-        <input
-          class="slider"
-          type="range"
-          min="0"
-          max="1"
-          step="0.0005"
-          :value="fraction"
-          :aria-label="t('reader.progress')"
-          @change="onSlide"
-        />
+        <div class="slider-wrap">
+          <input
+            class="slider"
+            type="range"
+            min="0"
+            max="1"
+            step="0.0005"
+            :value="slidePreview ? slidePreview.fraction : fraction"
+            :aria-label="t('reader.progress')"
+            :aria-valuetext="progressText"
+            @input="onSlideInput"
+            @change="onSlide"
+            @blur="slidePreview = null"
+          />
+          <div
+            v-if="slidePreview"
+            class="slide-bubble"
+            :style="{ left: `clamp(64px, ${slidePreview.fraction * 100}%, calc(100% - 64px))` }"
+            aria-hidden="true"
+          >
+            <strong v-if="slidePreview.label">{{ slidePreview.label }}</strong>
+            <span>{{ slidePreview.text }}</span>
+          </div>
+        </div>
         <button class="icon-btn chapter-btn" :title="t('reader.nextChapter')" :aria-label="t('reader.nextChapter')" @click="gotoChapter(1)">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M5.3 5.3a1 1 0 0 1 1.4 0l6 6a1 1 0 0 1 0 1.4l-6 6a1 1 0 0 1-1.4-1.4l5.29-5.3-5.3-5.3a1 1 0 0 1 0-1.4zM17 5a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0V6a1 1 0 0 1 1-1z"/></svg>
         </button>
-        <span class="percent">{{ (fraction * 100).toFixed(1) }}%</span>
+        <button
+          class="percent progress-label"
+          :class="{ active: jumpOpen }"
+          :title="t('reader.jumpTo')"
+          :aria-label="`${t('reader.jumpTo')} · ${progressText}`"
+          :aria-expanded="jumpOpen"
+          @click="toggleJump"
+        >
+          <template v-if="showPage">
+            <b>{{ pageRangeText }}</b><span class="of">/{{ pageInfo!.total }}</span>
+          </template>
+          <span v-if="showPage && showPercent" class="sep" aria-hidden="true">·</span>
+          <span v-if="showPercent" class="pct">{{ percentText }}</span>
+        </button>
       </div>
       <nav class="dock" :aria-label="t('reader.readerTools')">
         <button :class="{ active: panel === 'toc' }" @click="togglePanel('toc')">
@@ -1208,6 +1618,44 @@ onBeforeUnmount(() => {
 
     <!-- 手机端面板为底部抽屉, 点遮罩收起 -->
     <div v-if="sheetOpen" class="sheet-scrim" aria-hidden="true" @click="closeOverlays" />
+
+    <!-- 跳页: 输入页码或百分比 -->
+    <div
+      v-if="jumpOpen"
+      ref="jumpPopEl"
+      class="jump-pop card"
+      role="dialog"
+      :aria-label="t('reader.jumpTo')"
+    >
+      <form class="jump-form" @submit.prevent="confirmJump">
+        <input
+          ref="jumpInputEl"
+          v-model="jumpText"
+          class="input jump-input"
+          inputmode="decimal"
+          enterkeyhint="go"
+          autocomplete="off"
+          :placeholder="t('reader.jumpPlaceholder')"
+          :aria-label="t('reader.jumpPlaceholder')"
+          :aria-invalid="!!jumpError"
+          @input="jumpError = ''"
+          @keydown.esc.prevent="jumpOpen = false"
+        />
+        <span v-if="pageInfo" class="jump-total">/ {{ pageInfo.total }}</span>
+        <button class="btn btn-primary btn-sm" type="submit">{{ t('reader.jumpGo') }}</button>
+      </form>
+      <p v-if="jumpError" class="jump-meta error" role="alert">{{ jumpError }}</p>
+      <template v-else>
+        <p v-if="jumpMeta" class="jump-meta">{{ jumpMeta }}</p>
+        <p v-if="pageInfo && !fixedLayout" class="jump-hint">{{ t('reader.pageHint') }}</p>
+      </template>
+    </div>
+
+    <!-- 跳转后一键回到原处 -->
+    <button v-if="jumpBack && barsVisible && !slidePreview" class="jump-back" @click="goJumpBack">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9.7 5.3a1 1 0 0 1 0 1.4L7.42 9H14a6 6 0 1 1 0 12h-3a1 1 0 1 1 0-2h3a4 4 0 0 0 0-8H7.41l2.3 2.3a1 1 0 0 1-1.42 1.4l-4-4a1 1 0 0 1 0-1.4l4-4a1 1 0 0 1 1.42 0z"/></svg>
+      {{ jumpBack.label }}
+    </button>
 
     <!-- 自动阅读控制条 -->
     <div v-if="autoPanel" class="auto-panel card">
@@ -1508,6 +1956,14 @@ onBeforeUnmount(() => {
           <button :class="{ active: settings.reader.maxColumnCount === 2 }" @click="settings.reader.maxColumnCount = 2">{{ t('reader.autoTwoColumns') }}</button>
         </div>
       </div>
+      <div class="set-row">
+        <label>{{ t('reader.progressDisplay') }}</label>
+        <div class="seg">
+          <button :class="{ active: settings.reader.progressDisplay === 'both' }" @click="settings.reader.progressDisplay = 'both'">{{ t('reader.progressBoth') }}</button>
+          <button :class="{ active: settings.reader.progressDisplay === 'page' }" @click="settings.reader.progressDisplay = 'page'">{{ t('reader.progressPage') }}</button>
+          <button :class="{ active: settings.reader.progressDisplay === 'percent' }" @click="settings.reader.progressDisplay = 'percent'">{{ t('reader.progressPercent') }}</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -1689,11 +2145,146 @@ onBeforeUnmount(() => {
   flex: 1;
   accent-color: var(--brand);
 }
-.percent {
-  font-size: 12px;
+/* 底栏进度: 页码为主、百分比为辅; 整块可点开跳页 */
+.progress-label {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 3px;
+  min-width: 48px;
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: none;
   color: var(--text-3);
-  width: 48px;
-  text-align: right;
+  font-size: 12px;
+  line-height: 30px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.progress-label b {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.progress-label .sep {
+  margin: 0 2px;
+}
+.progress-label:hover,
+.progress-label.active {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.progress-label:hover b,
+.progress-label.active b {
+  color: var(--brand);
+}
+.progress-label:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+.slider-wrap {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.slider-wrap .slider {
+  width: 100%;
+}
+/* 拖动进度条时的落点预览 */
+.slide-bubble {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  max-width: 220px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow-md);
+  color: var(--text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.slide-bubble strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.jump-pop {
+  position: absolute;
+  right: max(14px, var(--lr-safe-right));
+  bottom: calc(var(--footer-h) + 8px + var(--safe-bottom));
+  z-index: 20;
+  width: 300px;
+  padding: 12px;
+  box-shadow: var(--shadow-lg);
+}
+.jump-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.jump-input {
+  flex: 1;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+.jump-total {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.jump-meta {
+  margin: 8px 0 0;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.jump-meta.error {
+  color: var(--danger);
+}
+.jump-hint {
+  margin: 2px 0 0;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.jump-back {
+  position: absolute;
+  left: max(14px, var(--lr-safe-left));
+  bottom: calc(var(--footer-h) + 12px + var(--safe-bottom));
+  z-index: 19;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--card);
+  box-shadow: var(--shadow-md);
+  color: var(--brand);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.jump-back:hover {
+  background: var(--brand-light);
 }
 .icon-btn.auto-on {
   color: var(--brand);
@@ -2259,8 +2850,20 @@ onBeforeUnmount(() => {
     padding-top: 4px;
     padding-bottom: calc(2px + var(--safe-bottom));
   }
-  .percent {
-    width: 44px;
+  .progress-label {
+    padding: 0 4px;
+  }
+  .jump-pop {
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+  /* 16px 以下 iOS 会在聚焦时放大页面 */
+  .jump-input {
+    font-size: 16px;
+  }
+  .jump-back {
+    left: 12px;
   }
   .dock {
     display: flex;

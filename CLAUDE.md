@@ -22,6 +22,7 @@ npm run test:paper-context / test:keyboard-shortcuts / test:archive
 npm run test:sync-merge / test:sync-engine / test:sync-account   # 多端同步: 合并纯函数 + 引擎 + 账号 (假存储/假远端)
 npm run test:reading-log    # 阅读记录: 计时规则 + 每日统计 + 多端同步往返
 npm run test:compat / test:tts   # 旧 WebView 兼容 (构建目标/polyfill/CSS 回退); 离线听书调度
+npm run test:reader-pages  # 重排书页码: 实测+推算 / 双栏 / 跳页往返 / 进度条预览
 (cd sync-server && node --test test/api.test.mjs)                  # 账号后端契约 (wrangler 本地运行时)
 cargo test --manifest-path src-tauri/Cargo.toml agent   # 论文 Agent 原生契约
 npm run tauri dev|build     # 桌面 (需要 Rust 工具链)

@@ -12,6 +12,8 @@ export interface ReaderPrefs {
   maxColumnCount: 1 | 2
   fontFamily: string
   justify: boolean
+  /** 页脚 / 底栏的阅读进度显示: 页码 + 百分比 / 只看页码 / 只看百分比 */
+  progressDisplay: 'both' | 'page' | 'percent'
 }
 
 export interface PdfPrefs {
@@ -115,6 +117,7 @@ const defaults: SettingsState = {
     maxColumnCount: 2,
     fontFamily: '',
     justify: true,
+    progressDisplay: 'both',
   },
   pdf: {
     renderer: 'mupdf',

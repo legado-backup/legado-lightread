@@ -26,6 +26,7 @@
     "test:compat": "node --experimental-strip-types --test scripts/test-compat.mjs scripts/test-epub-compat.mjs",
     "test:updater": "node --experimental-strip-types --test scripts/test-updater.mjs",
     "check:release": "node scripts/check-release.mjs",
+    "test:reader-pages": "node --experimental-strip-types --test scripts/test-reader-pages.mjs",
     "test:tts": "node --experimental-strip-types --test scripts/test-tts.mjs",
     "e2e:sync": "node scripts/e2e-sync.mjs",
     "e2e:account": "node scripts/e2e-account.mjs",
