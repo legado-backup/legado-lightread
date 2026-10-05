@@ -62,6 +62,113 @@ use tauri::{AppHandle, Emitter, Manager};
 const MODEL_DIR: &str = "tts-models/kokoro-multi-lang-v1_1";
 const MODEL_URL: &str =
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2";
+/// GitHub release 资产公布的摘要与大小 (2026-10-05 经 GitHub API 核对)
+const MODEL_SHA256: &str = "a3f4c73d043860e3fd2e5b06f36795eb81de0fc8e8de6df703245edddd87dbad";
+const MODEL_SIZE: u64 = 364_816_464;
+
+/// 代理地址规范化: 去掉空白与末尾斜杠, 没写协议的按 http:// (如 127.0.0.1:7890); 空串视为未设置。
+/// socks5 / socks5h / http / https 原样保留 (reqwest 开了 socks 特性)。
+pub(crate) fn normalize_proxy(raw: &str) -> Option<String> {
+    let p = raw.trim().trim_end_matches('/');
+    if p.is_empty() {
+        return None;
+    }
+    let lower = p.to_ascii_lowercase();
+    if ["http://", "https://", "socks5://", "socks5h://", "socks4://", "socks4a://"].iter().any(|s| lower.starts_with(s)) {
+        Some(p.to_string())
+    } else if lower.starts_with("socks://") {
+        Some(format!("socks5://{}", &p["socks://".len()..]))
+    } else {
+        Some(format!("http://{p}"))
+    }
+}
+
+/// 把 reqwest 的错误说成人话
+fn describe_error(e: &reqwest::Error, via_proxy: bool) -> String {
+    if e.is_connect() {
+        if via_proxy { "连不上代理".into() } else { "连不上 GitHub".into() }
+    } else if e.is_timeout() {
+        "连接超时".into()
+    } else {
+        e.to_string()
+    }
+}
+
+/// 一次下载走哪条路: 设置里的代理 / 系统代理 (reqwest 默认读取) / 完全直连
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Route {
+    Proxy(String),
+    System,
+    Direct,
+}
+
+/// 下载尝试顺序: 设了代理 → 代理, 再直连; 没设 → 系统代理, 再直连 (系统代理本身坏了也能下)
+pub(crate) fn download_routes(proxy: Option<String>) -> Vec<Route> {
+    match proxy {
+        Some(p) => vec![Route::Proxy(p), Route::Direct],
+        None => vec![Route::System, Route::Direct],
+    }
+}
+
+#[cfg(test)]
+pub(crate) async fn download_archive_for_test(path: &Path, route: &Route) -> Result<(), String> {
+    download_archive(path, route, &std::sync::Arc::new(|_: u64, _: u64, _: &str| {})).await
+}
+
+/// 下载模型包到 path, 期间推送进度; 校验大小与 SHA256
+async fn download_archive(
+    path: &Path,
+    route: &Route,
+    emit: &std::sync::Arc<impl Fn(u64, u64, &str) + Send + Sync + 'static>,
+) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(20))
+        .read_timeout(std::time::Duration::from_secs(60));
+    let via_proxy = !matches!(route, Route::Direct);
+    match route {
+        Route::Proxy(p) => {
+            let proxy = reqwest::Proxy::all(p).map_err(|e| format!("代理地址无效 ({e})"))?;
+            builder = builder.proxy(proxy);
+        }
+        Route::System => {}
+        // 完全直连: 不读系统代理, 避免坏掉的系统代理把两次尝试都拖垮
+        Route::Direct => builder = builder.no_proxy(),
+    }
+    let client = builder.build().map_err(|e| e.to_string())?;
+    let mut resp = client
+        .get(MODEL_URL)
+        .send()
+        .await
+        .map_err(|e| describe_error(&e, via_proxy))?;
+    if !resp.status().is_success() {
+        return Err(format!("服务器返回 {}", resp.status()));
+    }
+    let total = resp.content_length().unwrap_or(MODEL_SIZE);
+    let mut file = std::fs::File::create(path).map_err(|e| format!("写入失败: {e}"))?;
+    let mut hasher = Sha256::new();
+    let mut downloaded: u64 = 0;
+    let mut last_emit = std::time::Instant::now();
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("下载中断 ({})", describe_error(&e, via_proxy)))? {
+        file.write_all(&chunk).map_err(|e| format!("写入失败: {e}"))?;
+        hasher.update(&chunk);
+        downloaded += chunk.len() as u64;
+        if last_emit.elapsed().as_millis() > 200 {
+            emit(downloaded, total, "downloading");
+            last_emit = std::time::Instant::now();
+        }
+    }
+    drop(file);
+    if downloaded != MODEL_SIZE {
+        return Err(format!("文件不完整 ({downloaded}/{MODEL_SIZE} 字节)"));
+    }
+    let digest = format!("{:x}", hasher.finalize());
+    if digest != MODEL_SHA256 {
+        return Err("文件校验失败 (SHA256 不一致)".into());
+    }
+    emit(downloaded, total, "extracting");
+    Ok(())
+}
 
 /// 已加载的引擎及其文本规整配置; 规整配置变化 (切换中/英文音色) 时才重建。
 struct LoadedEngine {
@@ -122,7 +229,7 @@ pub async fn local_tts_download(app: AppHandle, proxy: Option<String>) -> Result
 
     let emit = {
         let app = app.clone();
-        move |downloaded: u64, total: u64, phase: &str| {
+        std::sync::Arc::new(move |downloaded: u64, total: u64, phase: &str| {
             let _ = app.emit(
                 "local-tts-progress",
                 DownloadProgress {
@@ -131,56 +238,49 @@ pub async fn local_tts_download(app: AppHandle, proxy: Option<String>) -> Result
                     phase: phase.into(),
                 },
             );
-        }
+        })
     };
 
-    // 下载 (blocking IO 放独立线程)
+    // 下载: 先走设置里的代理, 代理连不上再直连 (未设代理时 reqwest 自动用系统代理);
+    // 边下边算 SHA256, 与 GitHub 公布的摘要不一致就丢弃 (半截文件、被劫持的内容都装不上)
     let archive_path = parent.join("kokoro-download.tar.bz2");
-    let archive = archive_path.clone();
-    let proxy_url = proxy.unwrap_or_default();
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let mut agent_builder = ureq::AgentBuilder::new();
-        if !proxy_url.is_empty() {
-            let p = ureq::Proxy::new(&proxy_url).map_err(|e| format!("代理无效: {e}"))?;
-            agent_builder = agent_builder.proxy(p);
-        }
-        let agent = agent_builder.build();
-        let resp = agent
-            .get(MODEL_URL)
-            .call()
-            .map_err(|e| format!("下载失败: {e}"))?;
-        let total: u64 = resp
-            .header("content-length")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
-        let mut reader = resp.into_reader();
-        let mut file =
-            std::fs::File::create(&archive).map_err(|e| format!("写入失败: {e}"))?;
-        let mut buf = [0u8; 256 * 1024];
-        let mut downloaded: u64 = 0;
-        let mut last_emit = std::time::Instant::now();
-        loop {
-            let n = std::io::Read::read(&mut reader, &mut buf)
-                .map_err(|e| format!("下载中断: {e}"))?;
-            if n == 0 {
+    let proxy = proxy.as_deref().and_then(normalize_proxy);
+    let mut errors: Vec<String> = Vec::new();
+    let mut ok = false;
+    for route in download_routes(proxy.clone()) {
+        match download_archive(&archive_path, &route, &emit).await {
+            Ok(()) => {
+                ok = true;
                 break;
             }
-            file.write_all(&buf[..n]).map_err(|e| format!("写入失败: {e}"))?;
-            downloaded += n as u64;
-            if last_emit.elapsed().as_millis() > 200 {
-                emit(downloaded, total, "downloading");
-                last_emit = std::time::Instant::now();
-            }
+            Err(e) => errors.push(match &route {
+                Route::Proxy(p) => format!("经代理 {p}: {e}"),
+                Route::System => format!("经系统代理: {e}"),
+                Route::Direct => format!("直连: {e}"),
+            }),
         }
-        emit(downloaded, total, "extracting");
+    }
+    if !ok {
+        let _ = std::fs::remove_file(&archive_path);
+        let hint = if proxy.is_some() {
+            "请检查「设置 → 网络」里的代理地址 (如 http://127.0.0.1:7890), 或清空后重试"
+        } else {
+            "请检查网络; 国内网络访问 GitHub 不稳定时, 可在「设置 → 网络」填写代理后重试"
+        };
+        return Err(format!("{}。{hint}", errors.join("; ")));
+    }
 
-        // 解压 (tar.bz2), 顶层目录即 kokoro-multi-lang-v1_1
+    // 解压 (tar.bz2, 顶层目录即 kokoro-multi-lang-v1_1), blocking IO 放独立线程
+    let archive = archive_path.clone();
+    let unpack_to = parent.clone();
+    let emit_done = emit.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let file = std::fs::File::open(&archive).map_err(|e| format!("读取包失败: {e}"))?;
         let bz = bzip2::read::BzDecoder::new(file);
         let mut tar = tar::Archive::new(bz);
-        tar.unpack(&parent).map_err(|e| format!("解压失败: {e}"))?;
+        tar.unpack(&unpack_to).map_err(|e| format!("解压失败: {e}"))?;
         let _ = std::fs::remove_file(&archive);
-        emit(downloaded, total, "done");
+        emit_done(MODEL_SIZE, MODEL_SIZE, "done");
         Ok(())
     })
     .await
@@ -478,3 +578,52 @@ mod tests {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub use desktop::*;
+
+#[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
+mod download_tests {
+    use super::desktop::{download_routes, normalize_proxy, Route};
+
+    #[test]
+    fn proxy_is_normalized() {
+        assert_eq!(normalize_proxy(""), None);
+        assert_eq!(normalize_proxy("   "), None);
+        assert_eq!(normalize_proxy("127.0.0.1:7890"), Some("http://127.0.0.1:7890".into()));
+        assert_eq!(normalize_proxy(" http://127.0.0.1:7890/ "), Some("http://127.0.0.1:7890".into()));
+        assert_eq!(normalize_proxy("socks5h://127.0.0.1:7891"), Some("socks5h://127.0.0.1:7891".into()));
+        assert_eq!(normalize_proxy("SOCKS5://host:1080"), Some("SOCKS5://host:1080".into()));
+        assert_eq!(normalize_proxy("socks://host:1080"), Some("socks5://host:1080".into()));
+    }
+
+    #[test]
+    fn routes_fall_back_to_direct() {
+        assert_eq!(download_routes(Some("http://p:1".into())), vec![Route::Proxy("http://p:1".into()), Route::Direct]);
+        assert_eq!(download_routes(None), vec![Route::System, Route::Direct]);
+    }
+}
+
+/// 真实网络: 先走一个连不上的代理, 应自动回退直连, 下完整包并通过 SHA256 校验。
+/// 约 365MB, 默认跳过: cargo test local_tts::download_live -- --ignored
+#[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
+mod download_live {
+    use super::desktop::{download_archive_for_test, download_routes};
+
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore]
+    async fn falls_back_to_direct_and_verifies() {
+        let dir = std::env::temp_dir().join("lightread-kokoro-dl-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pack.tar.bz2");
+        let mut errors = Vec::new();
+        let mut ok = false;
+        for route in download_routes(Some("http://127.0.0.1:9".into())) {
+            match download_archive_for_test(&path, &route).await {
+                Ok(()) => { ok = true; break; }
+                Err(e) => errors.push(format!("{route:?}: {e}")),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("errors before success: {errors:?}");
+        assert!(ok, "download failed: {errors:?}");
+        assert_eq!(errors.len(), 1, "bad proxy should fail once, then direct succeeds");
+    }
+}
