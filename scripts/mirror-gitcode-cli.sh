@@ -6,7 +6,7 @@
 #
 # 流程: 下载 GitHub Release 并按 SHA256SUMS 校验 → GitCode 上没有该 Release 就创建 (说明末尾附各文件大小,
 # 应用内更新靠它显示大小) → 小文件先传, 已存在且校验一致的跳过 → 每个文件从公开地址下载回来比对 SHA-256
-# → 最后上传 SHA256SUMS (应用只认带 SHA256SUMS 的镜像版本)。
+# → 最后上传 SHA256SUMS (应用只认带 SHA256SUMS 的镜像版本) → 删除 GitCode 上的其他版本 (只留最新版)。
 # CLI 自带的 upload 有 30 秒超时, 大文件传不完: 这里用 CLI 取预签名上传地址, 再用 curl 直传。
 set -euo pipefail
 
@@ -83,5 +83,18 @@ if grep -qxF SHA256SUMS <<<"$existing" && [[ $(remote_sha SHA256SUMS || true) ==
   echo "  = SHA256SUMS (已存在且一致)"
 else
   upload "$WORK/assets/SHA256SUMS"
+fi
+# GitCode 上只留最新版 (2026-10-05 用户要求): 本版本完整镜像并校验后, 删除比它旧的 vX.Y.Z Release。
+# 离线语音包 tts-models 不是版本号, 保留。KEEP_OLD=1 时跳过。
+if [[ ${KEEP_OLD:-0} != 1 ]]; then
+  old=$("$GC" api "repos/$GC_REPO/releases?per_page=100" --no-interactive | python3 -c 'import sys,json,re
+for r in json.load(sys.stdin):
+    t = r.get("tag_name", "")
+    v = lambda x: tuple(int(n) for n in x[1:].split("."))
+    if re.fullmatch(r"v\d+\.\d+\.\d+", t) and v(t) < v(sys.argv[1]): print(t)' "$TAG")
+  for t in $old; do
+    "$GC" release delete "$t" -R "$GC_REPO" --yes --no-interactive >/dev/null
+    echo "  - 已删除旧版本 $t"
+  done
 fi
 echo "完成: https://gitcode.com/$GC_REPO/releases"
