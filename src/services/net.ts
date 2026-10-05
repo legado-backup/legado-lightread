@@ -93,8 +93,8 @@ export async function fetchRemote(
   return res
 }
 
-export async function fetchXml(url: string, auth?: RequestAuth): Promise<Document> {
-  const res = await fetchRemote(url, auth)
+export async function fetchXml(url: string, auth?: RequestAuth, init?: RemoteRequestInit): Promise<Document> {
+  const res = await fetchRemote(url, auth, init)
   const text = await res.text()
   const doc = new DOMParser().parseFromString(text, 'application/xml')
   if (doc.querySelector('parsererror')) throw new Error('响应不是有效的 XML / OPDS 目录')

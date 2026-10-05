@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { getStorage, type CatalogSourceRec, isTauri } from '../storage'
 import {
-  downloadToLibrary, fillSearchTemplate, loadOpdsPage, searchGutenberg,
+  discoverSearchTemplate, downloadToLibrary, fillSearchTemplate, forgetSearchTemplate, loadOpdsPage,
+  searchGutenberg, searchOpdsSource,
   type OpdsPage, type OpdsPublication,
 } from '../services/opds'
+import {
+  looksLikeConnectionText, parseConnectionText, pickPrimaryAcquisition, splitUrlCredentials,
+  userOpdsSources, withTimeout, type ConnectionInfo,
+} from '../services/privateLibrary'
+import { readerPath } from '../services/readerRoute'
 import { arxivRootPage, arxivSearchUrl, isArxivUrl, loadArxivPage } from '../services/arxiv'
 import {
   calibreAvailable, importCalibreBook, listCalibreBooks, pickCalibreLibrary,
@@ -96,7 +102,8 @@ async function importGhBook(hit: GithubBookHit) {
 // ---- 统一搜书: 默认优先免登录的公开图书 ----
 const uniQuery = ref('')
 const uniScopes = reactive({ github: true, gutenberg: true, archive: true, wikisource: true, openlibrary: false, arxiv: false })
-const hasSearchScope = computed(() => Object.values(uniScopes).some(Boolean))
+const hasSearchScope = computed(() =>
+  Object.values(uniScopes).some(Boolean) || myLibraries.value.some(s => myScopeOn(s.id)))
 const uniWikisource = ref<WikisourceBook[]>([])
 const uniArchive = ref<ArchiveBook[]>([])
 const uniOpenLibrary = ref<OpenLibraryBook[]>([])
@@ -140,6 +147,11 @@ async function uniSearch() {
   uniGutenberg.value = []
   uniArxiv.value = []
   const jobs: Promise<void>[] = []
+  // 我的书库 (用户添加的 OPDS 书源) 各自独立搜索: 一个慢/失败不影响其它
+  myResults.value = myLibraries.value.filter(s => myScopeOn(s.id)).map(source => ({
+    source, status: 'loading', error: '', publications: [], loadingMore: false,
+  }))
+  for (const entry of myResults.value) jobs.push(searchMyLibrary(session, entry, query))
   if (uniScopes.github) {
     jobs.push(searchGithubBooks(allGhRepos(), query).then(r => {
       if (session !== uniSession) return
@@ -225,6 +237,149 @@ const sourceAuth = () => ({
   username: activeSource.value?.username,
   password: activeSource.value?.password,
 })
+
+// ---- 我的书库: 统一搜书里同时搜索用户自己添加的 OPDS 书源 (带各自账号) ----
+interface MyLibraryResult {
+  source: CatalogSourceRec
+  status: 'loading' | 'done' | 'error' | 'nosearch'
+  error: string
+  publications: OpdsPublication[]
+  next?: string
+  loadingMore: boolean
+}
+const MY_LIBRARY_SEARCH_TIMEOUT = 25_000
+const myLibraries = computed(() => userOpdsSources(sources.value))
+/** 搜索范围: 默认全选, 只记录用户关掉的 */
+const myScopes = reactive<Record<string, boolean>>({})
+const myScopeOn = (id: string) => myScopes[id] !== false
+const myResults = ref<MyLibraryResult[]>([])
+const fetchingNotice = ref('')
+const authOf = (s: CatalogSourceRec) => ({ username: s.username, password: s.password })
+
+function toggleMyScope(id: string, e: Event) {
+  myScopes[id] = (e.target as HTMLInputElement).checked
+}
+
+async function searchMyLibrary(session: number, entry: MyLibraryResult, query: string) {
+  const ctrl = new AbortController()
+  try {
+    const result = await withTimeout(
+      searchOpdsSource(entry.source, query, ctrl.signal),
+      MY_LIBRARY_SEARCH_TIMEOUT, t('catalog.searchTimeout'), () => ctrl.abort(),
+    )
+    if (session !== uniSession) return
+    if (!result) {
+      entry.status = 'nosearch'
+      return
+    }
+    entry.publications = result.publications
+    entry.next = result.next
+    entry.status = 'done'
+  } catch (e: any) {
+    if (session !== uniSession) return
+    entry.status = 'error'
+    entry.error = e?.message ?? String(e)
+  }
+}
+
+async function loadMoreMine(entry: MyLibraryResult) {
+  if (!entry.next || entry.loadingMore) return
+  entry.loadingMore = true
+  try {
+    const more = await loadOpdsPage(entry.next, authOf(entry.source))
+    entry.publications = [...entry.publications, ...more.publications]
+    entry.next = more.next
+  } catch (e: any) {
+    toast(`${t('catalog.loadMoreFailed')}: ${e?.message ?? e}`, 'error', 5000)
+  } finally {
+    entry.loadingMore = false
+  }
+}
+
+const primaryAcq = (pub: OpdsPublication) => pickPrimaryAcquisition(pub.acquisitions).primary
+const otherAcqs = (pub: OpdsPublication) => pickPrimaryAcquisition(pub.acquisitions).others
+
+/** 已从该书库入库的同名书 (直接继续阅读, 不重复下载) */
+const importedFromSource = (source: CatalogSourceRec, pub: OpdsPublication) =>
+  library.books.find(b => b.source === source.title && b.title === pub.title)
+
+function openLibraryBook(book: { id: string; format: any }) {
+  router.push(readerPath(book))
+}
+
+/** 一步到位: 下载 (带书库账号) → 导入藏书 → 打开阅读; open=false 时只入库 */
+async function getFromMyLibrary(
+  entry: MyLibraryResult, pub: OpdsPublication, acq: OpdsPublication['acquisitions'][number], open: boolean,
+) {
+  if (downloading.value.has(acq.href)) return
+  downloading.value.add(acq.href)
+  fetchingNotice.value = t('catalog.fetchingBook', { title: entry.source.title })
+  try {
+    const result = await downloadToLibrary(pub, acq, entry.source.title, authOf(entry.source))
+    await library.refresh()
+    const book = result.bookId ? library.books.find(b => b.id === result.bookId) : undefined
+    if (open && book) openLibraryBook(book)
+    else toast(t('catalog.bookImported', { title: pub.title }), 'success')
+  } catch (e: any) {
+    toast(t('catalog.downloadFailed', { msg: e?.message ?? t('common.unknownError') }), 'error', 6000)
+  } finally {
+    downloading.value.delete(acq.href)
+    if (!downloading.value.size) fetchingNotice.value = ''
+  }
+}
+
+// ---- 添加书源: 粘贴连接信息自动填表 ----
+const connText = ref('')
+const connStatus = ref<{ ok: boolean; text: string } | null>(null)
+
+function applyConnection(info: ConnectionInfo) {
+  if (info.title) newTitle.value = info.title
+  if (info.url) newUrl.value = info.url
+  if (info.username) newUsername.value = info.username
+  if (info.password) newPassword.value = info.password
+  const fields = [
+    info.title && t('catalog.name'),
+    info.url && t('catalog.opdsUrl'),
+    info.username && t('catalog.username'),
+    info.password && t('catalog.password'),
+  ].filter(Boolean)
+  connStatus.value = {
+    ok: true,
+    text: t('catalog.connectionParsed', { fields: fields.join(settings.language === 'en' ? ', ' : '、') }),
+  }
+}
+
+/** 手动输入/编辑连接信息时同样识别 (粘贴走 onConnectionPaste) */
+watch(connText, text => {
+  if (!text.trim()) {
+    // 清空输入框不抹掉「已识别」提示, 只清掉报错
+    if (connStatus.value && !connStatus.value.ok) connStatus.value = null
+    return
+  }
+  const info = parseConnectionText(text)
+  if (info) applyConnection(info)
+  else connStatus.value = { ok: false, text: t('catalog.connectionNotRecognized') }
+})
+
+/**
+ * 粘贴即识别: 识别成功时拦下这次粘贴, 只填表单, 不把含密码的原文留在输入框里。
+ * 地址栏 (wholeBlockOnly) 只拦整段连接信息, 单个网址照常粘贴。
+ */
+function onConnectionPaste(e: ClipboardEvent, wholeBlockOnly: boolean) {
+  const text = e.clipboardData?.getData('text') ?? ''
+  if (wholeBlockOnly && !looksLikeConnectionText(text)) return
+  const info = parseConnectionText(text)
+  if (!info) return
+  e.preventDefault()
+  connText.value = ''
+  applyConnection(info)
+}
+
+function closeAdd() {
+  showAdd.value = false
+  connText.value = ''
+  connStatus.value = null
+}
 
 /** 按书源类型选择加载器 */
 function loadPage(url: string) {
@@ -398,14 +553,10 @@ async function runSearch() {
     openUrl(fillSearchTemplate(template, query), t('catalog.searchCrumb', { query }))
     return
   }
-  // 指向 OpenSearch description 文档
+  // 指向 OpenSearch description 文档: 需要登录的书源, 描述文档同样带上账号
   try {
-    const { getOpenSearch } = await import('foliate-js/opds.js')
-    const { fetchXml } = await import('../services/net')
-    const doc = await fetchXml(template)
-    const os = getOpenSearch(doc)
-    const url = os.search(new Map([[null, new Map([['searchTerms', query]])]]))
-    openUrl(new URL(url, template).href, t('catalog.searchCrumb', { query }))
+    const resolved = await discoverSearchTemplate(template, sourceAuth())
+    openUrl(fillSearchTemplate(resolved, query), t('catalog.searchCrumb', { query }))
   } catch (e: any) {
     toast(t('catalog.searchFailed', { msg: e?.message ?? t('common.unknownError') }), 'error')
   }
@@ -449,7 +600,9 @@ async function download(pub: OpdsPublication, acq: OpdsPublication['acquisitions
 }
 
 async function addSource() {
-  const url = newUrl.value.trim()
+  // 地址里内嵌的 user:pass@ 拆到账号字段 (浏览器 fetch 不接受带凭据的 URL)
+  const split = splitUrlCredentials(newUrl.value)
+  const url = split.url
   if (!url) return
   const storage = await getStorage()
   await storage.addSource({
@@ -458,10 +611,10 @@ async function addSource() {
     kind: isArxivUrl(url) ? 'arxiv' : 'opds',
     builtin: false,
     addedAt: Date.now(),
-    username: newUsername.value.trim() || undefined,
-    password: newPassword.value || undefined,
+    username: newUsername.value.trim() || split.username || undefined,
+    password: newPassword.value || split.password || undefined,
   })
-  showAdd.value = false
+  closeAdd()
   newTitle.value = ''
   newUrl.value = ''
   newUsername.value = ''
@@ -474,6 +627,9 @@ async function removeSource(s: CatalogSourceRec) {
   if (!confirm(t('catalog.deleteSourceConfirm', { title: s.title }))) return
   const storage = await getStorage()
   await storage.deleteSource(s.id)
+  forgetSearchTemplate(s.id)
+  delete myScopes[s.id]
+  myResults.value = myResults.value.filter(r => r.source.id !== s.id)
   await refreshSources()
 }
 </script>
@@ -506,8 +662,19 @@ async function removeSource(s: CatalogSourceRec) {
             {{ uniSearching ? t('library.ghSearching') : t('library.ghSearch') }}
           </button>
         </div>
-        <p class="intro">{{ t('catalog.freeSearchHint') }}</p>
+        <p class="intro">{{ t('catalog.freeSearchHint') }}<template v-if="myLibraries.length"> {{ t('catalog.privateSearchHint') }}</template></p>
         <div class="uni-scopes">
+          <label
+            v-for="s in myLibraries"
+            :key="s.id"
+            class="check-chip mine"
+            :class="{ on: myScopeOn(s.id) }"
+            :title="t('catalog.myLibraryScope', { title: s.title })"
+          >
+            <input :checked="myScopeOn(s.id)" :disabled="uniSearching" type="checkbox" @change="toggleMyScope(s.id, $event)" />
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/></svg>
+            {{ s.title }}
+          </label>
           <label class="check-chip" :class="{ on: uniScopes.wikisource }"><input v-model="uniScopes.wikisource" :disabled="uniSearching" type="checkbox" /> {{ t('catalog.wikisource') }}</label>
           <label class="check-chip" :class="{ on: uniScopes.gutenberg }"><input v-model="uniScopes.gutenberg" :disabled="uniSearching" type="checkbox" /> {{ t('catalog.gutenberg') }}</label>
           <label class="check-chip" :class="{ on: uniScopes.archive }"><input v-model="uniScopes.archive" :disabled="uniSearching" type="checkbox" /> Internet Archive</label>
@@ -521,9 +688,53 @@ async function removeSource(s: CatalogSourceRec) {
           {{ uniErrors.join('; ') }}
         </div>
         <div v-if="ghProgress" class="gh-progress" role="status">{{ ghProgress }}</div>
+        <div v-if="fetchingNotice" class="gh-progress" role="status">{{ fetchingNotice }}</div>
 
         <template v-if="uniSearched">
-          <p v-if="!uniSearching && !uniErrors.length && !uniWikisource.length && !uniGithub.length && !uniGutenberg.length && !uniArchive.length && !uniOpenLibrary.length && !uniArxiv.length" class="intro" role="status">{{ t('catalog.noSearchResults') }}</p>
+          <p v-if="!uniSearching && !uniErrors.length && !myResults.some(r => r.publications.length || r.status === 'error') && !uniWikisource.length && !uniGithub.length && !uniGutenberg.length && !uniArchive.length && !uniOpenLibrary.length && !uniArxiv.length" class="intro" role="status">{{ t('catalog.noSearchResults') }}</p>
+          <!-- 我的书库排在最前 -->
+          <div v-for="entry in myResults" :key="entry.source.id" class="uni-group mine-group" :aria-busy="entry.status === 'loading'">
+            <div class="uni-group-head">
+              <span class="tag mine-tag">{{ t('catalog.myLibrary') }}</span>
+              {{ entry.source.title }}
+              <template v-if="entry.status === 'done'"> · {{ t('reader.resultCount', { n: entry.next ? `${entry.publications.length}+` : entry.publications.length }) }}</template>
+              <template v-else-if="entry.status === 'loading'"> · {{ t('catalog.sourceSearching') }}</template>
+            </div>
+            <p v-if="entry.status === 'error'" class="uni-group-msg error" role="alert">{{ entry.error }}</p>
+            <p v-else-if="entry.status === 'nosearch'" class="uni-group-msg">{{ t('catalog.sourceNoSearch') }}</p>
+            <div v-for="(pub, i) in entry.publications" :key="i" class="gh-item uni-pub">
+              <span class="gh-name">{{ pub.title }}</span>
+              <span class="gh-meta">{{ pub.author || t('common.anonymous') }}</span>
+              <span class="uni-acts">
+                <button
+                  v-if="importedFromSource(entry.source, pub)"
+                  class="btn btn-sm btn-primary"
+                  @click="openLibraryBook(importedFromSource(entry.source, pub)!)"
+                >{{ t('catalog.continueReading') }}</button>
+                <template v-else-if="primaryAcq(pub)">
+                  <button
+                    class="btn btn-sm btn-primary"
+                    :disabled="downloading.has(primaryAcq(pub)!.href)"
+                    :aria-busy="downloading.has(primaryAcq(pub)!.href)"
+                    @click.stop="getFromMyLibrary(entry, pub, primaryAcq(pub)!, true)"
+                  >{{ downloading.has(primaryAcq(pub)!.href) ? t('catalog.downloading') : t('catalog.readNow', { label: primaryAcq(pub)!.label }) }}</button>
+                  <button
+                    v-for="acq in otherAcqs(pub)"
+                    :key="acq.href"
+                    class="btn btn-sm"
+                    :disabled="downloading.has(acq.href)"
+                    @click.stop="getFromMyLibrary(entry, pub, acq, false)"
+                  >{{ downloading.has(acq.href) ? t('catalog.downloading') : t('catalog.download', { label: acq.label }) }}</button>
+                </template>
+                <span v-else class="gh-meta">{{ t('catalog.noDownloadFormat') }}</span>
+              </span>
+            </div>
+            <div v-if="entry.next" class="uni-more">
+              <button class="btn btn-sm" :disabled="entry.loadingMore" @click="loadMoreMine(entry)">
+                {{ entry.loadingMore ? t('common.loading') : t('catalog.loadMore') }}
+              </button>
+            </div>
+          </div>
           <div v-if="uniScopes.wikisource" class="uni-group">
             <div class="uni-group-head">{{ t('catalog.wikisource') }} · {{ t('reader.resultCount', { n: uniWikisource.length }) }}</div>
             <div v-for="book in uniWikisource" :key="book.id" class="gh-item uni-pub">
@@ -817,16 +1028,31 @@ async function removeSource(s: CatalogSourceRec) {
     </template>
 
     <!-- 添加书源弹窗 -->
-    <div v-if="showAdd" class="modal-mask" @click.self="showAdd = false" @keydown.esc="showAdd = false">
+    <div v-if="showAdd" class="modal-mask" @click.self="closeAdd" @keydown.esc="closeAdd">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="add-source-title">
         <h3 id="add-source-title">{{ t('catalog.addModalTitle') }}</h3>
+        <div class="form-row">
+          <label for="src-conn">{{ t('catalog.pasteConnection') }}</label>
+          <textarea
+            id="src-conn"
+            v-model="connText"
+            class="input conn-input"
+            rows="3"
+            autocomplete="off"
+            spellcheck="false"
+            :placeholder="t('catalog.pasteConnectionPlaceholder')"
+            aria-describedby="src-conn-status"
+            @paste="onConnectionPaste($event, false)"
+          />
+          <p id="src-conn-status" class="conn-status" :class="{ error: connStatus && !connStatus.ok }" role="status">{{ connStatus?.text ?? '' }}</p>
+        </div>
         <div class="form-row">
           <label for="src-name">{{ t('catalog.name') }}</label>
           <input id="src-name" v-model="newTitle" class="input" :placeholder="t('catalog.namePlaceholder')" autofocus />
         </div>
         <div class="form-row">
           <label for="src-url">{{ t('catalog.opdsUrl') }}</label>
-          <input id="src-url" v-model="newUrl" class="input" type="url" inputmode="url" placeholder="https://example.com/opds" />
+          <input id="src-url" v-model="newUrl" class="input" type="url" inputmode="url" placeholder="https://example.com/opds" @paste="onConnectionPaste($event, true)" />
         </div>
         <div class="form-row-pair">
           <div class="form-row">
@@ -843,7 +1069,7 @@ async function removeSource(s: CatalogSourceRec) {
           <code>http://host:8080/opds</code>{{ t('catalog.hintAuth') }}
         </p>
         <div class="form-actions">
-          <button class="btn" @click="showAdd = false">{{ t('common.cancel') }}</button>
+          <button class="btn" @click="closeAdd">{{ t('common.cancel') }}</button>
           <button class="btn btn-primary" :disabled="!newUrl.trim()" @click="addSource">{{ t('common.add') }}</button>
         </div>
       </div>
@@ -1377,6 +1603,47 @@ async function removeSource(s: CatalogSourceRec) {
   display: flex;
   gap: 6px;
   margin-top: 4px;
+}
+.mine-tag {
+  margin-right: 4px;
+  background: var(--brand-light);
+  color: var(--brand);
+}
+.uni-group-msg {
+  font-size: 12px;
+  color: var(--text-3);
+  padding: 4px 4px 8px;
+}
+.uni-group-msg.error {
+  color: var(--danger);
+}
+.uni-more {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 10px;
+}
+.check-chip.mine svg {
+  flex-shrink: 0;
+}
+.conn-input {
+  min-height: 72px;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 8px 10px;
+  height: auto;
+}
+.conn-status {
+  min-height: 1em;
+  font-size: 12px;
+  color: var(--success);
+  line-height: 1.5;
+}
+.conn-status:empty {
+  display: none;
+}
+.conn-status.error {
+  color: var(--warning);
 }
 .gh-updated {
   font-size: 12px;

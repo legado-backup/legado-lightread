@@ -8,6 +8,7 @@
     "build": "vue-tsc -b && vite build",
     "test:book-sources": "node --experimental-strip-types --test scripts/test-open-library.mjs scripts/test-internet-archive.mjs scripts/test-wikisource.mjs scripts/test-web-book-sources.mjs scripts/test-opds-download.mjs scripts/test-github-books.mjs",
     "test:archive": "node scripts/test-library-archive.mjs",
+    "test:opds-library": "node --experimental-strip-types --test scripts/test-opds-library.mjs",
     "test:smart-toc": "node --experimental-strip-types --test scripts/test-smart-toc.mjs",
     "test:txt-paragraphs": "node --experimental-strip-types --test scripts/test-txt-paragraphs.mjs",
     "test:keyboard-shortcuts": "node --experimental-strip-types --test scripts/test-keyboard-shortcuts.mjs",
