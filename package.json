@@ -13,6 +13,7 @@
     "test:keyboard-shortcuts": "node --experimental-strip-types --test scripts/test-keyboard-shortcuts.mjs",
     "test:sync-merge": "node --experimental-strip-types --test scripts/test-sync-merge.mjs",
     "test:sync-engine": "node --experimental-strip-types --test scripts/test-sync-engine.mjs",
+    "test:sync-settings": "node --experimental-strip-types --test scripts/test-sync-settings.mjs",
     "test:sync-account": "node --experimental-strip-types --test scripts/test-sync-account.mjs",
     "test:reading-log": "node --experimental-strip-types --test scripts/test-reading-log.mjs",
     "test:paper-context": "node --experimental-strip-types --test scripts/test-paper-translation-context.mjs",

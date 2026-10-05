@@ -12,6 +12,8 @@ import { computed, ref } from 'vue'
 import { t } from '../i18n'
 import { useSettings } from '../stores/settings'
 import type { ReadingModes, ReadingModeTab } from '../composables/useReadingModes'
+import { TYPING_SOUND_PRESETS } from '../services/readingModes/soundPresets'
+import { previewTypingSound } from '../services/readingModes/sound'
 import type { ReadingModeProgress } from '../services/readingModes/progress'
 import { DIM_MAX } from '../services/readingModes/eyeCare'
 
@@ -633,6 +635,35 @@ function onSpeedInput(e: Event) {
                   <span class="rm-switch-track" aria-hidden="true"></span>
                 </span>
               </label>
+              <!-- 打字声音色 (CC0 录音, 见 docs/ambient-sources.md) + 音量 + 试听 -->
+              <div v-if="tw.sound" class="rm-sound">
+                <div class="rm-sound-presets" role="radiogroup" :aria-label="t('readingMode.soundPreset')">
+                  <button
+                    v-for="p in TYPING_SOUND_PRESETS"
+                    :key="p.id"
+                    type="button"
+                    role="radio"
+                    class="rm-chip"
+                    :class="{ on: tw.soundPreset === p.id }"
+                    :aria-checked="tw.soundPreset === p.id"
+                    @click="settings.readingMode.typewriter.soundPreset = p.id; void previewTypingSound(p.id, tw.soundVolume)"
+                  >{{ t(p.nameKey) }}</button>
+                </div>
+                <div class="rm-row">
+                  <span class="rm-label">{{ t('readingMode.soundVolume') }}</span>
+                  <input
+                    v-model.number="settings.readingMode.typewriter.soundVolume"
+                    class="rm-sound-volume"
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    :aria-label="t('readingMode.soundVolume')"
+                  />
+                  <span class="rm-value">{{ Math.round(tw.soundVolume * 100) }}%</span>
+                  <button type="button" class="btn btn-sm" @click="void previewTypingSound(tw.soundPreset, tw.soundVolume)">{{ t('readingMode.soundPreview') }}</button>
+                </div>
+              </div>
             </template>
           </div>
 
@@ -732,6 +763,22 @@ function onSpeedInput(e: Event) {
 </template>
 
 <style scoped>
+.rm-sound {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 6px;
+}
+.rm-sound-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rm-sound-volume {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--brand);
+}
 .rm-panel {
   position: absolute;
   top: calc(52px + var(--safe-top, 0px));

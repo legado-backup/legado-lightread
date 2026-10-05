@@ -21,6 +21,8 @@ export default defineConfig({
     workbox: {
       // MuPDF wasm 约 10MB，网页版需要完整预缓存以支持离线阅读。
       maximumFileSizeToCacheInBytes: 16 * 1024 * 1024,
+      // 与插件默认一致的 js / css / html / wasm, 另加打字机打字声 (约 95KB): 网页版离线也能用真实录音
+      globPatterns: ['**/*.{js,css,html,wasm}', 'sounds/typewriter/**/*.{ogg,m4a,json}'],
     },
     manifest: {
       name: 'LightRead 轻阅',

@@ -494,7 +494,7 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     if (hadAuto) toast(t('readingMode.autoStopped'))
     else if (hadTTS) toast(t('readingMode.ttsPaused'))
     if (tw.value.sound) {
-      sound ??= createTypingSound()
+      sound ??= createTypingSound({ preset: tw.value.soundPreset, volume: tw.value.soundVolume })
       sound.warm()
     }
     const c = ensureController()
@@ -836,10 +836,13 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   )
   watch(() => tw.value.sound, on => {
     if (on && typewriterActive.value) {
-      sound ??= createTypingSound()
+      sound ??= createTypingSound({ preset: tw.value.soundPreset, volume: tw.value.soundVolume })
       sound.warm()
     }
   })
+  // 打字声音色 / 音量改了立即生效
+  watch(() => tw.value.soundPreset, id => sound?.setPreset(id))
+  watch(() => tw.value.soundVolume, v => sound?.setVolume(v))
   watch(() => opts.getColors(), () => {
     controller.value?.refreshColors()
     lyric.value?.refreshColors()

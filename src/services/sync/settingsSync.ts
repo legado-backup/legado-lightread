@@ -112,6 +112,9 @@ export const SETTINGS_SYNC_SPEC: SettingsSpec = {
       punctuationPause: SYNC,
       freshInk: SYNC,
       sound: SYNC,
+      soundPreset: SYNC,
+      // 音量随设备 (手机外放与电脑音箱差别大)
+      soundVolume: LOCAL,
       pageDwellMs: SYNC,
     },
     lyric: {

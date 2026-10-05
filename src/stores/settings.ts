@@ -45,8 +45,12 @@ export interface TypewriterPrefs {
   punctuationPause: boolean
   /** 墨迹未干: 最新出现的字用强调色 */
   freshInk: boolean
-  /** 打字声 (WebAudio 合成) */
+  /** 打字声 (CC0 录音单发样本, 见 services/readingModes/soundPresets.ts) */
   sound: boolean
+  /** 打字声音色 (同 soundPresets.TypingSoundPresetId) */
+  soundPreset: 'typewriter' | 'mechanical' | 'soft' | 'pen'
+  /** 打字声音量 0–1 */
+  soundVolume: number
   /** 打完一页后停留多久再自动翻页, 毫秒 */
   pageDwellMs: number
 }
@@ -289,6 +293,8 @@ const defaults: SettingsState = {
       punctuationPause: true,
       freshInk: true,
       sound: false,
+      soundPreset: 'mechanical',
+      soundVolume: 0.4,
       pageDwellMs: 800,
     },
     lyric: { lines: 1, others: 'dim', anchor: 0.4, driver: 'pace', scale: 1.2 },

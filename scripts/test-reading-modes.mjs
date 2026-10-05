@@ -61,6 +61,24 @@ import {
   updateFollowRate,
 } from '../src/services/readingModes/lyric.ts'
 import { ZH_MERGE_WORDS, guideSpans, headLength } from '../src/services/readingModes/wordGuide.ts'
+import {
+  DEFAULT_TYPING_SOUND_PRESET,
+  DEFAULT_TYPING_SOUND_VOLUME,
+  MAX_VOICES,
+  MIN_HIT_GAP_MS,
+  TYPING_SOUND_PRESETS,
+  allowHit,
+  createRoundRobin,
+  hitVariation,
+  isTypingSoundPresetId,
+  resolveTypingSoundPreset,
+  synthHit,
+  thinTicks,
+  validateTypingSoundManifest,
+  voicesToSteal,
+  volumeToGain,
+} from '../src/services/readingModes/soundPresets.ts'
+import { readFileSync, statSync, existsSync } from 'node:fs'
 
 const pieces = (text, lang) => sentenceSpans(text, lang).map(([s, e]) => text.slice(s, e))
 
@@ -622,4 +640,198 @@ test('分词交替着色: 合并表修正 ICU 切开的词, 只给 ≥2 字的�
   const mixed = '我们阅读 English books 吧'
   const m = guideSpans(mixed, 'zh')
   assert.deepEqual(m.tail.map(([a, b]) => mixed.slice(a, b)), ['lish', 'oks'])
+})
+
+// ---- 打字声音色 (soundPresets.ts + public/sounds/typewriter) ----
+
+/** 可复现的伪随机 (mulberry32) */
+function seeded(seed) {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+test('打字声轮换: 永不连着两次同一条, 每一轮把所有变体用一遍', () => {
+  for (const count of [2, 3, 4, 6, 8]) {
+    for (const rand of [seeded(count), seeded(99 + count), Math.random]) {
+      const rr = createRoundRobin(count, rand)
+      let prev = -1
+      const seen = []
+      for (let i = 0; i < count * 500; i++) {
+        const k = rr.next()
+        assert.ok(k >= 0 && k < count)
+        assert.notEqual(k, prev, `count=${count} repeated ${k} at draw ${i}`)
+        assert.equal(rr.last, k)
+        prev = k
+        seen.push(k)
+      }
+      // 每 count 次是一轮完整的排列
+      for (let r = 0; r < 500; r++) assert.deepEqual([...seen.slice(r * count, r * count + count)].sort((a, b) => a - b), [...Array(count).keys()])
+    }
+  }
+  // 只有一条时只能一直用它; 没有时返回 -1
+  const one = createRoundRobin(1)
+  assert.deepEqual([one.next(), one.next(), one.next()], [0, 0, 0])
+  assert.equal(createRoundRobin(0).next(), -1)
+  // 即使随机源总给同一个值, 跨轮也不会重复
+  const stuck = createRoundRobin(4, () => 0)
+  let p = -1
+  for (let i = 0; i < 40; i++) { const k = stuck.next(); assert.notEqual(k, p); p = k }
+})
+
+test('打字声抽稀与限频: 高速每 3 字一声, 45 ms 内只响一次, 段落点缀不受限', () => {
+  // 300 字/分 每字一声, 900 字/分 每 3 字一声 (soundEvery 来自 pacing)
+  for (const [speed, every] of [[300, 1], [900, 3]]) {
+    assert.equal(soundEvery(speed), every)
+    let c = 0
+    const plays = []
+    for (let i = 0; i < 12; i++) {
+      const r = thinTicks(c, 1, soundEvery(speed))
+      c = r.count
+      plays.push(r.play)
+    }
+    assert.equal(plays.filter(Boolean).length, 12 / every)
+  }
+  // 一次推进多个字 (逐句) 也只响一声; 0 个字不响
+  assert.deepEqual(thinTicks(0, 5, 3), { count: 0, play: true })
+  assert.deepEqual(thinTicks(2, 0, 3), { count: 2, play: false })
+  // 限频
+  assert.equal(MIN_HIT_GAP_MS, 45)
+  assert.equal(allowHit(1000, 960), false)
+  assert.equal(allowHit(1000, 955), true)
+  assert.equal(allowHit(1000, 990, true), true)
+  assert.equal(allowHit(0, -Infinity), true)
+  // 300 字/分 (200 ms 一字) 不会被限频吃掉
+  assert.ok(allowHit(200, 0))
+})
+
+test('打字声变化与复音: 音高 ±3%, 音量 ±2 dB, 最多 4 声重叠', () => {
+  const lo = hitVariation(() => 0)
+  const hi = hitVariation(() => 0.999999)
+  assert.ok(Math.abs(lo.rate - 0.97) < 1e-9)
+  assert.ok(Math.abs(hi.rate - 1.03) < 1e-5)
+  assert.ok(Math.abs(20 * Math.log10(lo.gain) + 2) < 1e-9)
+  assert.ok(Math.abs(20 * Math.log10(hi.gain) - 2) < 1e-4)
+  const r = seeded(7)
+  for (let i = 0; i < 1000; i++) {
+    const v = hitVariation(r)
+    assert.ok(v.rate >= 0.97 && v.rate <= 1.03)
+    assert.ok(v.gain >= 10 ** (-2 / 20) - 1e-12 && v.gain <= 10 ** (2 / 20) + 1e-12)
+  }
+  assert.equal(MAX_VOICES, 4)
+  assert.equal(voicesToSteal(0), 0)
+  assert.equal(voicesToSteal(3), 0)
+  assert.equal(voicesToSteal(4), 1)
+  assert.equal(voicesToSteal(6), 3)
+})
+
+test('打字声音量: 0 静音, 100% 满增益, 单调, 默认 40%', () => {
+  assert.equal(DEFAULT_TYPING_SOUND_VOLUME, 0.4)
+  assert.equal(volumeToGain(0), 0)
+  assert.equal(volumeToGain(1), 1)
+  assert.equal(volumeToGain(2), 1)
+  assert.equal(volumeToGain(-1), 0)
+  assert.equal(volumeToGain(NaN), volumeToGain(DEFAULT_TYPING_SOUND_VOLUME))
+  let prev = -1
+  for (let v = 0; v <= 1.0001; v += 0.05) { const g = volumeToGain(v); assert.ok(g > prev); prev = g }
+  const db = 20 * Math.log10(volumeToGain(0.4))
+  assert.ok(db > -15 && db < -11, `40% → ${db.toFixed(1)} dB`)
+})
+
+test('打字声音色清单: 4 个音色, 默认可解析, 未知 id 回落默认, 文案两种语言都有', () => {
+  assert.deepEqual(TYPING_SOUND_PRESETS.map(p => p.id), ['typewriter', 'mechanical', 'soft', 'pen'])
+  assert.ok(isTypingSoundPresetId(DEFAULT_TYPING_SOUND_PRESET))
+  assert.equal(resolveTypingSoundPreset('pen').id, 'pen')
+  assert.equal(resolveTypingSoundPreset('nope').id, DEFAULT_TYPING_SOUND_PRESET)
+  assert.equal(resolveTypingSoundPreset(undefined).id, DEFAULT_TYPING_SOUND_PRESET)
+  const zh = readFileSync(new URL('../src/i18n/zh.ts', import.meta.url), 'utf8')
+  const en = readFileSync(new URL('../src/i18n/en.ts', import.meta.url), 'utf8')
+  for (const key of [...TYPING_SOUND_PRESETS.map(p => p.nameKey), 'readingMode.soundPreset', 'readingMode.soundVolume', 'readingMode.soundPreview']) {
+    assert.ok(zh.includes(`'${key}':`), `zh missing ${key}`)
+    assert.ok(en.includes(`'${key}':`), `en missing ${key}`)
+  }
+  // 设置默认值与这里一致
+  const settings = readFileSync(new URL('../src/stores/settings.ts', import.meta.url), 'utf8')
+  assert.match(settings, new RegExp(`soundPreset: '${DEFAULT_TYPING_SOUND_PRESET}'`))
+  assert.match(settings, new RegExp(`soundVolume: ${DEFAULT_TYPING_SOUND_VOLUME}`))
+})
+
+test('打字声素材: manifest.json 合法、与代码清单一致、两种格式的文件都在、总量 ≤ 400 KB', () => {
+  const dir = new URL('../public/sounds/typewriter/', import.meta.url)
+  const manifest = JSON.parse(readFileSync(new URL('manifest.json', dir), 'utf8'))
+  const v = validateTypingSoundManifest(manifest)
+  assert.ok(v.ok, v.ok ? '' : v.errors.join('; '))
+  assert.deepEqual(Object.keys(manifest.presets).sort(), TYPING_SOUND_PRESETS.map(p => p.id).sort())
+  let total = 0
+  for (const p of TYPING_SOUND_PRESETS) {
+    const m = manifest.presets[p.id]
+    assert.deepEqual(m.hits, [...p.hits], p.id)
+    assert.equal(m.accent ?? undefined, p.accent, p.id)
+    assert.ok(p.hits.length >= 4 && p.hits.length <= 8)
+    for (const path of [...p.hits, ...(p.accent ? [p.accent] : [])]) {
+      for (const ext of manifest.formats) {
+        const f = new URL(`${path}.${ext}`, dir)
+        assert.ok(existsSync(f), `missing ${path}.${ext}`)
+        const buf = readFileSync(f)
+        assert.ok(buf.length > 200 && buf.length < 8192, `${path}.${ext}: ${buf.length} B`)
+        if (ext === 'ogg') {
+          assert.equal(buf.subarray(0, 4).toString('latin1'), 'OggS')
+          assert.ok(buf.includes(Buffer.from('OpusHead')), `${path}.ogg is not Opus`)
+        } else {
+          assert.equal(buf.subarray(4, 8).toString('latin1'), 'ftyp')
+        }
+        total += statSync(f).size
+      }
+    }
+    // 测量数据: 单发 30–150 ms, 峰值 ≤ −6 dBFS
+    for (const a of m.analysis.filter(a => !a.file.endsWith('/accent'))) {
+      assert.ok(a.ms >= 30 && a.ms <= 150, `${a.file} ${a.ms} ms`)
+      assert.ok(a.peakDbfs <= -5.9, `${a.file} peak ${a.peakDbfs}`)
+    }
+  }
+  assert.ok(total <= 400 * 1024, `total ${total} B`)
+})
+
+test('打字声清单校验: 拒绝未知音色、非 CC0 来源、重复或过少的样本、越界路径', () => {
+  const src = { url: 'https://freesound.org/people/a/sounds/1/', license: 'CC0-1.0', author: 'a' }
+  const good = { version: 1, formats: ['ogg', 'm4a'], presets: { pen: { hits: ['pen/1', 'pen/2', 'pen/3', 'pen/4'], source: src } } }
+  assert.ok(validateTypingSoundManifest(good).ok)
+  const bad = mut => {
+    const m = JSON.parse(JSON.stringify(good))
+    mut(m)
+    return validateTypingSoundManifest(m).ok
+  }
+  assert.equal(validateTypingSoundManifest(null).ok, false)
+  assert.equal(bad(m => { m.version = 2 }), false)
+  assert.equal(bad(m => { m.formats = ['ogg'] }), false)
+  assert.equal(bad(m => { m.presets.bell = m.presets.pen }), false)
+  assert.equal(bad(m => { m.presets.pen.source.license = 'CC-BY-NC-4.0' }), false)
+  assert.equal(bad(m => { m.presets.pen.source.url = 'https://pixabay.com/sound-effects/x/' }), false)
+  assert.equal(bad(m => { m.presets.pen.hits = ['pen/1', 'pen/1', 'pen/2', 'pen/3'] }), false)
+  assert.equal(bad(m => { m.presets.pen.hits = ['pen/1', 'pen/2'] }), false)
+  assert.equal(bad(m => { m.presets.pen.hits[0] = '../secret' }), false)
+  assert.equal(bad(m => { m.presets.pen.hits[0] = 'soft/1' }), false)
+  assert.equal(bad(m => { m.presets.pen.accent = 'pen/../x' }), false)
+})
+
+test('打字声合成兜底: 每个音色都能生成, 结果确定、无 NaN、峰值约 −6 dBFS、首尾无爆音', () => {
+  for (const p of TYPING_SOUND_PRESETS) {
+    const a = synthHit(p.id, 48000, seeded(1))
+    const b = synthHit(p.id, 48000, seeded(1))
+    assert.deepEqual(a, b)
+    assert.ok(a.length >= 48000 * 0.05 && a.length <= 48000 * 0.15, `${p.id} ${a.length}`)
+    let peak = 0
+    for (const x of a) { assert.ok(Number.isFinite(x)); peak = Math.max(peak, Math.abs(x)) }
+    assert.ok(Math.abs(peak - 0.5) < 1e-6)
+    assert.equal(a[0], 0)
+    assert.ok(Math.abs(a[a.length - 1]) < 0.01)
+    // 不同随机种子 → 不同的一声 (每次击键略有变化)
+    assert.notDeepEqual(a, synthHit(p.id, 48000, seeded(2)))
+  }
+  assert.equal(synthHit('pen', 44100, seeded(3)).length, Math.round(44100 * 0.1))
 })
