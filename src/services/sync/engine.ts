@@ -5,13 +5,15 @@
 import type { BookMeta, CatalogSourceRec, LibraryStorage, NewBookMeta } from '../../storage/types'
 import { baselineUsableFor, nextBaselineRemotes, type SyncStore } from './baseline.ts'
 import {
-  annotationFrom, bookMetaFrom, buildLocalDoc, mergeDocs, mergeReadingLog, planApply, progressFrom, sourceFrom,
+  annotationFrom, bookMetaFrom, buildLocalDoc, mergeDocs, mergeReadingLog, mergeSettingRegs, planApply, progressFrom,
+  sourceFrom,
 } from './merge.ts'
+import { buildSettingsRegs, planSettingsApply } from './settingsSync.ts'
 import {
   aggregateReadingLog, planReadingLogLanding, type ReadingLogRow, type ReadingLogSyncPort,
 } from '../readingLog.ts'
 import type {
-  ApplyOp, BookMetaVal, LocalState, ProgressVal, SyncDoc, SyncRemote, SyncResult,
+  ApplyOp, BookMetaVal, LocalState, ProgressVal, SettingsSyncPort, SyncDoc, SyncRemote, SyncResult,
 } from './types'
 
 export type TranslateFn = (key: string, params?: Record<string, string | number>) => string
@@ -31,6 +33,11 @@ export interface SyncDeps {
   deleteBook?: (id: string) => Promise<void>
   /** 每日阅读记录 (不提供则不读写本地记录, 远端已有的记录照样合并保留) */
   readingLog?: ReadingLogSyncPort
+  /**
+   * 应用设置 (不提供 = 本机关闭了「同步设置」: 不发出本机设置也不落地, 远端已有的设置照样合并转写).
+   * 规则见 settingsSync.ts 与 docs/sync.md「设置同步」.
+   */
+  settings?: SettingsSyncPort
 }
 
 export async function sha256Hex(data: ArrayBuffer | Uint8Array): Promise<string> {
@@ -211,6 +218,13 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
   const localLog = aggregateReadingLog(logRows, hashById)
   const ownLog = mergeReadingLog(baseline?.doc.readingLog, localLog)
   if (ownLog) localDoc.readingLog = ownLog
+  // 设置: 本机各项 (按修改时间打 stamp) 与基线里已知的设置一起并入本机文档
+  const localSettings = deps.settings ? await deps.settings.read() : null
+  const ownSettings = mergeSettingRegs(
+    baseline?.doc.settings,
+    localSettings ? buildSettingsRegs(localSettings, deviceId, deps.settings!.includeSecrets) : undefined,
+  )
+  if (ownSettings) localDoc.settings = ownSettings
   const merged = mergeDocs([localDoc, ...remoteDocs], ctx)
 
   // 4. 落地
@@ -360,6 +374,16 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
     }
   }
 
+  // 设置落地: 只落比本机修改时间新的白名单项 (先于写文档, 落地失败则整次同步失败、不写基线)
+  let settingsApplied = 0
+  if (deps.settings && localSettings) {
+    const entries = planSettingsApply(merged.settings, localSettings, deviceId)
+    if (entries.length) {
+      await deps.settings.apply(entries)
+      settingsApplied = entries.filter(e => e.changed).length
+    }
+  }
+
   // 5. 先写本机文档与基线: 其他设备马上能看到元数据 (书文件没到位时保持「仅元数据」,
   //    文件传上去以后的下一次同步再下载); 上传中途被杀 / 切后台也不会丢掉这次的改动
   progress(tr('sync.phase.save'))
@@ -422,5 +446,6 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
     uploadedFiles,
     pendingBooks,
     devices: new Set([deviceId, ...remoteDocs.map(d => d.deviceId)]).size,
+    settingsApplied,
   }
 }

@@ -50,8 +50,34 @@ InfiniCLOUD 每个账号的 WebDAV 节点不同（`https://<节点>.teracloud.jp
 | booklistItems | `${booklistId}\|${bookHash}` | `{ booklistId, bookHash, addedAt }` | LWW |
 | sources | 书源 url | 自定义 OPDS 书源（含鉴权，内置书源不同步） | LWW |
 | readingLog（可选） | `设备 id → 日期 YYYY-MM-DD → 书的 hash` | 该设备当天在该书上贡献的秒数 | G-Counter：逐叶取较大值 |
+| settings（可选） | 设置路径，如 `reader.fontSize`、`webdavUrl` | 该项的值 | LWW，stamp.t 为该项**最后一次被修改的时间**，见下文「设置同步」 |
 
-阅读设置、AI 配置等偏好暂不同步。
+## 设置同步
+
+用户在一台设备上改的阅读、外观、听书、AI、WebDAV 等设置随同步（WebDAV 与轻阅账号都走同一套文档）带到其他设备。实现：`src/services/sync/settingsSync.ts`（纯函数）、`settingsTracker.ts`（记录修改时间）、engine 的 `settings` 端口。
+
+- **开关（按设备，本身不同步）**：`settings.syncSettings`（默认开）关闭时本机既不发出也不落地设置，但写自己的文档时照样转写别的设备的设置；`settings.syncSecrets`（默认关）控制本机是否把密钥写进文档。
+- **粒度**：每个设置路径一个 LWW 寄存器，嵌套对象按子键（`reader.*`、`pdf.*`、`readingMode.typewriter.*` …）；数组 / 字典型的值（`githubBookRepos`、`ambient.layers`、`dianjing.kinds`）整体 LWW。
+- **stamp = 修改时间，不是同步时间**：`settingsTracker` 深度监听可同步的值，变化时记 `t = max(现在, 已知 t + 1)`（时钟偏慢也能盖过刚收到的值），存 localStorage `lightread-settings-sync`。第一次见到某项时：与默认值相同记 0（从没改过，不写进文档，任何设备的值都能盖过它），否则记 1（改过但不知何时：胜过默认值，输给之后的任何修改）。不依赖基线，所以关掉再打开「同步设置」、换远端都按修改时间收敛。
+- **本机文档** = 基线里已知的设置 ∪ 本机各项（修改时间 > 0 的，`stamp.d` 为本机；从别处收到的沿用来源的 stamp，与来源文档完全一致）。
+- **落地**：只落白名单路径，且合并结果的 stamp 新于本机的修改时间、值的类型与本机相符。落地时同时更新本机的修改时间与快照，所以收到的值不会被当成本机修改再发出去（不会来回打架）。同步前一刻还没被监听记下的修改，端口 `read()` 会先补记。
+- **密钥**（`webdavPass`、`aiApiKey`）：只有发送方开启 `syncSecrets` 时才写进文档。**缺席表示不变**：合并是按路径取并集的 LWW，没带密钥的设备不会删掉远端已有的值（它写自己的文档时还会原样转写）。接收方不论自己是否开启，远端有且更新就落地；本机改了却没发出去的密钥修改时间更晚，不会被远端旧值盖回。密钥在同步端是明文（WebDAV 文件 / 账号服务的 R2），所以默认关闭。关掉 `syncSecrets` 不会抹掉已经发出去的旧值。
+- **预设**（大字 / 夜间 / 护眼 / 歌词 / 墨水屏，`readingMode.presets`）临时改的键按开启前的值同步：被预设管着（当前值等于最上层预设写入的值）的 `reader.*` / `readingMode.typewriter.*` 读最底层预设的 `before`，落地时也写进这个 `before`，预设关闭时恢复到同步来的值。开关预设、夜间定时都不算修改设置，不会传到别的设备。
+- **登录新设备**：`syncNow` 先同步账号，**之后**才判断 WebDAV 是否可用，所以账号带来的 WebDAV 配置在同一次同步里就能用上。`webdavSyncConfigured()` 要求地址已填，且填了账号时也有密码——发送方没开 `syncSecrets` 时只来了地址和账号，此时不去连 WebDAV（不报认证失败），等用户在本机补上密码。
+- WebDAV 配置是普通同步项：在一台设备上换了服务商 / 地址 / 账号，其它设备随之改变（LWW）。**断开只影响本机**：本机 `webdavUrl` 为空时，WebDAV 连接的几项（地址、账号、服务商、密码）都不写进文档，别的设备照常使用；之后别处换了新配置仍会过来。地址换了时连接的几项**整组落地**（远端有的账号 / 服务商 / 密码跟着新地址一起，即使本机修改时间更晚），免得新地址配上本机的旧账号。换到另一个 WebDAV 地址时基线对它作废，按首次同步处理（只并集）。
+- 旧客户端会忽略 `settings` 字段并在写自己的文档时丢掉它，不影响别的设备的文件（同 `readingLog`）。新客户端加的、本版本不认识的路径照样合并转写，但不落地。
+
+### 同步与不同步的设置
+
+归类表是 `SETTINGS_SYNC_SPEC`（与 `SettingsState` 同构）；新增设置项必须在里面归类，`scripts/test-sync-settings.mjs` 会检查。
+
+| 归类 | 设置 |
+|---|---|
+| 同步 | `language`、`appearance`；`reader.*`（字号、行距、页边距、主题、排版方式、栏数、字体名、两端对齐、字距、进度显示）；`pdf.*`；`githubBookRepos`；`autoReadSeconds`；`ttsRate`、`edgeVoice`、`localVoiceId`；`aiProvider`、`aiBaseUrl`、`aiModel`；`webdavUrl`、`webdavUser`、`webdavProvider`；`dailyGoalMinutes`；`dianjing` 的 `enabled`、`consentAll`、`density`、`kinds`、`channel`、`chapterCard`；`readingMode` 的 `typewriter.*`、`lyric.*`、`wordGuide.*`、`immersive.*`、`eyeCare.*`、`night.*`；`ambient.*` |
+| 密钥（仅 `syncSecrets`） | `webdavPass`、`aiApiKey` |
+| 只属于本机 | `version`；`customFonts`（字体文件在本机）；`libraryRoot`、`calibrePath`（本机路径）；`httpProxy`、`corsProxy`（网络环境）；`paperAgentEngine`、`paperAgentExecutables`（本机安装的引擎）；`ttsEngine`（本地离线音色要下载模型，网页没有）、`ttsVoice`（系统音色因系统而异）；`usageStats`（关掉的设备不会被别处打开）；`syncSettings`、`syncSecrets`；`webdavSyncAuto`、`webdavSyncFiles`（自动同步、是否传书籍文件按设备）；`dianjing.perBook`、`dianjing.fiction`（键是本机书 id）；`readingMode.presets`、`readingMode.largeText`、`readingMode.eink`（预设开关与快照） |
+
+书源（含 OPDS 账号密码）是书库记录，不属于设置，一直随 `sources` 同步。
 
 ## 本地文档的生成（`buildLocalDoc`）
 
@@ -110,8 +136,8 @@ SyncDoc 增加可选字段 `readingLog: { [device]: { [day]: { [hash]: 秒 } } }
 
 1. 读本地库，得到 `LocalState`（按 hash 键，书的 hash 有缓存，只对新书计算）。
 2. 远端：列出并读取所有 `devices/*.json`，合并得到 `remoteMerged`。
-3. `buildLocalDoc(local, base, presentHashes, remoteMerged)`：给本地改动打 stamp、生成墓碑、更新自己的计时贡献；本地每日阅读记录聚合后并入 `readingLog`；再与远端文档一起 `mergeDocs`。
-4. `planApply(merged, local)` 得到操作列表并应用到本地库：新书要先下载文件（远端有文件时才加入本地，否则保持「仅元数据」状态，等以后导入同一文件时自动匹配）。随后把 `merged.readingLog` 多出的差额落到本地阅读记录。
+3. `buildLocalDoc(local, base, presentHashes, remoteMerged)`：给本地改动打 stamp、生成墓碑、更新自己的计时贡献；本地每日阅读记录聚合后并入 `readingLog`；本机设置（按修改时间）与基线里的设置并入 `settings`；再与远端文档一起 `mergeDocs`。
+4. `planApply(merged, local)` 得到操作列表并应用到本地库：新书要先下载文件（远端有文件时才加入本地，否则保持「仅元数据」状态，等以后导入同一文件时自动匹配）。随后把 `merged.readingLog` 多出的差额落到本地阅读记录。开启「同步设置」时再落地比本机修改时间新的设置。
 5. 把合并结果写到 `devices/<me>.json`，并把合并结果和 `presentHashes` 存为新基线（IndexedDB `lightread-sync`）。**先写文档、后传文件**：其他设备马上能看到新书的元数据，文件没到位时按第 4 步保持「仅元数据」，等文件传上去后的下一次同步再下载；上传中途应用被杀或切到后台，这次的改动也不会丢。
 6. 上传：本地有、远端还没有的书文件和封面（开启「同步书籍文件」时），进度显示「第几本 / 共几本」。是否已上传以远端 `files/` 列表为准，不记在文档或基线里；单本失败只记日志，下次同步再传。
 7. 刷新书架。

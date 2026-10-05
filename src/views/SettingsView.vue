@@ -11,16 +11,10 @@ import {
 } from '../services/backup'
 import { backupToWebdav, restoreFromWebdav, testWebdav, verifyWebdav, WebdavConnectError, type WebdavDraft } from '../services/webdav'
 import { detectProvider, displayHost, providerOf, WEBDAV_PROVIDERS, type WebdavProviderId } from '../services/webdavProviders'
-import { syncConfigured, syncNow, syncState, waitForSync } from '../services/sync'
+import { requestAutoSync, syncConfigured, syncNow, syncState, waitForSync } from '../services/sync'
 import type { SyncResult } from '../services/sync/types'
-import {
-  accountState,
-  deleteAccount,
-  isLoggedIn,
-  logout,
-  requestLoginCode,
-  verifyLoginCode,
-} from '../services/account'
+import { accountState, isLoggedIn } from '../services/account'
+import AccountCard from '../components/settings/AccountCard.vue'
 import { fetchRemote } from '../services/net'
 import { toast } from '../services/toast'
 import {
@@ -51,11 +45,14 @@ const backupInput = ref<HTMLInputElement>()
 // ---- WebDAV 网盘 ----
 // 未连接: 选服务商 → 填账号与 (应用) 密码 → 「连接」一次完成校验、保存、开自动同步与首次同步.
 // 已连接: 折叠为状态卡; 「修改」重新展开表单 (草稿), 校验通过才写回 settings.
-const davConnected = computed(() => !!settings.webdavUrl.trim())
+/** 地址与账号已从其他设备同步过来、但没带密码 (未开「同步密码与密钥」): 需要本机补填密码才能连接 */
+const davNeedsPass = computed(() => !!settings.webdavUrl.trim() && !!settings.webdavUser && !settings.webdavPass)
+const davConnected = computed(() => !!settings.webdavUrl.trim() && !davNeedsPass.value)
 const davProviderId = computed(() => detectProvider(settings.webdavUrl, settings.webdavProvider))
 const davProvider = computed(() => providerOf(davProviderId.value))
 const davEditing = ref(false)
 const davShowForm = computed(() => !davConnected.value || davEditing.value)
+const davHasAddress = computed(() => !!settings.webdavUrl.trim())
 const davDraft = reactive<WebdavDraft>({ provider: 'jianguoyun', address: '', user: '', pass: '' })
 const draftProvider = computed(() => providerOf(davDraft.provider))
 /** 连接进度: '' 空闲 / verify 校验中 / sync 首次同步中 */
@@ -71,7 +68,8 @@ const davWebNote = computed(() => {
 })
 
 function resetDavDraft() {
-  const connected = davConnected.value
+  // 已连接或待补密码时以 settings 为准预填 (同步可能刚改过这些字段)
+  const connected = davHasAddress.value
   davDraft.provider = connected ? davProviderId.value : 'jianguoyun'
   davDraft.address = connected && !davProvider.value.url ? settings.webdavUrl : ''
   davDraft.user = connected ? settings.webdavUser : ''
@@ -81,11 +79,27 @@ function resetDavDraft() {
 }
 resetDavDraft()
 
-function pickDavProvider(id: WebdavProviderId) {
+/** 未连接时先只列出服务商, 选中一个才展开表单 (渐进展开; 修改已有连接时直接展开) */
+const davPicked = ref(davNeedsPass.value)
+
+// 同步过程中 WebDAV 配置可能被其他设备的设置改写: 不在编辑 / 连接中时, 让表单跟上 settings
+watch(() => [settings.webdavUrl, settings.webdavUser, settings.webdavPass, settings.webdavProvider], () => {
+  if (davEditing.value || davStage.value) return
+  resetDavDraft()
+  davPicked.value = davNeedsPass.value
+})
+
+async function pickDavProvider(id: WebdavProviderId) {
   if (davStage.value) return
+  const first = !davPicked.value
   davDraft.provider = id
+  davPicked.value = true
   davError.value = ''
   davErrorKind.value = ''
+  if (first) {
+    await nextTick()
+    document.getElementById(providerOf(id).url ? 'dav-user' : 'dav-address')?.focus({ preventScroll: true })
+  }
 }
 
 // 改了表单就清掉上次的错误提示
@@ -96,12 +110,14 @@ watch(() => [davDraft.address, davDraft.user, davDraft.pass], () => {
 function startDavEdit() {
   resetDavDraft()
   davEditing.value = true
+  davPicked.value = true
   davInfo.value = null
 }
 
 function cancelDavEdit() {
   if (davStage.value) return
   davEditing.value = false
+  davPicked.value = davNeedsPass.value
   resetDavDraft()
 }
 
@@ -156,6 +172,7 @@ async function connectWebdav() {
   } finally {
     davStage.value = ''
     davEditing.value = false
+    davPicked.value = false
   }
 }
 
@@ -177,6 +194,7 @@ async function confirmDavDisconnect() {
   settings.webdavProvider = ''
   showDavDisconnect.value = false
   davEditing.value = false
+  davPicked.value = false
   davInfo.value = null
   resetDavDraft()
   toast(t('webdav.disconnected'), 'success')
@@ -241,7 +259,7 @@ const DAV_PROVIDER_ICONS: Record<WebdavProviderId, string> = {
   other: 'M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1',
 }
 
-// ---- 轻阅账号 ----
+// ---- 轻阅账号 (登录流程见 components/settings/AccountCard.vue) ----
 const loggedIn = computed(() => {
   void accountState.token
   try {
@@ -250,155 +268,6 @@ const loggedIn = computed(() => {
     return !!accountState.token
   }
 })
-const loginEmail = ref('')
-const loginCode = ref('')
-const codeSent = ref(false)
-const sendingCode = ref(false)
-const verifying = ref(false)
-const accountError = ref('')
-const accountBusy = ref(false)
-const codeInput = ref<HTMLInputElement>()
-const RESEND_SECONDS = 60
-const resendLeft = ref(0)
-let resendTimer = 0
-
-function startResendCountdown(seconds: number) {
-  window.clearInterval(resendTimer)
-  resendLeft.value = Math.max(0, Math.ceil(seconds))
-  if (!resendLeft.value) return
-  resendTimer = window.setInterval(() => {
-    resendLeft.value -= 1
-    if (resendLeft.value <= 0) window.clearInterval(resendTimer)
-  }, 1000)
-}
-onBeforeUnmount(() => window.clearInterval(resendTimer))
-
-// 换了邮箱就回到发码这一步 (验证码与邮箱绑定)
-watch(loginEmail, () => {
-  if (!codeSent.value && !accountError.value) return
-  codeSent.value = false
-  loginCode.value = ''
-  accountError.value = ''
-  startResendCountdown(0)
-})
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const sendCodeLabel = computed(() => {
-  if (sendingCode.value) return t('account.sending')
-  if (resendLeft.value > 0) return t('account.resendIn', { seconds: resendLeft.value })
-  return codeSent.value ? t('account.resend') : t('account.sendCode')
-})
-
-async function sendLoginCode() {
-  if (sendingCode.value || resendLeft.value > 0) return
-  const email = loginEmail.value.trim()
-  if (!EMAIL_RE.test(email)) {
-    accountError.value = t('account.err.invalidEmail')
-    return
-  }
-  accountError.value = ''
-  sendingCode.value = true
-  try {
-    await requestLoginCode(email)
-    codeSent.value = true
-    startResendCountdown(RESEND_SECONDS)
-    await nextTick()
-    codeInput.value?.focus()
-  } catch (e: any) {
-    accountError.value = e?.message || t('common.unknownError')
-    // 服务端限流时 (若 Error 带 retryAfter) 按剩余秒数倒计时
-    const retryAfter = Number(e?.retryAfter)
-    if (Number.isFinite(retryAfter) && retryAfter > 0) startResendCountdown(retryAfter)
-  } finally {
-    sendingCode.value = false
-  }
-}
-
-function onCodeInput() {
-  loginCode.value = loginCode.value.replace(/\D/g, '').slice(0, 6)
-  // 输满 6 位 (含粘贴 / 短信自动填充) 直接登录, 不用再点按钮
-  if (loginCode.value.length === 6 && !verifying.value) submitLogin()
-}
-
-async function submitLogin() {
-  if (verifying.value) return
-  const code = loginCode.value.trim()
-  if (!/^\d{6}$/.test(code)) {
-    accountError.value = t('account.err.codeLength')
-    return
-  }
-  accountError.value = ''
-  verifying.value = true
-  try {
-    await verifyLoginCode(loginEmail.value.trim(), code)
-    toast(t('account.loggedIn'), 'success')
-    loginCode.value = ''
-    codeSent.value = false
-    startResendCountdown(0)
-    // 登录账号就是为了同步: 打开自动同步, 并立刻同步一次 (失败信息出现在同步状态行)
-    settings.webdavSyncAuto = true
-    syncNow().catch(() => {})
-  } catch (e: any) {
-    accountError.value = e?.message || t('common.unknownError')
-  } finally {
-    verifying.value = false
-  }
-}
-
-function onEnter(e: KeyboardEvent, action: () => void) {
-  if (e.isComposing) return
-  e.preventDefault()
-  action()
-}
-
-async function doLogout() {
-  if (accountBusy.value) return
-  accountBusy.value = true
-  const email = accountState.account?.email ?? ''
-  try {
-    await logout()
-    // 方便重新登录: 预填刚才的邮箱
-    loginEmail.value = email
-    toast(t('account.loggedOut'), 'success')
-  } catch (e: any) {
-    toast(e?.message || t('common.unknownError'), 'error', 5000)
-  } finally {
-    accountBusy.value = false
-  }
-}
-
-const showDeleteAccount = ref(false)
-const deleteError = ref('')
-
-const deleteCancelBtn = ref<HTMLButtonElement>()
-
-async function openDeleteAccount() {
-  deleteError.value = ''
-  showDeleteAccount.value = true
-  // 默认焦点放在「取消」上, 回车不会误删; 也让 Esc 能被弹层接住
-  await nextTick()
-  deleteCancelBtn.value?.focus()
-}
-
-function closeDeleteAccount() {
-  if (accountBusy.value) return
-  showDeleteAccount.value = false
-}
-
-async function confirmDeleteAccount() {
-  if (accountBusy.value) return
-  accountBusy.value = true
-  deleteError.value = ''
-  try {
-    await deleteAccount()
-    showDeleteAccount.value = false
-    toast(t('account.deleted'), 'success')
-  } catch (e: any) {
-    deleteError.value = e?.message || t('common.unknownError')
-  } finally {
-    accountBusy.value = false
-  }
-}
 
 // ---- 多端同步 ----
 // accountState.token / settings.webdavUrl 是响应式的, 放进 computed 后登录状态或地址变化会重新判断
@@ -449,6 +318,7 @@ const syncStatus = computed(() => {
 function syncResultText(r: SyncResult): string {
   let msg = t('sync.done', { applied: r.applied, downloaded: r.downloadedBooks, uploaded: r.uploadedFiles })
   if (r.pendingBooks > 0) msg += t('sync.pending', { pending: r.pendingBooks })
+  if (r.settingsApplied) msg += t('sync.settingsAppliedSuffix', { n: r.settingsApplied })
   return msg
 }
 
@@ -461,6 +331,109 @@ async function doSyncNow() {
     toast(t('sync.failed', { msg: e?.message ?? t('common.unknownError') }), 'error', 6000)
   }
 }
+
+// ---- 设置同步: 密码与密钥需显式确认才开启 ----
+const showSecretsConfirm = ref(false)
+const secretsCancelBtn = ref<HTMLButtonElement>()
+
+async function onSecretsToggle(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (!input.checked) {
+    settings.syncSecrets = false
+    return
+  }
+  // 先复原开关, 确认后才真正打开
+  input.checked = false
+  showSecretsConfirm.value = true
+  await nextTick()
+  secretsCancelBtn.value?.focus()
+}
+
+function confirmSecrets() {
+  settings.syncSecrets = true
+  showSecretsConfirm.value = false
+  requestAutoSync('settings')
+}
+
+// 打开「同步设置」后尽快同步一次 (遵循自动同步开关)
+watch(() => settings.syncSettings, on => {
+  if (on) requestAutoSync('settings')
+})
+
+// ---- 分区导航 (吸顶, 随滚动高亮当前分区) ----
+const navSections = computed(() => [
+  { id: 'sync', label: t('settings.syncSection') },
+  { id: 'general', label: t('settings.general') },
+  { id: 'reading', label: t('settings.navReading') },
+  { id: 'ai', label: t('settings.aiTitle') },
+  ...(paperAgentRuntimeAvailable() ? [{ id: 'agents', label: t('settings.paperAgentsTitle') }] : []),
+  { id: 'data', label: t('settings.data') },
+  { id: 'network', label: t('settings.network') },
+  { id: 'privacy', label: t('settings.privacy') },
+  { id: 'about', label: t('settings.about') },
+])
+const activeSection = ref('sync')
+const rootEl = ref<HTMLElement>()
+const navEl = ref<HTMLElement>()
+let scroller: HTMLElement | null = null
+let spyFrame = 0
+/** 点击跳转的平滑滚动期间不随滚动改高亮, 免得高亮在途经的分区间跳动 */
+let spyLockUntil = 0
+
+function updateActiveSection() {
+  spyFrame = 0
+  if (!scroller || Date.now() < spyLockUntil) return
+  const navBottom = navEl.value?.getBoundingClientRect().bottom ?? 0
+  let current = navSections.value[0]?.id ?? ''
+  for (const s of navSections.value) {
+    const el = document.getElementById(`settings-${s.id}`)
+    if (el && el.getBoundingClientRect().top <= navBottom + 32) current = s.id
+  }
+  // 滚到底时最后几个短分区够不到顶部, 直接高亮最后一个
+  if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4) {
+    current = navSections.value[navSections.value.length - 1]?.id ?? current
+  }
+  setActiveSection(current)
+}
+
+function setActiveSection(id: string) {
+  if (activeSection.value === id) return
+  activeSection.value = id
+  // 横向滚动的导航条把当前项带进可视区 (只滚导航条自身)
+  nextTick(() => {
+    const nav = navEl.value
+    const chip = nav?.querySelector<HTMLElement>(`[data-section="${id}"]`)
+    if (!nav || !chip) return
+    const left = chip.offsetLeft - 16
+    const right = chip.offsetLeft + chip.offsetWidth + 16 - nav.clientWidth
+    if (nav.scrollLeft > left) nav.scrollTo({ left, behavior: 'smooth' })
+    else if (nav.scrollLeft < right) nav.scrollTo({ left: right, behavior: 'smooth' })
+  })
+}
+
+function onSettingsScroll() {
+  if (!spyFrame) spyFrame = requestAnimationFrame(updateActiveSection)
+}
+
+function jumpTo(id: string) {
+  const el = document.getElementById(`settings-${id}`)
+  if (!el) return
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  spyLockUntil = Date.now() + (reduce ? 50 : 700)
+  setActiveSection(id)
+  el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
+  // 焦点跟到分区标题, 读屏与键盘用户也能接着往下走
+  el.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true })
+}
+
+onMounted(() => {
+  scroller = rootEl.value?.closest<HTMLElement>('.main') ?? null
+  scroller?.addEventListener('scroll', onSettingsScroll, { passive: true })
+})
+onBeforeUnmount(() => {
+  scroller?.removeEventListener('scroll', onSettingsScroll)
+  if (spyFrame) cancelAnimationFrame(spyFrame)
+})
 
 // ---- 代理配置 (桌面端) ----
 const PROXY_SCHEMES: Array<{ label?: string; labelKey?: string; value: string }> = [
@@ -536,6 +509,13 @@ function onAiProviderChange() {
   }
   aiTestResult.value = ''
 }
+
+/** 预设服务商的接口地址已自动填好, 默认收起; 自定义或改过时展开 */
+const aiBaseUrlOpen = ref(false)
+const aiShowBaseUrl = computed(() => {
+  const preset = providerById(settings.aiProvider)
+  return aiBaseUrlOpen.value || preset.id === 'custom' || !settings.aiBaseUrl || settings.aiBaseUrl !== preset.baseUrl
+})
 
 const aiDocsUrl = computed(() => providerById(settings.aiProvider).docsUrl ?? '')
 
@@ -747,42 +727,25 @@ const APPEARANCE_OPTIONS = [
 </script>
 
 <template>
-  <div class="settings">
+  <div ref="rootEl" class="settings">
     <h1>{{ t('settings.title') }}</h1>
 
-    <section class="card section">
-      <h2>{{ t('settings.general') }}</h2>
-      <div class="row">
-        <div>
-          <div class="row-title">{{ t('settings.language') }}</div>
-        </div>
-        <div class="segmented" role="group" :aria-label="t('settings.language')">
-          <button :aria-pressed="settings.language === 'zh'" :class="{ active: settings.language === 'zh' }" @click="settings.language = 'zh'">中文</button>
-          <button :aria-pressed="settings.language === 'en'" :class="{ active: settings.language === 'en' }" @click="settings.language = 'en'">English</button>
-        </div>
-      </div>
-      <div class="row">
-        <div>
-          <div class="row-title">{{ t('settings.appearance') }}</div>
-          <div class="row-desc">{{ t('settings.appearanceDesc') }}</div>
-        </div>
-        <div class="segmented" role="group" :aria-label="t('settings.appearance')">
-          <button
-            v-for="opt in APPEARANCE_OPTIONS"
-            :key="opt.value"
-            :aria-pressed="settings.appearance === opt.value"
-            :class="{ active: settings.appearance === opt.value }"
-            @click="settings.appearance = opt.value"
-          >
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="opt.icon" /></svg>
-            {{ t(opt.labelKey) }}
-          </button>
-        </div>
-      </div>
-    </section>
+    <nav ref="navEl" class="settings-nav" :aria-label="t('settings.navLabel')">
+      <button
+        v-for="s in navSections"
+        :key="s.id"
+        type="button"
+        class="nav-chip"
+        :class="{ active: activeSection === s.id }"
+        :aria-current="activeSection === s.id ? 'true' : undefined"
+        :data-section="s.id"
+        @click="jumpTo(s.id)"
+      >{{ s.label }}</button>
+    </nav>
 
-    <section class="card section sync-section" aria-labelledby="settings-sync-heading">
-      <h2 id="settings-sync-heading">{{ t('settings.syncSection') }}</h2>
+    <!-- 账号与同步 -->
+    <section id="settings-sync" class="card section sync-section" :class="{ 'account-first': loggedIn }" aria-labelledby="settings-sync-heading">
+      <h2 id="settings-sync-heading" tabindex="-1">{{ t('settings.syncSection') }}</h2>
 
       <!-- 同步状态: 账号与 WebDAV 共用, 有同步目标时显示 -->
       <div v-if="syncReady" class="sync-bar">
@@ -795,99 +758,51 @@ const APPEARANCE_OPTIONS = [
             <div class="row-title">{{ t('sync.targets', { targets: syncTargetNames }) }}</div>
             <span class="sync-status" :class="{ error: syncStatus.error }" role="status" aria-live="polite">{{ syncStatus.text }}</span>
           </div>
-          <button class="btn btn-sm btn-primary sync-now" :disabled="syncState.running || !!busy || !!davStage" @click="doSyncNow">
-            <svg :class="{ spinning: syncState.running }" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2M3 12a9 9 0 0 1 15.5-6.2" /><path d="M18.5 2.5v3.7h-3.7M5.5 21.5v-3.7h3.7" /></svg>
+          <button class="btn btn-primary sync-now" :disabled="syncState.running || !!busy || !!davStage" @click="doSyncNow">
+            <svg :class="{ spinning: syncState.running }" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2M3 12a9 9 0 0 1 15.5-6.2" /><path d="M18.5 2.5v3.7h-3.7M5.5 21.5v-3.7h3.7" /></svg>
             {{ syncState.running ? t('sync.running') : t('sync.now') }}
           </button>
         </div>
-        <label class="toggle-row">
-          <span class="toggle-text">
-            <span class="row-title">{{ t('sync.auto') }}</span>
-            <span class="row-desc">{{ t('sync.autoHint') }}</span>
-          </span>
-          <span class="switch">
-            <input v-model="settings.webdavSyncAuto" type="checkbox" role="switch" :aria-checked="settings.webdavSyncAuto" />
-            <span class="switch-track" aria-hidden="true"></span>
-          </span>
-        </label>
+        <div class="sync-toggles">
+          <label class="toggle-row">
+            <span class="toggle-text">
+              <span class="row-title">{{ t('sync.auto') }}</span>
+              <span class="row-desc">{{ t('sync.autoHint') }}</span>
+            </span>
+            <span class="switch">
+              <input v-model="settings.webdavSyncAuto" type="checkbox" role="switch" :aria-checked="settings.webdavSyncAuto" />
+              <span class="switch-track" aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-text">
+              <span class="row-title">{{ t('sync.settings') }}</span>
+              <span class="row-desc">{{ t('sync.settingsHint') }}</span>
+            </span>
+            <span class="switch">
+              <input v-model="settings.syncSettings" type="checkbox" role="switch" :aria-checked="settings.syncSettings" />
+              <span class="switch-track" aria-hidden="true"></span>
+            </span>
+          </label>
+          <label v-if="settings.syncSettings" class="toggle-row toggle-sub">
+            <span class="toggle-text">
+              <span class="row-title">
+                {{ t('sync.secrets') }}
+                <svg class="lock" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+              </span>
+              <span class="row-desc">{{ t('sync.secretsHint') }}</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" role="switch" :checked="settings.syncSecrets" :aria-checked="settings.syncSecrets" @change="onSecretsToggle" />
+              <span class="switch-track" aria-hidden="true"></span>
+            </span>
+          </label>
+        </div>
       </div>
 
       <!-- 轻阅账号 -->
       <div class="sync-block account-block">
-        <template v-if="loggedIn">
-          <div class="conn-card">
-            <span class="conn-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11z" /><path d="m4.5 7 7.5 5.5L19.5 7" /></svg>
-            </span>
-            <div class="conn-id">
-              <div class="row-title">
-                {{ t('account.title') }}
-                <span class="conn-chip">{{ t('account.loggedIn') }}</span>
-              </div>
-              <div class="conn-sub">{{ accountState.account?.email }}</div>
-            </div>
-            <div class="conn-actions">
-              <button class="btn btn-sm" :disabled="accountBusy" @click="doLogout">{{ t('account.logout') }}</button>
-            </div>
-          </div>
-          <div class="account-foot">
-            <span class="row-desc">{{ t('account.loggedInDesc') }}</span>
-            <button type="button" class="link-danger" :disabled="accountBusy" @click="openDeleteAccount">{{ t('account.delete') }}</button>
-          </div>
-        </template>
-        <template v-else>
-          <div class="row-title">{{ t('account.title') }}</div>
-          <div class="row-desc">{{ t('account.desc') }}</div>
-          <div class="account-form">
-            <input
-              v-model="loginEmail"
-              class="input account-email-input"
-              type="email"
-              inputmode="email"
-              autocomplete="email"
-              autocapitalize="off"
-              spellcheck="false"
-              :placeholder="t('account.emailPlaceholder')"
-              :aria-label="t('account.email')"
-              :aria-invalid="!!accountError && !codeSent"
-              :aria-describedby="accountError ? 'account-error' : undefined"
-              :disabled="verifying"
-              @keydown.enter="onEnter($event, sendLoginCode)"
-            />
-            <button
-              class="btn account-send"
-              :class="{ 'btn-primary': !codeSent }"
-              :disabled="sendingCode || resendLeft > 0 || verifying || !loginEmail.trim()"
-              @click="sendLoginCode"
-            >{{ sendCodeLabel }}</button>
-          </div>
-          <template v-if="codeSent">
-            <div class="account-hint" role="status">{{ t('account.codeSent', { email: loginEmail.trim() }) }}</div>
-            <div class="account-form">
-              <input
-                ref="codeInput"
-                v-model="loginCode"
-                class="input account-code-input"
-                type="text"
-                inputmode="numeric"
-                autocomplete="one-time-code"
-                pattern="[0-9]*"
-                maxlength="6"
-                :placeholder="t('account.codePlaceholder')"
-                :aria-label="t('account.code')"
-                :aria-invalid="!!accountError"
-                :aria-describedby="accountError ? 'account-error' : undefined"
-                :disabled="verifying"
-                @input="onCodeInput"
-                @keydown.enter="onEnter($event, submitLogin)"
-              />
-              <button class="btn btn-primary account-send" :disabled="verifying || loginCode.length !== 6" @click="submitLogin">
-                {{ verifying ? t('account.loggingIn') : t('account.login') }}
-              </button>
-            </div>
-          </template>
-          <div v-if="accountError" id="account-error" class="account-error" role="alert">{{ accountError }}</div>
-        </template>
+        <AccountCard />
       </div>
 
       <!-- WebDAV 网盘 -->
@@ -911,25 +826,23 @@ const APPEARANCE_OPTIONS = [
               <button class="btn btn-sm" :disabled="!!busy" @click="openDavDisconnect">{{ t('webdav.disconnect') }}</button>
             </div>
           </div>
-          <div class="sync-options">
-            <label class="toggle-row">
-              <span class="toggle-text">
-                <span class="row-title">{{ t('sync.files') }}</span>
-                <span class="row-desc">{{ t('sync.filesHint') }}</span>
-              </span>
-              <span class="switch">
-                <input v-model="settings.webdavSyncFiles" type="checkbox" role="switch" :aria-checked="settings.webdavSyncFiles" />
-                <span class="switch-track" aria-hidden="true"></span>
-              </span>
-            </label>
-          </div>
-          <details class="dav-more">
+          <label class="toggle-row sync-files">
+            <span class="toggle-text">
+              <span class="row-title">{{ t('sync.files') }}</span>
+              <span class="row-desc">{{ t('sync.filesHint') }}</span>
+            </span>
+            <span class="switch">
+              <input v-model="settings.webdavSyncFiles" type="checkbox" role="switch" :aria-checked="settings.webdavSyncFiles" />
+              <span class="switch-track" aria-hidden="true"></span>
+            </span>
+          </label>
+          <details class="more">
             <summary>
-              <svg class="dav-more-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+              <svg class="more-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
               {{ t('webdav.more') }}
             </summary>
-            <div class="dav-more-body">
-              <div class="webdav-actions">
+            <div class="more-body">
+              <div class="action-row">
                 <button class="btn btn-sm" :disabled="!!busy || syncState.running" @click="davTest">{{ t('settings.testConnection') }}</button>
                 <button class="btn btn-sm" :disabled="!!busy || syncState.running" @click="davBackup">{{ t('webdav.backup') }}</button>
                 <button class="btn btn-sm" :disabled="!!busy || syncState.running" @click="davRestore">{{ t('webdav.restore') }}</button>
@@ -942,16 +855,22 @@ const APPEARANCE_OPTIONS = [
         </template>
 
         <template v-else>
-          <div class="row-title">{{ t('webdav.title') }}</div>
-          <div class="row-desc">{{ t('webdav.desc') }}</div>
+          <div class="block-head">
+            <div class="row-title">{{ t('webdav.title') }}</div>
+            <div class="row-desc">{{ t(syncReady && !davConnected ? 'webdav.descAlt' : 'webdav.desc') }}</div>
+          </div>
+          <div v-if="davNeedsPass && !davEditing" class="dav-notice" role="status">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+            <span>{{ t('webdav.passNeeded') }}</span>
+          </div>
           <div class="dav-providers" role="group" :aria-label="t('webdav.chooseProvider')">
             <button
               v-for="p in WEBDAV_PROVIDERS"
               :key="p.id"
               type="button"
               class="dav-provider"
-              :class="{ active: davDraft.provider === p.id }"
-              :aria-pressed="davDraft.provider === p.id"
+              :class="{ active: davPicked && davDraft.provider === p.id }"
+              :aria-pressed="davPicked && davDraft.provider === p.id"
               :disabled="!!davStage"
               @click="pickDavProvider(p.id)"
             >
@@ -963,7 +882,7 @@ const APPEARANCE_OPTIONS = [
             </button>
           </div>
 
-          <form class="dav-form" novalidate @submit.prevent="connectWebdav">
+          <form v-if="davPicked" class="dav-form" novalidate @submit.prevent="connectWebdav">
             <div v-if="!draftProvider.url" class="field">
               <label class="field-label" for="dav-address">{{ t('webdav.address') }}</label>
               <input
@@ -1025,6 +944,7 @@ const APPEARANCE_OPTIONS = [
                 {{ davStage ? t('webdav.connecting') : t('webdav.connect') }}
               </button>
               <button v-if="davEditing" type="button" class="btn" :disabled="!!davStage" @click="cancelDavEdit">{{ t('common.cancel') }}</button>
+              <button v-else-if="davNeedsPass" type="button" class="btn" :disabled="!!davStage" @click="openDavDisconnect">{{ t('webdav.disconnect') }}</button>
               <span v-if="davStageText" class="dav-stage" role="status" aria-live="polite">{{ davStageText }}</span>
             </div>
           </form>
@@ -1032,95 +952,100 @@ const APPEARANCE_OPTIONS = [
       </div>
     </section>
 
-    <section class="card section">
-      <h2>{{ t('settings.data') }}</h2>
+    <!-- 通用 -->
+    <section id="settings-general" class="card section" aria-labelledby="settings-general-heading">
+      <h2 id="settings-general-heading" tabindex="-1">{{ t('settings.general') }}</h2>
       <div class="row">
-        <div>
-          <div class="row-title">{{ t('settings.storageBackend') }}</div>
-          <div class="row-desc">{{ storageKind === 'filesystem' ? t('settings.storageDesktop') : t('settings.storageWeb') }}</div>
+        <div class="row-text">
+          <div class="row-title">{{ t('settings.language') }}</div>
+        </div>
+        <div class="segmented" role="group" :aria-label="t('settings.language')">
+          <button :aria-pressed="settings.language === 'zh'" :class="{ active: settings.language === 'zh' }" @click="settings.language = 'zh'">中文</button>
+          <button :aria-pressed="settings.language === 'en'" :class="{ active: settings.language === 'en' }" @click="settings.language = 'en'">English</button>
         </div>
       </div>
-      <div v-if="isTauri()" class="row">
-        <div style="min-width: 0">
-          <div class="row-title">{{ t('settings.storageLocation') }}</div>
-          <div class="row-desc">
-            {{ t('settings.storageLocationDesc') }}<br />
-            {{ t('common.current') }}: <code>{{ settings.libraryRoot || t('settings.defaultAppData') }}</code>
-          </div>
-        </div>
-        <div class="row-actions">
-          <button class="btn" :disabled="!!migrating" @click="changeLibraryRoot">{{ t('settings.changeLocation') }}</button>
-          <button v-if="settings.libraryRoot" class="btn" :disabled="!!migrating" @click="resetLibraryRoot">{{ t('settings.restoreDefault') }}</button>
-        </div>
-      </div>
-      <div v-if="migrating" class="busy">{{ migrating }}</div>
       <div class="row">
-        <div>
-          <div class="row-title">{{ t('settings.backupRestore') }}</div>
-          <div class="row-desc">{{ t('settings.backupDesc') }}</div>
+        <div class="row-text">
+          <div class="row-title">{{ t('settings.appearance') }}</div>
+          <div class="row-desc">{{ t('settings.appearanceDesc') }}</div>
         </div>
-        <div class="row-actions">
-          <button class="btn" :disabled="!!busy" @click="doExport">{{ t('settings.exportBackup') }}</button>
-          <button class="btn" :disabled="!!busy" @click="backupInput?.click()">{{ t('settings.importBackup') }}</button>
-          <input ref="backupInput" type="file" accept=".okf.zip,.lightread,.zip" hidden @change="doImport" />
-        </div>
-      </div>
-      <div v-if="busy && busyScope === 'local'" class="busy">{{ busy }}</div>
-    </section>
-
-    <section class="card section">
-      <h2>{{ t('settings.network') }}</h2>
-      <template v-if="isTauri()">
-        <div class="row">
-          <div>
-            <div class="row-title">{{ t('settings.proxyTitle') }}</div>
-            <div class="row-desc">
-              {{ t('settings.proxyDesc') }}
-              ({{ t('settings.proxyDescPort') }} <code>7890</code>)
-            </div>
-          </div>
-        </div>
-        <div class="proxy-grid">
-          <select v-model="proxy.scheme" class="input">
-            <option v-for="s in PROXY_SCHEMES" :key="s.value" :value="s.value">{{ s.labelKey ? t(s.labelKey) : s.label }}</option>
-          </select>
-          <input v-model="proxy.host" class="input" :placeholder="t('settings.proxyHostPlaceholder')" :aria-label="t('settings.proxyHostPlaceholder')" :disabled="!proxy.scheme" />
-          <input v-model="proxy.port" class="input port" inputmode="numeric" :placeholder="t('settings.proxyPort')" :aria-label="t('settings.proxyPort')" :disabled="!proxy.scheme" />
-        </div>
-        <div v-if="proxy.scheme" class="proxy-grid">
-          <input v-model="proxy.username" class="input" :placeholder="t('common.usernameOptional')" :aria-label="t('common.usernameOptional')" autocomplete="off" />
-          <input v-model="proxy.password" class="input" type="password" :placeholder="t('common.passwordOptional')" :aria-label="t('common.passwordOptional')" autocomplete="new-password" />
-          <button class="btn port" :disabled="testing" @click="testProxy">
-            {{ testing ? t('settings.testingProxy') : t('settings.testConnection') }}
+        <div class="segmented" role="group" :aria-label="t('settings.appearance')">
+          <button
+            v-for="opt in APPEARANCE_OPTIONS"
+            :key="opt.value"
+            :aria-pressed="settings.appearance === opt.value"
+            :class="{ active: settings.appearance === opt.value }"
+            @click="settings.appearance = opt.value"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="opt.icon" /></svg>
+            {{ t(opt.labelKey) }}
           </button>
         </div>
-        <div v-if="settings.httpProxy" class="proxy-current">{{ t('common.current') }}: <code>{{ settings.httpProxy }}</code></div>
-        <div v-if="testResult" class="proxy-result">{{ testResult }}</div>
-      </template>
-      <template v-else>
-        <div class="row">
-          <div>
-            <div class="row-title">{{ t('settings.corsTitle') }}</div>
-            <div class="row-desc">
-              {{ t('settings.corsDesc1') }}<br />
-              {{ t('settings.corsDesc2pre') }} <code>{url}</code> {{ t('settings.corsDesc2post') }}
-            </div>
-          </div>
-        </div>
-        <input
-          v-model="settings.corsProxy"
-          class="input proxy-input"
-          type="url"
-          placeholder="https://your-proxy.example.com/?url={url}"
-          :aria-label="t('settings.corsTitle')"
-        />
-      </template>
+      </div>
     </section>
 
-    <section v-if="paperAgentRuntimeAvailable()" class="card section">
-      <h2>{{ t('settings.paperAgentsTitle') }}</h2>
+    <!-- 阅读 -->
+    <section id="settings-reading" class="card section" aria-labelledby="settings-reading-heading">
+      <h2 id="settings-reading-heading" tabindex="-1">{{ t('settings.reading') }}</h2>
       <div class="row">
-        <div style="min-width: 0">
+        <div class="row-text">
+          <div class="row-title">{{ t('settings.pdfRenderer') }}</div>
+          <div class="row-desc">{{ t('settings.pdfRendererDesc') }}</div>
+        </div>
+        <div class="segmented" role="group" :aria-label="t('settings.pdfRenderer')">
+          <button :aria-pressed="settings.pdf.renderer === 'mupdf'" :class="{ active: settings.pdf.renderer === 'mupdf' }" @click="settings.pdf.renderer = 'mupdf'">MuPDF</button>
+          <button :aria-pressed="settings.pdf.renderer === 'pdfium'" :class="{ active: settings.pdf.renderer === 'pdfium' }" @click="settings.pdf.renderer = 'pdfium'">PDFium</button>
+        </div>
+      </div>
+      <div class="row row-inline">
+        <div class="row-text">
+          <div class="row-title">{{ t('settings.resetTypography') }}</div>
+          <div class="row-desc">{{ t('settings.resetTypographyDesc') }}</div>
+        </div>
+        <button class="btn" @click="settings.resetReader(); toast(t('settings.resetDone'), 'success')">{{ t('settings.restoreDefault') }}</button>
+      </div>
+    </section>
+
+    <!-- AI 助手 -->
+    <section id="settings-ai" class="card section" aria-labelledby="settings-ai-heading">
+      <h2 id="settings-ai-heading" tabindex="-1">{{ t('settings.aiTitle') }}</h2>
+      <p class="section-desc">{{ t('settings.aiDesc') }}</p>
+      <div class="field-grid">
+        <div class="field">
+          <label class="field-label" for="ai-provider">{{ t('settings.aiProvider') }}</label>
+          <select id="ai-provider" v-model="settings.aiProvider" class="input" @change="onAiProviderChange">
+            <option v-for="p in AI_PROVIDERS" :key="p.id" :value="p.id">
+              {{ p.label }}{{ p.id === 'trial' ? t('settings.aiTrialTag') : p.id === 'siliconflow' || p.id === 'zhipu' ? t('settings.aiFreeTag') : '' }}
+            </option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="ai-model">{{ t('settings.aiModelLabel') }}</label>
+          <input id="ai-model" v-model="settings.aiModel" class="input" autocapitalize="off" spellcheck="false" :placeholder="t('settings.aiModelPh')" />
+        </div>
+        <div v-if="aiShowBaseUrl" class="field field-wide">
+          <label class="field-label" for="ai-base-url">{{ t('settings.aiBaseUrlLabel') }}</label>
+          <input id="ai-base-url" v-model="settings.aiBaseUrl" class="input" type="url" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="https://api.siliconflow.cn/v1" />
+        </div>
+        <div class="field field-wide">
+          <label class="field-label" for="ai-key">API Key</label>
+          <input id="ai-key" v-model="settings.aiApiKey" class="input" type="password" :placeholder="t('settings.aiKeyPh')" autocomplete="new-password" />
+        </div>
+      </div>
+      <div class="ai-actions">
+        <button class="btn btn-primary" :disabled="aiTesting || !settings.aiBaseUrl || !settings.aiModel" @click="testAi">
+          {{ aiTesting ? t('settings.testing') : t('settings.aiTest') }}
+        </button>
+        <button v-if="!aiShowBaseUrl" type="button" class="link-btn" @click="aiBaseUrlOpen = true">{{ t('settings.aiEditBaseUrl') }}</button>
+        <button v-if="aiDocsUrl" type="button" class="link-btn" @click="download(aiDocsUrl)">{{ t('settings.aiGetKey') }}</button>
+      </div>
+      <div v-if="aiTestResult" class="dav-info ai-result" role="status">{{ aiTestResult }}</div>
+    </section>
+
+    <section v-if="paperAgentRuntimeAvailable()" id="settings-agents" class="card section" aria-labelledby="settings-agents-heading">
+      <h2 id="settings-agents-heading" tabindex="-1">{{ t('settings.paperAgentsTitle') }}</h2>
+      <div class="row row-inline">
+        <div class="row-text">
           <div class="row-title">{{ t('settings.paperAgentsEngine') }}</div>
           <div class="row-desc">{{ t('settings.paperAgentsDesc') }}</div>
         </div>
@@ -1163,79 +1088,128 @@ const APPEARANCE_OPTIONS = [
       <p class="agent-settings-note">{{ t('settings.paperAgentsNote') }}</p>
     </section>
 
-    <section class="card section">
-      <h2>{{ t('settings.aiTitle') }}</h2>
+    <!-- 数据 -->
+    <section id="settings-data" class="card section" aria-labelledby="settings-data-heading">
+      <h2 id="settings-data-heading" tabindex="-1">{{ t('settings.data') }}</h2>
       <div class="row">
-        <div style="min-width: 0">
-          <div class="row-title">{{ t('settings.aiProvider') }}</div>
-          <div class="row-desc">{{ t('settings.aiDesc') }}</div>
+        <div class="row-text">
+          <div class="row-title">{{ t('settings.storageBackend') }}</div>
+          <div class="row-desc">{{ storageKind === 'filesystem' ? t('settings.storageDesktop') : t('settings.storageWeb') }}</div>
         </div>
       </div>
-      <div class="ai-grid">
-        <select v-model="settings.aiProvider" class="input" :aria-label="t('settings.aiProvider')" @change="onAiProviderChange">
-          <option v-for="p in AI_PROVIDERS" :key="p.id" :value="p.id">
-            {{ p.label }}{{ p.id === 'trial' ? t('settings.aiTrialTag') : p.id === 'siliconflow' || p.id === 'zhipu' ? t('settings.aiFreeTag') : '' }}
-          </option>
-        </select>
-        <input v-model="settings.aiModel" class="input" :placeholder="t('settings.aiModelPh')" :aria-label="t('settings.aiModelPh')" />
+      <div v-if="isTauri()" class="row">
+        <div class="row-text">
+          <div class="row-title">{{ t('settings.storageLocation') }}</div>
+          <div class="row-desc">
+            {{ t('settings.storageLocationDesc') }}<br />
+            {{ t('common.current') }}: <code>{{ settings.libraryRoot || t('settings.defaultAppData') }}</code>
+          </div>
+        </div>
+        <div class="row-actions">
+          <button class="btn" :disabled="!!migrating" @click="changeLibraryRoot">{{ t('settings.changeLocation') }}</button>
+          <button v-if="settings.libraryRoot" class="btn" :disabled="!!migrating" @click="resetLibraryRoot">{{ t('settings.restoreDefault') }}</button>
+        </div>
       </div>
-      <div class="ai-grid">
-        <input v-model="settings.aiBaseUrl" class="input" type="url" placeholder="https://api.siliconflow.cn/v1" aria-label="Base URL" />
-        <input v-model="settings.aiApiKey" class="input" type="password" :placeholder="t('settings.aiKeyPh')" :aria-label="t('settings.aiKeyPh')" autocomplete="new-password" />
+      <div v-if="migrating" class="busy">{{ migrating }}</div>
+      <div class="row">
+        <div class="row-text">
+          <div class="row-title">{{ t('settings.backupRestore') }}</div>
+          <div class="row-desc">{{ t('settings.backupDesc') }}</div>
+        </div>
+        <div class="row-actions">
+          <button class="btn" :disabled="!!busy" @click="doExport">{{ t('settings.exportBackup') }}</button>
+          <button class="btn" :disabled="!!busy" @click="backupInput?.click()">{{ t('settings.importBackup') }}</button>
+          <input ref="backupInput" type="file" accept=".okf.zip,.lightread,.zip" hidden @change="doImport" />
+        </div>
       </div>
-      <div class="webdav-actions">
-        <button class="btn btn-sm btn-primary" :disabled="aiTesting || !settings.aiBaseUrl || !settings.aiModel" @click="testAi">
-          {{ aiTesting ? t('settings.testing') : t('settings.aiTest') }}
-        </button>
-        <a v-if="aiDocsUrl" href="javascript:void 0" class="ai-key-link" @click="download(aiDocsUrl)">{{ t('settings.aiGetKey') }}</a>
-        <span v-if="aiTestResult" class="dav-info">{{ aiTestResult }}</span>
-      </div>
+      <div v-if="busy && busyScope === 'local'" class="busy">{{ busy }}</div>
     </section>
 
-    <section class="card section">
-      <h2>{{ t('settings.reading') }}</h2>
-      <div class="row">
-        <div>
-          <div class="row-title">{{ t('settings.pdfRenderer') }}</div>
-          <div class="row-desc">{{ t('settings.pdfRendererDesc') }}</div>
+    <!-- 网络 -->
+    <section id="settings-network" class="card section" aria-labelledby="settings-network-heading">
+      <h2 id="settings-network-heading" tabindex="-1">{{ t('settings.network') }}</h2>
+      <template v-if="isTauri()">
+        <div class="row">
+          <div class="row-text">
+            <div class="row-title">{{ t('settings.proxyTitle') }}</div>
+            <div class="row-desc">
+              {{ t('settings.proxyDesc') }}
+              ({{ t('settings.proxyDescPort') }} <code>7890</code>)
+            </div>
+          </div>
         </div>
-        <div class="segmented" role="group" :aria-label="t('settings.pdfRenderer')">
-          <button :aria-pressed="settings.pdf.renderer === 'mupdf'" :class="{ active: settings.pdf.renderer === 'mupdf' }" @click="settings.pdf.renderer = 'mupdf'">MuPDF</button>
-          <button :aria-pressed="settings.pdf.renderer === 'pdfium'" :class="{ active: settings.pdf.renderer === 'pdfium' }" @click="settings.pdf.renderer = 'pdfium'">PDFium</button>
+        <div class="proxy-grid">
+          <select v-model="proxy.scheme" class="input" :aria-label="t('settings.proxyTitle')">
+            <option v-for="s in PROXY_SCHEMES" :key="s.value" :value="s.value">{{ s.labelKey ? t(s.labelKey) : s.label }}</option>
+          </select>
+          <input v-model="proxy.host" class="input" :placeholder="t('settings.proxyHostPlaceholder')" :aria-label="t('settings.proxyHostPlaceholder')" :disabled="!proxy.scheme" />
+          <input v-model="proxy.port" class="input port" inputmode="numeric" :placeholder="t('settings.proxyPort')" :aria-label="t('settings.proxyPort')" :disabled="!proxy.scheme" />
         </div>
-      </div>
-      <div class="row">
-        <div>
-          <div class="row-title">{{ t('settings.resetTypography') }}</div>
-          <div class="row-desc">{{ t('settings.resetTypographyDesc') }}</div>
+        <div v-if="proxy.scheme" class="proxy-grid">
+          <input v-model="proxy.username" class="input" :placeholder="t('common.usernameOptional')" :aria-label="t('common.usernameOptional')" autocomplete="off" />
+          <input v-model="proxy.password" class="input" type="password" :placeholder="t('common.passwordOptional')" :aria-label="t('common.passwordOptional')" autocomplete="new-password" />
+          <button class="btn port" :disabled="testing" @click="testProxy">
+            {{ testing ? t('settings.testingProxy') : t('settings.testConnection') }}
+          </button>
         </div>
-        <button class="btn" @click="settings.resetReader(); toast(t('settings.resetDone'), 'success')">{{ t('settings.restoreDefault') }}</button>
-      </div>
+        <div v-if="settings.httpProxy" class="proxy-current">{{ t('common.current') }}: <code>{{ settings.httpProxy }}</code></div>
+        <div v-if="testResult" class="proxy-result">{{ testResult }}</div>
+      </template>
+      <template v-else>
+        <div class="field">
+          <label class="row-title" for="cors-proxy">{{ t('settings.corsTitle') }}</label>
+          <div class="row-desc cors-desc">
+            {{ t('settings.corsDesc1') }}
+            {{ t('settings.corsDesc2pre') }} <code>{url}</code> {{ t('settings.corsDesc2post') }}
+          </div>
+          <input
+            id="cors-proxy"
+            v-model="settings.corsProxy"
+            class="input proxy-input"
+            type="url"
+            inputmode="url"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="https://your-proxy.example.com/?url={url}"
+          />
+        </div>
+      </template>
     </section>
 
-    <section class="card section">
-      <h2>{{ t('settings.privacy') }}</h2>
+    <!-- 隐私 -->
+    <section id="settings-privacy" class="card section" aria-labelledby="settings-privacy-heading">
+      <h2 id="settings-privacy-heading" tabindex="-1">{{ t('settings.privacy') }}</h2>
       <label class="toggle-row">
         <span class="toggle-text">
           <span class="row-title">{{ t('settings.usageStats') }}</span>
-          <span class="row-desc">{{ t('settings.usageStatsDesc') }}</span>
+          <span class="row-desc">{{ t('settings.usageStatsShort') }}</span>
         </span>
         <span class="switch">
           <input v-model="settings.usageStats" type="checkbox" role="switch" :aria-checked="settings.usageStats" />
           <span class="switch-track" aria-hidden="true"></span>
         </span>
       </label>
-      <div class="row">
-        <div>
-          <div class="row-title">{{ t('settings.resetStatsId') }}</div>
-          <div class="row-desc">{{ t('settings.resetStatsIdDesc') }}</div>
+      <details class="more">
+        <summary>
+          <svg class="more-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+          {{ t('settings.usageStatsMore') }}
+        </summary>
+        <div class="more-body">
+          <p class="row-desc">{{ t('settings.usageStatsDesc') }}</p>
+          <div class="row row-inline">
+            <div class="row-text">
+              <div class="row-title">{{ t('settings.resetStatsId') }}</div>
+              <div class="row-desc">{{ t('settings.resetStatsIdDesc') }}</div>
+            </div>
+            <button class="btn" @click="resetInstallId(); toast(t('settings.resetStatsIdDone'), 'success')">{{ t('settings.resetStatsIdAction') }}</button>
+          </div>
         </div>
-        <button class="btn" @click="resetInstallId(); toast(t('settings.resetStatsIdDone'), 'success')">{{ t('settings.resetStatsId') }}</button>
-      </div>
+      </details>
     </section>
 
-    <section class="card section">
-      <h2>{{ t('settings.about') }}</h2>
+    <!-- 关于 -->
+    <section id="settings-about" class="card section" aria-labelledby="settings-about-heading">
+      <h2 id="settings-about-heading" tabindex="-1">{{ t('settings.about') }}</h2>
 
       <div class="app-identity">
         <img class="app-icon" src="/icon-192.png" alt="LightRead" />
@@ -1284,8 +1258,8 @@ const APPEARANCE_OPTIONS = [
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"/></svg>
               {{ d.label }} · {{ fmtSize(d.size) }}
             </button>
-            <button class="copy-link-btn" :title="t('update.copyLinkTitle')" @click="doCopyLink(d.url)">
-              <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M8 5a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-2v-2h2a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1h-8a1 1 0 0 0-1 1v2H8V5zM2 11a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3v-8zm3-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1H5z"/></svg>
+            <button class="copy-link-btn" :title="t('update.copyLinkTitle')" :aria-label="t('update.copyLinkTitle')" @click="doCopyLink(d.url)">
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 5a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-2v-2h2a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1h-8a1 1 0 0 0-1 1v2H8V5zM2 11a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3v-8zm3-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1H5z"/></svg>
             </button>
           </template>
           <a class="all-downloads" href="javascript:void 0" @click="download(updateInfo.pageUrl)">
@@ -1334,28 +1308,25 @@ const APPEARANCE_OPTIONS = [
       </div>
     </section>
 
-    <div v-if="showDavDisconnect" class="modal-mask" @click.self="showDavDisconnect = false" @keydown.esc="showDavDisconnect = false">
-      <div class="modal delete-account-modal" role="alertdialog" aria-modal="true" aria-labelledby="dav-disconnect-title" aria-describedby="dav-disconnect-desc">
-        <h3 id="dav-disconnect-title">{{ t('webdav.disconnectTitle', { name: t(`webdav.provider.${davProviderId}`) }) }}</h3>
-        <p id="dav-disconnect-desc" class="modal-text">{{ t('webdav.disconnectConfirm') }}</p>
+    <div v-if="showSecretsConfirm" class="modal-mask" @click.self="showSecretsConfirm = false" @keydown.esc="showSecretsConfirm = false">
+      <div class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="secrets-title" aria-describedby="secrets-desc">
+        <h3 id="secrets-title">{{ t('sync.secretsConfirmTitle') }}</h3>
+        <p id="secrets-desc" class="modal-text">{{ t('sync.secretsConfirmBody') }}</p>
+        <p class="modal-text">{{ t('sync.secretsConfirmAdvice') }}</p>
         <div class="modal-actions">
-          <button ref="davDisconnectCancel" class="btn btn-sm" @click="showDavDisconnect = false">{{ t('common.cancel') }}</button>
-          <button class="btn btn-sm btn-danger" @click="confirmDavDisconnect">{{ t('webdav.disconnect') }}</button>
+          <button ref="secretsCancelBtn" class="btn" @click="showSecretsConfirm = false">{{ t('common.cancel') }}</button>
+          <button class="btn btn-primary" @click="confirmSecrets">{{ t('sync.secretsConfirmAction') }}</button>
         </div>
       </div>
     </div>
 
-    <div v-if="showDeleteAccount" class="modal-mask" @click.self="closeDeleteAccount" @keydown.esc="closeDeleteAccount">
-      <div class="modal delete-account-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-account-title" aria-describedby="delete-account-desc">
-        <h3 id="delete-account-title">{{ t('account.deleteTitle') }}</h3>
-        <p id="delete-account-desc" class="modal-text">{{ t('account.deleteConfirm') }}</p>
-        <p v-if="accountState.account?.email" class="modal-text"><code>{{ accountState.account.email }}</code></p>
-        <div v-if="deleteError" class="account-error" role="alert">{{ deleteError }}</div>
+    <div v-if="showDavDisconnect" class="modal-mask" @click.self="showDavDisconnect = false" @keydown.esc="showDavDisconnect = false">
+      <div class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="dav-disconnect-title" aria-describedby="dav-disconnect-desc">
+        <h3 id="dav-disconnect-title">{{ t('webdav.disconnectTitle', { name: t(`webdav.provider.${davProviderId}`) }) }}</h3>
+        <p id="dav-disconnect-desc" class="modal-text">{{ t('webdav.disconnectConfirm') }}</p>
         <div class="modal-actions">
-          <button ref="deleteCancelBtn" class="btn btn-sm" :disabled="accountBusy" @click="closeDeleteAccount">{{ t('common.cancel') }}</button>
-          <button class="btn btn-sm btn-danger" :disabled="accountBusy" @click="confirmDeleteAccount">
-            {{ accountBusy ? t('account.deleting') : t('account.deleteAction') }}
-          </button>
+          <button ref="davDisconnectCancel" class="btn" @click="showDavDisconnect = false">{{ t('common.cancel') }}</button>
+          <button class="btn btn-danger" @click="confirmDavDisconnect">{{ t('webdav.disconnect') }}</button>
         </div>
       </div>
     </div>
@@ -1363,25 +1334,72 @@ const APPEARANCE_OPTIONS = [
 </template>
 
 <style scoped>
-.about-actions {
-  display: flex;
-  flex-shrink: 0;
-  gap: 8px;
-}
+/* ================= 页面骨架 ================= */
 .settings {
+  --nav-h: 52px;
   padding: 24px 28px calc(40px + var(--lr-safe-bottom));
   max-width: 820px;
   margin: 0 auto;
 }
 h1 {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 650;
   letter-spacing: -0.01em;
-  margin-bottom: 18px;
+  margin-bottom: 6px;
 }
+
+/* 分区导航: 在 .main 这个滚动容器里吸顶 */
+.settings-nav {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  gap: 6px;
+  margin: 0 -28px 10px;
+  padding: 10px 28px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--bg);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 70%, transparent);
+}
+.settings-nav::-webkit-scrollbar {
+  display: none;
+}
+.nav-chip {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.nav-chip:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.nav-chip.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--on-brand);
+}
+.nav-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
 .section {
-  padding: 18px 20px;
+  padding: 4px 20px 6px;
   margin-bottom: 14px;
+  scroll-margin-top: calc(var(--nav-h) + 8px);
 }
 h2 {
   font-size: 12px;
@@ -1389,27 +1407,43 @@ h2 {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-3);
-  margin-bottom: 8px;
+  padding: 14px 0 4px;
 }
+h2:focus {
+  outline: none;
+}
+.section-desc {
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-3);
+  margin: 4px 0 2px;
+}
+
+/* ================= 行: 标题 + 一行说明, 控件在右 (手机上可换到下方) ================= */
 .row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 0;
+  padding: 12px 0;
 }
-.row + .row {
+.row + .row,
+.row + .busy + .row {
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.row-text {
+  min-width: 0;
 }
 .row-title {
   font-size: 14px;
   font-weight: 550;
+  color: var(--text);
 }
 .row-desc {
   font-size: 12.5px;
   color: var(--text-3);
   margin-top: 3px;
-  line-height: 1.65;
+  line-height: 1.6;
 }
 .row-desc code,
 .proxy-current code,
@@ -1419,6 +1453,9 @@ h2 {
   background: var(--surface-2);
   padding: 1px 5px;
   border-radius: 4px;
+}
+.row > .btn {
+  flex-shrink: 0;
 }
 .row-actions {
   display: flex;
@@ -1430,57 +1467,16 @@ h2 {
 .busy {
   font-size: 12px;
   color: var(--brand);
-  padding-top: 6px;
+  padding: 0 0 10px;
 }
-.ai-grid {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-.ai-grid .input {
-  flex: 1;
-  min-width: 0;
-}
-.ai-key-link {
-  font-size: 12px;
-  color: var(--brand);
-}
-.agent-default-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 13px; }
-.agent-default-row .input { width: 180px; }
-.agent-engine-setting { margin-top: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
-.agent-engine-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 7px; font-size: 12px; }
-.agent-engine-title span { color: var(--text-3); font-size: 11px; text-align: right; }
-.agent-engine-title .agent-ok { color: var(--success, #238b50); }
-.agent-engine-title .agent-bad { color: var(--danger, #c94545); }
-.agent-path-row { display: flex; gap: 7px; }
-.agent-path-row .input { flex: 1; min-width: 0; }
-.agent-engine-meta { margin-top: 5px; color: var(--text-3); font-size: 10.5px; overflow-wrap: anywhere; }
-.agent-settings-note { margin: 10px 0 0; color: var(--text-3); font-size: 11px; line-height: 1.55; }
-.webdav-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-top: 8px;
-  flex-wrap: wrap;
-}
-.dav-info {
-  font-size: 12px;
-  color: var(--success);
-  margin-top: 6px;
-  overflow-wrap: anywhere;
-}
-.dav-info.error {
-  color: var(--danger);
-}
-.sync-options {
-  margin-top: 6px;
-}
+
+/* ---- 开关行 ---- */
 .toggle-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 0;
+  padding: 12px 0;
   cursor: pointer;
 }
 .toggle-row + .toggle-row {
@@ -1491,10 +1487,30 @@ h2 {
   flex-direction: column;
   min-width: 0;
 }
+.toggle-text .row-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.toggle-sub {
+  padding-left: 14px;
+  margin-left: 2px;
+  border-left: 2px solid var(--border);
+}
+.toggle-row.toggle-sub {
+  border-top: none;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  margin-bottom: 12px;
+  min-height: 0;
+}
+.lock {
+  color: var(--warning);
+}
 .switch {
   position: relative;
-  width: 38px;
-  height: 22px;
+  width: 40px;
+  height: 24px;
   flex-shrink: 0;
 }
 .switch input {
@@ -1519,8 +1535,8 @@ h2 {
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: var(--on-brand);
   box-shadow: var(--shadow-sm);
@@ -1535,23 +1551,144 @@ h2 {
 .switch input:focus-visible + .switch-track {
   box-shadow: var(--ring);
 }
-.sync-now {
+.switch input:disabled + .switch-track {
+  opacity: 0.5;
+}
+
+/* ---- 表单 ---- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.field-label {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-2);
+}
+.field-hint {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+.field-wide {
+  grid-column: 1 / -1;
+}
+.link-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 3px;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 550;
+  color: var(--brand);
+  cursor: pointer;
 }
-.sync-now .spinning {
-  animation: sync-spin 1s linear infinite;
+.link-btn:hover {
+  text-decoration: underline;
 }
-@keyframes sync-spin {
-  to { transform: rotate(360deg); }
+.link-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: 4px;
 }
-@media (prefers-reduced-motion: reduce) {
-  .sync-now .spinning, .dav-connect .spinning { animation: none; }
-  .switch-track, .switch-track::after { transition: none; }
+
+/* ---- 折叠: 更多操作 / 统计详情 ---- */
+.more {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.more summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--tap-min);
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  list-style: none;
+}
+.more summary::-webkit-details-marker {
+  display: none;
+}
+.more summary:hover {
+  color: var(--text);
+}
+.more summary:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: 4px;
+}
+.more-chevron {
+  transition: transform var(--dur-fast) var(--ease);
+}
+.more[open] .more-chevron {
+  transform: rotate(90deg);
+}
+.more-body {
+  padding-bottom: 12px;
+}
+.more-body > .row-desc {
+  margin-top: 0;
+}
+.more-body .row {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  margin-top: 10px;
+}
+.action-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.more-body .action-row + .row-desc {
+  margin-top: 8px;
+}
+
+/* ================= 账号与同步 ================= */
+.sync-bar {
+  background: var(--surface-2);
+  border-radius: var(--radius-lg);
+  padding: 14px 14px 2px;
+  margin: 8px 0 4px;
+}
+.sync-bar-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sync-bar-icon {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--success-soft);
+  color: var(--success);
+}
+.sync-bar-icon.error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.sync-bar-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .sync-status {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--text-3);
   min-width: 0;
   overflow-wrap: anywhere;
@@ -1559,39 +1696,46 @@ h2 {
 .sync-status.error {
   color: var(--danger);
 }
-.account-form {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-}
-.account-form .input {
-  flex: 1;
-  min-width: 0;
-}
-.account-code-input {
-  font-family: var(--font-mono);
-  letter-spacing: 0.2em;
-}
-.account-code-input::placeholder {
-  font-family: var(--font);
-  letter-spacing: normal;
-}
-.account-send {
+.sync-now {
   flex-shrink: 0;
-  min-width: 112px;
   font-variant-numeric: tabular-nums;
 }
-.account-hint {
-  font-size: 12px;
-  color: var(--text-3);
-  margin-top: 8px;
-  overflow-wrap: anywhere;
+.spinning {
+  animation: sync-spin 1s linear infinite;
 }
-.account-error {
-  font-size: 12.5px;
-  color: var(--danger);
-  margin-top: 8px;
-  overflow-wrap: anywhere;
+@keyframes sync-spin {
+  to { transform: rotate(360deg); }
+}
+.sync-toggles {
+  margin-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.sync-section {
+  display: flex;
+  flex-direction: column;
+}
+/* 已登录: 身份卡在最上, 其次同步状态; 未登录: 同步状态 (若有 WebDAV) 在前, 登录表单随后 */
+.account-first .account-block {
+  order: -1;
+}
+.account-first h2 {
+  order: -2;
+}
+.account-first .sync-bar {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+.sync-block {
+  padding: 16px 0;
+}
+.sync-block + .sync-block {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.webdav-block {
+  padding-bottom: 6px;
+}
+.block-head .row-desc {
+  margin-top: 2px;
 }
 .conn-card {
   display: flex;
@@ -1599,8 +1743,8 @@ h2 {
   gap: 12px;
 }
 .conn-icon {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
   display: grid;
   place-items: center;
@@ -1640,81 +1784,17 @@ h2 {
   gap: 8px;
   flex-shrink: 0;
 }
-.account-foot {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 8px;
+.sync-files {
+  margin-top: 6px;
 }
-.account-foot .row-desc {
-  margin-top: 0;
-}
-.link-danger {
-  flex-shrink: 0;
-  border: none;
-  background: none;
-  padding: 2px 0;
+.dav-info {
   font-size: 12px;
-  color: var(--danger);
-  cursor: pointer;
-}
-.link-danger:hover:not(:disabled) {
-  text-decoration: underline;
-}
-.link-danger:focus-visible {
-  outline: none;
-  box-shadow: var(--ring);
-  border-radius: 4px;
-}
-.link-danger:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.sync-bar {
-  background: var(--surface-2);
-  border-radius: var(--radius-lg);
-  padding: 12px 14px 2px;
-  margin-bottom: 4px;
-}
-.sync-bar-main {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.sync-bar-icon {
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  background: var(--success-soft);
   color: var(--success);
+  margin-top: 6px;
+  overflow-wrap: anywhere;
 }
-.sync-bar-icon.error {
-  background: var(--danger-soft);
+.dav-info.error {
   color: var(--danger);
-}
-.sync-bar-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.sync-bar .toggle-row {
-  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  margin-top: 10px;
-}
-.sync-block {
-  padding: 14px 0;
-}
-.sync-block + .sync-block {
-  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-}
-.webdav-block {
-  padding-bottom: 2px;
 }
 .dav-providers {
   display: grid;
@@ -1726,7 +1806,7 @@ h2 {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: var(--tap-min);
+  min-height: 52px;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1774,52 +1854,15 @@ h2 {
   margin-top: 1px;
 }
 .dav-form {
-  margin-top: 12px;
+  margin-top: 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 .dav-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-}
-.field-label {
-  font-size: 12.5px;
-  font-weight: 550;
-  color: var(--text-2);
-}
-.field-hint {
-  font-size: 12px;
-  color: var(--text-3);
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-.link-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  border: none;
-  background: none;
-  padding: 0;
-  font: inherit;
-  font-weight: 550;
-  color: var(--brand);
-  cursor: pointer;
-}
-.link-btn:hover {
-  text-decoration: underline;
-}
-.link-btn:focus-visible {
-  outline: none;
-  box-shadow: var(--ring);
-  border-radius: 4px;
+  gap: 12px;
 }
 .dav-error {
   font-size: 12.5px;
@@ -1830,6 +1873,23 @@ h2 {
   padding: 8px 10px;
   overflow-wrap: anywhere;
 }
+.dav-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--warning-soft);
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.dav-notice svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--warning);
+}
 .dav-submit {
   display: flex;
   align-items: center;
@@ -1837,14 +1897,7 @@ h2 {
   flex-wrap: wrap;
 }
 .dav-connect {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
   min-width: 112px;
-}
-.dav-connect .spinning {
-  animation: sync-spin 1s linear infinite;
 }
 .dav-stage {
   font-size: 12px;
@@ -1852,45 +1905,31 @@ h2 {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.dav-more {
-  margin-top: 2px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-}
-.dav-more summary {
-  display: inline-flex;
+
+/* ================= AI ================= */
+.ai-actions {
+  display: flex;
   align-items: center;
-  gap: 4px;
-  min-height: var(--tap-min);
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 14px 0 12px;
   font-size: 13px;
-  color: var(--text-2);
-  cursor: pointer;
-  list-style: none;
 }
-.dav-more summary::-webkit-details-marker {
-  display: none;
+.ai-result {
+  margin: -4px 0 12px;
 }
-.dav-more summary:focus-visible {
-  outline: none;
-  box-shadow: var(--ring);
-  border-radius: 4px;
+
+/* ================= 网络 ================= */
+.cors-desc {
+  margin: 0 0 6px;
 }
-.dav-more-chevron {
-  transition: transform var(--dur-fast) var(--ease);
+#settings-network .field {
+  padding: 8px 0 14px;
 }
-.dav-more[open] .dav-more-chevron {
-  transform: rotate(90deg);
-}
-.dav-more-body {
-  padding-bottom: 10px;
-}
-.dav-more-body .webdav-actions {
-  margin-top: 0;
-}
-.dav-more-body .row-desc {
-  margin-top: 8px;
-}
-.delete-account-modal {
-  width: min(420px, 100%);
+
+/* ================= 弹层 ================= */
+.confirm-modal {
+  width: min(440px, 100%);
 }
 .modal-text {
   font-size: 13px;
@@ -1899,24 +1938,30 @@ h2 {
   margin: 0 0 8px;
   overflow-wrap: anywhere;
 }
-.modal-text code {
-  font-family: var(--font-mono);
-  font-size: 0.92em;
-  background: var(--surface-2);
-  padding: 1px 5px;
-  border-radius: 4px;
-}
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
 }
-.backup-label {
-  font-size: 12px;
-  color: var(--text-3);
-  margin-right: 2px;
+
+/* ================= 论文 Agent / 代理 / 关于 (沿用) ================= */
+.about-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
 }
+.agent-default-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 13px; }
+.agent-default-row .input { width: 180px; }
+.agent-engine-setting { margin-top: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.agent-engine-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 7px; font-size: 12px; }
+.agent-engine-title span { color: var(--text-3); font-size: 11px; text-align: right; }
+.agent-engine-title .agent-ok { color: var(--success, #238b50); }
+.agent-engine-title .agent-bad { color: var(--danger, #c94545); }
+.agent-path-row { display: flex; gap: 7px; }
+.agent-path-row .input { flex: 1; min-width: 0; }
+.agent-engine-meta { margin-top: 5px; color: var(--text-3); font-size: 10.5px; overflow-wrap: anywhere; }
+.agent-settings-note { margin: 10px 0 0; color: var(--text-3); font-size: 11px; line-height: 1.55; }
 .proxy-input {
   width: 100%;
   margin-top: 8px;
@@ -2022,7 +2067,7 @@ h2 {
 }
 .update-badge {
   font-size: 12px;
-  color: #fff;
+  color: var(--on-brand);
   background: var(--brand);
   border-radius: 999px;
   padding: 1px 10px;
@@ -2164,82 +2209,164 @@ h2 {
   color: var(--text-3);
   font-size: 12px;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinning { animation: none; }
+  .switch-track, .switch-track::after, .more-chevron { transition: none; }
+}
+
+/* ================= 平板 / 窄窗口 ================= */
+@media (max-width: 860px) {
+  .dav-providers {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ================= 手机 ================= */
 @media (max-width: 600px) {
-  /* 关于: 手机上按钮另起一行铺满, 不挤压应用名与简介 */
-  .about-actions {
-    width: 100%;
-  }
-  .about-actions .btn {
-    flex: 1;
-  }
   .settings {
-    padding: 16px 14px calc(28px + var(--lr-safe-bottom));
+    --nav-h: 56px;
+    padding: 14px 16px calc(28px + var(--lr-safe-bottom));
+  }
+  h1 {
+    font-size: 26px;
+    margin: 2px 0 4px;
+  }
+  .settings-nav {
+    margin: 0 -16px 8px;
+    padding: 10px 16px;
+  }
+  .nav-chip {
+    height: 36px;
+    padding: 0 14px;
+    font-size: 13.5px;
   }
   .section {
-    padding: 14px 14px;
+    padding: 2px 16px 4px;
+    margin-bottom: 12px;
   }
+  h2 {
+    padding-top: 14px;
+  }
+
+  /* 行: 文本在上, 分段控件 / 按钮组铺满在下; 单个小按钮 (.row-inline) 留在右侧 */
   .row {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
+    padding: 14px 0;
   }
-  .row-actions {
-    justify-content: flex-start;
+  .row.row-inline {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
   }
   .row .segmented {
-    align-self: flex-start;
-  }
-  .ai-grid,
-  .proxy-grid,
-  .account-form {
-    flex-direction: column;
-  }
-  .account-send {
+    display: flex;
     width: 100%;
   }
-  .account-foot {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
+  .row .segmented button {
+    flex: 1;
+    justify-content: center;
+    height: 36px;
+    padding: 0 8px;
+    font-size: 14px;
   }
-  .dav-providers,
-  .dav-grid {
-    grid-template-columns: 1fr 1fr;
+  .row-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    width: 100%;
   }
+  .row-actions .btn,
+  .row.row-inline > .btn {
+    height: 40px;
+  }
+  .toggle-row {
+    padding: 14px 0;
+    min-height: 56px;
+  }
+
+  /* 表单: 单列, 输入框 16px 字号 (iOS 低于 16px 聚焦会放大页面), 44px 高 */
+  .field-grid,
   .dav-grid {
     grid-template-columns: 1fr;
   }
+  .settings .input {
+    height: 44px;
+    font-size: 16px;
+  }
+  .ai-actions .btn,
   .dav-connect {
     flex: 1;
+    height: 44px;
   }
-  .conn-card {
-    flex-wrap: wrap;
+  .ai-actions .link-btn,
+  .field-hint .link-btn {
+    min-height: 36px;
   }
-  .conn-actions {
-    width: 100%;
-    padding-left: 48px;
+  .ai-actions {
+    gap: 4px 16px;
+  }
+  .ai-actions .btn {
+    flex-basis: 100%;
+  }
+
+  /* 同步状态: 「立即同步」换到下一行铺满 */
+  .sync-bar {
+    padding: 14px 14px 0;
   }
   .sync-bar-main {
     flex-wrap: wrap;
   }
   .sync-bar-main .sync-now {
     width: 100%;
-    justify-content: center;
+    height: 44px;
+  }
+  .conn-card {
+    flex-wrap: wrap;
+  }
+  .conn-actions {
+    width: 100%;
+    padding-left: 52px;
+  }
+  .conn-actions .btn {
+    flex: 1;
+    height: 36px;
+  }
+  .more-body .action-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .more-body .action-row .btn {
+    height: 40px;
+  }
+  .dav-provider {
+    min-height: 56px;
+    padding: 10px;
+    gap: 8px;
+  }
+  .dav-providers {
+    grid-template-columns: 1fr 1fr;
+  }
+  .dav-submit .btn {
+    height: 44px;
   }
   .modal-actions .btn {
     flex: 1;
+    height: 44px;
   }
-  .account-form .input,
-  .ai-grid .input,
+
+  /* 论文 Agent / 代理 (桌面专属, 窄窗口兜底) */
+  .proxy-grid {
+    flex-direction: column;
+  }
   .proxy-grid .input,
-  .proxy-grid .btn {
-    flex: none;
-    width: 100%;
-  }
+  .proxy-grid .btn,
   .proxy-grid .input:first-child,
   .proxy-grid select,
   .proxy-grid .port,
   .agent-default-row .input {
+    flex: none;
     width: 100%;
   }
   .agent-default-row {
@@ -2247,8 +2374,14 @@ h2 {
     align-items: stretch;
     gap: 6px;
   }
-  .app-identity {
-    flex-wrap: wrap;
+
+  /* 关于: 按钮另起一行铺满, 不挤压应用名与简介 */
+  .about-actions {
+    width: 100%;
+  }
+  .about-actions .btn {
+    flex: 1;
+    height: 40px;
   }
   .star-callout {
     align-items: flex-start;
@@ -2256,6 +2389,12 @@ h2 {
   }
   .star-action {
     width: 100%;
+    height: 40px;
+  }
+  .about-links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
   }
 }
 </style>

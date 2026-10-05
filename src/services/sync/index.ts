@@ -9,6 +9,7 @@ import { createDexieSyncStore, type SyncStore } from './baseline.ts'
 import { createWebdavRemote } from './webdavRemote.ts'
 import { createAccountRemote, isAccountUnauthorized } from './accountRemote.ts'
 import { deviceName, trackSync, waitForSync } from './shared.ts'
+import { settingsSyncPort } from './settingsTracker.ts'
 import { readingLogSyncPort } from '../readingLog.ts'
 import { accountApiBase, accountState, clearLocalLogin, isLoggedIn } from '../account.ts'
 import { getStorage } from '../../storage'
@@ -41,9 +42,13 @@ export const syncState = reactive({
 let store: SyncStore | null = null
 const syncStore = () => (store ??= createDexieSyncStore())
 
-/** WebDAV 地址已填写 */
+/**
+ * WebDAV 已可用: 地址已填写, 且填了账号时也有密码.
+ * (设置同步可能只带来地址和账号, 密码要在发送方开启「同步密码与密钥」才会过来; 缺密码时不去连, 免得报认证失败)
+ */
 export function webdavSyncConfigured(): boolean {
-  return !!useSettings().webdavUrl.trim()
+  const s = useSettings()
+  return !!s.webdavUrl.trim() && (!s.webdavUser.trim() || !!s.webdavPass)
 }
 
 /** 有可用的同步目标 (已登录轻阅账号或已填写 WebDAV) */
@@ -62,6 +67,7 @@ function combineResults(a: SyncResult | null, b: SyncResult): SyncResult {
     uploadedFiles: a.uploadedFiles + b.uploadedFiles,
     pendingBooks: b.pendingBooks,
     devices: Math.max(a.devices, b.devices),
+    settingsApplied: (a.settingsApplied ?? 0) + (b.settingsApplied ?? 0),
   }
 }
 
@@ -72,29 +78,40 @@ interface SyncTarget {
   token?: string
 }
 
-/** 本次要同步的远端: 先轻阅账号, 再 WebDAV (都配置时依次各跑一次, 共用本机基线) */
-function syncTargets(): SyncTarget[] {
-  const targets: SyncTarget[] = []
-  if (isLoggedIn()) {
-    const token = accountState.token
-    targets.push({
-      remote: createAccountRemote({ base: accountApiBase(), token, accountId: accountState.account!.id }, undefined, t),
-      syncFiles: false,
-      token,
-    })
+function accountTarget(): SyncTarget | null {
+  if (!isLoggedIn()) return null
+  const token = accountState.token
+  return {
+    remote: createAccountRemote({ base: accountApiBase(), token, accountId: accountState.account!.id }, undefined, t),
+    syncFiles: false,
+    token,
   }
-  if (webdavSyncConfigured()) {
-    const settings = useSettings()
-    targets.push({
-      remote: createWebdavRemote(
-        { url: settings.webdavUrl, user: settings.webdavUser, pass: settings.webdavPass },
-        undefined,
-        t,
-      ),
-      syncFiles: settings.webdavSyncFiles,
-    })
+}
+
+function webdavTarget(): SyncTarget | null {
+  if (!webdavSyncConfigured()) return null
+  const settings = useSettings()
+  return {
+    remote: createWebdavRemote(
+      { url: settings.webdavUrl, user: settings.webdavUser, pass: settings.webdavPass },
+      undefined,
+      t,
+    ),
+    syncFiles: settings.webdavSyncFiles,
   }
-  return targets
+}
+
+/**
+ * 本次要同步的远端, 按顺序: 先轻阅账号, 再 WebDAV (都配置时依次各跑一次, 共用本机基线).
+ * WebDAV 在账号同步之后才判断: 新设备登录账号后, 设置同步可能刚带来 WebDAV 配置, 同一次同步里就能用上.
+ */
+const syncTargetSteps: Array<() => SyncTarget | null> = [accountTarget, webdavTarget]
+
+/** 本次同步的设置端口; 本机关闭了「同步设置」时为 undefined (不发出也不落地) */
+function settingsPort() {
+  const settings = useSettings()
+  if (!settings.syncSettings) return undefined
+  return settingsSyncPort(settings.syncSecrets) ?? undefined
 }
 
 /**
@@ -107,13 +124,14 @@ export async function syncNow(): Promise<SyncResult> {
     syncState.running = true
     syncState.message = ''
     try {
-      const targets = syncTargets()
-      if (!targets.length) throw new Error(t('sync.err.notConfigured'))
+      if (!syncConfigured()) throw new Error(t('sync.err.notConfigured'))
       const library = useLibrary()
       const storage = await getStorage()
       let result: SyncResult | null = null
       let firstError: unknown = null
-      for (const target of targets) {
+      for (const step of syncTargetSteps) {
+        const target = step()
+        if (!target) continue
         try {
           const r = await runSync({
             storage,
@@ -126,6 +144,7 @@ export async function syncNow(): Promise<SyncResult> {
             onProgress: msg => { syncState.message = msg },
             deleteBook: id => library.removeBook(id),
             readingLog: readingLogSyncPort(),
+            settings: settingsPort(),
           })
           result = combineResults(result, r)
         } catch (err) {

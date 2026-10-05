@@ -86,7 +86,15 @@ export interface SyncDoc {
    * 该设备当天在该书上贡献的秒数; 合并取每个叶子的较大值. 可选: 旧客户端写的文档没有此字段.
    */
   readingLog?: ReadingLogDoc
+  /**
+   * 应用设置 (见 settingsSync.ts 与 docs/sync.md「设置同步」). 键为设置路径 ('reader.fontSize'、'webdavUrl'),
+   * 每项一个 LWW 寄存器, stamp.t 为该项最后一次被用户修改的时间; value 不会是 null (设置没有删除).
+   * 可选: 旧客户端写的文档没有此字段. 密钥项只在发送方开启「同步密码与密钥」时出现, 缺席表示「不变」.
+   */
+  settings?: SettingsDoc
 }
+
+export type SettingsDoc = Record<string, Reg<unknown>>
 
 export type ReadingLogDoc = Record<string, Record<string, Record<string, number>>>
 
@@ -162,6 +170,34 @@ export interface SyncRemote {
   getFile(name: string): Promise<Blob | null>
 }
 
+/** 本机一项设置的修改时间; d 为空表示本机改的 (写文档时换成本机 deviceId), 否则为同步来源设备 */
+export interface SettingStamp {
+  t: number
+  d?: string
+}
+
+/** 本机可同步设置的快照: 路径 → 值 (按预设取基准值, 见 settingsSync.readSyncedSettings), 路径 → 修改时间 */
+export interface LocalSettings {
+  values: Record<string, unknown>
+  stamps: Record<string, SettingStamp>
+}
+
+/** 把合并结果里比本机新的设置落地; changed=false 表示值相同、只更新修改时间 */
+export interface SettingsApplyEntry {
+  path: string
+  value: unknown
+  stamp: Stamp
+  changed: boolean
+}
+
+/** engine 读写本机设置的接口 (应用里由 settingsTracker 基于 pinia store 实现; 测试用纯对象) */
+export interface SettingsSyncPort {
+  /** 是否把密钥项 (WebDAV 密码、AI API Key) 写进本机文档 */
+  readonly includeSecrets: boolean
+  read(): LocalSettings | Promise<LocalSettings>
+  apply(entries: SettingsApplyEntry[]): void | Promise<void>
+}
+
 export interface SyncResult {
   /** 应用到本地的操作数 */
   applied: number
@@ -170,4 +206,6 @@ export interface SyncResult {
   /** 只有元数据、本地还没有文件的书 */
   pendingBooks: number
   devices: number
+  /** 从别的设备落地的设置项数 (值有变化的) */
+  settingsApplied?: number
 }

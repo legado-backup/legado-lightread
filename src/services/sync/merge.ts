@@ -4,14 +4,14 @@
  */
 import type { AnnotationRec, BookMeta, CatalogSourceRec } from '../../storage/types'
 import type {
-  AnnotationVal, ApplyOp, BookMetaVal, BookSyncRec, LocalState, ProgressVal, ReadingLogDoc, Reg, SourceVal,
-  Stamp, SyncDoc,
+  AnnotationVal, ApplyOp, BookMetaVal, BookSyncRec, LocalState, ProgressVal, ReadingLogDoc, Reg, SettingsDoc,
+  SourceVal, Stamp, SyncDoc,
 } from './types'
 
 // ---- 通用工具 ----
 
 /** 键序无关、忽略 undefined 字段的稳定序列化; 用于判等与同 stamp 时的决胜 */
-function stableKey(v: unknown): string {
+export function stableKey(v: unknown): string {
   if (v === null || typeof v !== 'object') return v === undefined ? 'undefined' : JSON.stringify(v)
   if (Array.isArray(v)) return `[${v.map(stableKey).join(',')}]`
   const obj = v as Record<string, unknown>
@@ -19,7 +19,7 @@ function stableKey(v: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableKey(obj[k])}`).join(',')}}`
 }
 
-const same = (a: unknown, b: unknown) => stableKey(a) === stableKey(b)
+export const same = (a: unknown, b: unknown) => stableKey(a) === stableKey(b)
 
 const sortedKeys = (o: object) => Object.keys(o).sort()
 
@@ -291,6 +291,33 @@ export function mergeReadingLog(...logs: Array<ReadingLogDoc | undefined | null>
   return any ? out : undefined
 }
 
+/** 设置寄存器是否完好: stamp 合法, value 不是 null / undefined (设置没有墓碑) */
+function validSettingReg(reg: unknown): reg is Reg<unknown> {
+  if (!isPlainObj(reg)) return false
+  const st = reg.stamp
+  return isPlainObj(st) && typeof st.t === 'number' && Number.isFinite(st.t) && typeof st.d === 'string'
+    && reg.value !== null && reg.value !== undefined
+}
+
+/**
+ * 设置的合并: 按路径 LWW (交换律/结合律/幂等). 缺失或畸形的输入与寄存器跳过;
+ * 不认识的路径 (更新的客户端加的设置) 也原样保留并转写, 是否落地由 settingsSync.planSettingsApply 按白名单决定.
+ * 结果为空时返回 undefined (文档里不写该字段).
+ */
+export function mergeSettingRegs(...docs: Array<SettingsDoc | undefined | null>): SettingsDoc | undefined {
+  const out: SettingsDoc = {}
+  let any = false
+  for (const doc of docs) {
+    if (!isPlainObj(doc)) continue
+    for (const [path, reg] of Object.entries(doc)) {
+      if (!validSettingReg(reg)) continue
+      out[path] = lww(out[path], { value: reg.value, stamp: { t: reg.stamp.t, d: reg.stamp.d } })!
+      any = true
+    }
+  }
+  return any ? structuredClone(out) : undefined
+}
+
 function mergeRegs<T>(into: Record<string, Reg<T>>, from: Record<string, Reg<T>>) {
   for (const [k, reg] of Object.entries(from)) into[k] = lww(into[k], reg)!
 }
@@ -312,6 +339,8 @@ export function mergeDocs(docs: SyncDoc[], ctx: { deviceId: string; now: number 
   if (self?.app !== undefined) out.app = self.app
   const readingLog = mergeReadingLog(...docs.map(d => d.readingLog))
   if (readingLog) out.readingLog = readingLog
+  const settings = mergeSettingRegs(...docs.map(d => d.settings))
+  if (settings) out.settings = settings
   return structuredClone(out)
 }
 
