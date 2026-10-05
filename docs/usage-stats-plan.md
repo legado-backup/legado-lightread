@@ -1,5 +1,7 @@
 # 轻阅使用统计：现状与方案
 
+> **2026-10-05 用户决定：设置页不显示统计开关与「重置统计 ID」，统计在后台默认进行；README 与使用手册不再介绍。v1.7.1（曾显示开关）的发布已撤下。**
+>
 > **状态（2026-10-05）：服务端已实现并上线。** 管理员已拍板：**默认开启、可随时关闭**（opt-out）；统计页用管理员令牌保护 + 命令行脚本。
 > - 接口：`POST https://sync.jiangshu.ai/v1/ping`、`GET /v1/admin/stats`（契约见 [`account-api.md`](account-api.md)「匿名使用统计」），实现 `sync-server/src/stats.ts`
 > - 统计页：<https://sync.jiangshu.ai/admin>，令牌在服务器 `~/.config/lightread/stats-admin-token`；终端：`npm run stats`（`-- --days 90`）

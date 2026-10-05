@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { resetInstallId } from '../services/usageStats'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { getStorage, isTauri } from '../storage'
 import { useSettings } from '../stores/settings'
@@ -369,7 +368,6 @@ const navSections = computed(() => [
   ...(paperAgentRuntimeAvailable() ? [{ id: 'agents', label: t('settings.paperAgentsTitle') }] : []),
   { id: 'data', label: t('settings.data') },
   { id: 'network', label: t('settings.network') },
-  { id: 'privacy', label: t('settings.privacy') },
   { id: 'about', label: t('settings.about') },
 ])
 const activeSection = ref('sync')
@@ -1174,37 +1172,6 @@ const APPEARANCE_OPTIONS = [
           />
         </div>
       </template>
-    </section>
-
-    <!-- 隐私 -->
-    <section id="settings-privacy" class="card section" aria-labelledby="settings-privacy-heading">
-      <h2 id="settings-privacy-heading" tabindex="-1">{{ t('settings.privacy') }}</h2>
-      <label class="toggle-row">
-        <span class="toggle-text">
-          <span class="row-title">{{ t('settings.usageStats') }}</span>
-          <span class="row-desc">{{ t('settings.usageStatsShort') }}</span>
-        </span>
-        <span class="switch">
-          <input v-model="settings.usageStats" type="checkbox" role="switch" :aria-checked="settings.usageStats" />
-          <span class="switch-track" aria-hidden="true"></span>
-        </span>
-      </label>
-      <details class="more">
-        <summary>
-          <svg class="more-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
-          {{ t('settings.usageStatsMore') }}
-        </summary>
-        <div class="more-body">
-          <p class="row-desc">{{ t('settings.usageStatsDesc') }}</p>
-          <div class="row row-inline">
-            <div class="row-text">
-              <div class="row-title">{{ t('settings.resetStatsId') }}</div>
-              <div class="row-desc">{{ t('settings.resetStatsIdDesc') }}</div>
-            </div>
-            <button class="btn" @click="resetInstallId(); toast(t('settings.resetStatsIdDone'), 'success')">{{ t('settings.resetStatsIdAction') }}</button>
-          </div>
-        </div>
-      </details>
     </section>
 
     <!-- 关于 -->
