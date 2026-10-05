@@ -434,6 +434,9 @@ export default {
   'update.downloadingMB': '下载中 {received} MB',
   'update.downloadDoneOpening': '下载完成, 正在打开安装包',
   'update.downloadFailed': '下载失败: {msg}',
+  'update.checksumMismatch': '安装包校验失败 (SHA-256 不一致), 已丢弃, 请稍后重试',
+  'update.checksumUnavailable': '无法获取镜像安装包的校验值, 为安全起见已停止',
+  'update.timeout': '连接下载源超时',
   'update.linkCopied': '下载链接已复制, 可粘贴到浏览器下载',
   'update.windowsInstaller': 'Windows 安装包',
 

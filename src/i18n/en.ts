@@ -434,6 +434,9 @@ export default {
   'update.downloadingMB': 'Downloading {received} MB',
   'update.downloadDoneOpening': 'Download complete, opening installer',
   'update.downloadFailed': 'Download failed: {msg}',
+  'update.checksumMismatch': 'Installer verification failed (SHA-256 mismatch); the file was discarded, please try again later',
+  'update.checksumUnavailable': 'Could not get the checksum for the mirrored installer; stopped for safety',
+  'update.timeout': 'Timed out waiting for the download source',
   'update.linkCopied': 'Download link copied — paste it into a browser to download',
   'update.windowsInstaller': 'Windows Installer',
 

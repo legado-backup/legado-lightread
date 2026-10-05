@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { registerHooks } from 'node:module'
-import { beforeEach, test } from 'node:test'
+import { after, beforeEach, test } from 'node:test'
+import { createHash } from 'node:crypto'
 
-const state = { calls: [], fetcher: null, storage: new Map(), native: true }
+const state = { calls: [], fetcher: null, storage: new Map(), native: true, opened: [], written: [] }
 globalThis.__updaterTest = state
 globalThis.__APP_VERSION__ = '1.3.0'
 const updaterUrl = new URL('../src/services/updater.ts', import.meta.url).href
@@ -10,6 +11,9 @@ const modules = {
   '../storage/types': 'export const isTauri = () => globalThis.__updaterTest.native',
   './net': 'export const fetchRemote = (...args) => { globalThis.__updaterTest.calls.push(args); return globalThis.__updaterTest.fetcher(...args) }',
   '../i18n': 'export const t = key => key',
+  '@tauri-apps/plugin-opener': 'export const openUrl = async url => { globalThis.__updaterTest.opened.push(url) }',
+  '@tauri-apps/api/path': 'export const downloadDir = async () => "/dl"; export const join = async (...parts) => parts.join("/")',
+  '@tauri-apps/plugin-fs': 'export const writeFile = async (path, data) => { globalThis.__updaterTest.written.push({ path, data }) }',
 }
 const hook = registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -19,8 +23,13 @@ const hook = registerHooks({
     return nextResolve(specifier, context)
   },
 })
-const { checkUpdate, pickRecommendedDownload, watchUpdateAvailability, canInAppInstall } = await import(updaterUrl)
-hook.deregister()
+const {
+  checkUpdate, pickRecommendedDownload, watchUpdateAvailability, canInAppInstall, openDownload, downloadInstaller,
+  mirrorDownloadUrl, parseReleaseDownloadUrl, mirrorLinkFor, downloadPlan, parseSha256Sums, parseMirrorReleases,
+  githubUnreachable, SOURCE_TIMEOUTS, RELEASES_URL, MIRROR_RELEASES_URL,
+} = await import(updaterUrl)
+// 更新器在下载/打开链接时才动态导入 Tauri 插件, 钩子需保留到测试结束 (只拦截 updater.ts 的导入)。
+after(() => hook.deregister())
 
 const apk = { name: 'LightRead_v1.4.0_android_arm64.apk', url: 'https://github.com/yzfly/LightRead/releases/download/v1.4.0/app.apk', size: 4096 }
 const dmg = { name: 'LightRead_1.4.0_aarch64.dmg', url: 'https://github.com/yzfly/LightRead/releases/download/v1.4.0/app.dmg', size: 4096 }
@@ -38,6 +47,8 @@ const settled = () => new Promise(resolve => setImmediate(resolve))
 
 beforeEach(() => {
   state.calls.length = 0
+  state.opened.length = 0
+  state.written.length = 0
   state.storage.clear()
   state.native = true
   state.fetcher = async () => ({ json: async () => release() })
@@ -156,16 +167,250 @@ test('storage write failure does not hide a successfully fetched update', async 
   assert.equal(result.version, '1.4.0')
 })
 
-test('update request aborts after 30 seconds so future foreground checks can retry', async t => {
+test('slow GitHub metadata falls back to the mirror after 8 s, then retries GitHub with the old 30 s budget', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  let signal
+  const signals = []
   state.fetcher = (_url, _auth, init) => {
-    signal = init.signal
-    return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))))
+    signals.push(init.signal)
+    return new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new Error('aborted'))))
   }
   const request = checkUpdate(true)
-  t.mock.timers.tick(29_999)
-  assert.equal(signal.aborted, false)
+  request.catch(() => {})
+  t.mock.timers.tick(SOURCE_TIMEOUTS.primary.connect - 1)
+  assert.equal(signals[0].aborted, false)
   t.mock.timers.tick(1)
-  await assert.rejects(request, /aborted/)
+  assert.equal(signals[0].aborted, true)
+  await settled()
+  assert.match(state.calls[1][0], /^https:\/\/api\.gitcode\.com\/api\/v5\/repos\/yzfly\/LightRead\/releases\?/)
+  t.mock.timers.tick(SOURCE_TIMEOUTS.mirror.connect)
+  await settled()
+  assert.equal(signals[1].aborted, true)
+  assert.match(state.calls[2][0], /api\.github\.com/)
+  t.mock.timers.tick(SOURCE_TIMEOUTS.patient.connect - 1)
+  assert.equal(signals[2].aborted, false)
+  t.mock.timers.tick(1)
+  // 全部失败时报告主源 (第一次 GitHub) 的错误
+  await assert.rejects(request, /update\.timeout/)
+  assert.equal(SOURCE_TIMEOUTS.patient.connect, 30_000)
+})
+
+// ---- GitCode 镜像回退 ----
+
+const GH_DL = 'https://github.com/yzfly/LightRead/releases/download'
+const GC_DL = 'https://gitcode.com/yzfly/LightRead/releases/download'
+const sha = bytes => createHash('sha256').update(bytes).digest('hex')
+const mirrorRelease = (tag, names, extra = {}) => ({
+  tag_name: tag, name: `LightRead 轻阅 ${tag}`, prerelease: false, release_status: 'none',
+  body: 'Mirror notes\n\n<!-- lightread-mirror-sizes {"LightRead_v1.4.0_android_arm64.apk":70519328} -->',
+  created_at: '2026-10-04T08:00:00+08:00',
+  assets: [
+    { name: `${tag}.zip`, type: 'source', browser_download_url: `https://raw.gitcode.com/x/${tag}.zip` },
+    ...names.map((name, id) => ({ name, type: 'attach', id, browser_download_url: `https://evil.example/${name}` })),
+  ],
+  ...extra,
+})
+const json = data => ({ ok: true, json: async () => data })
+const binary = (bytes, headers = {}) => new Response(bytes, { headers: { 'content-length': String(bytes.length), ...headers } })
+const text = body => new Response(body)
+const route = handlers => async (url, ...rest) => {
+  for (const [pattern, handler] of handlers) if (pattern.test(url)) return handler(url, ...rest)
+  throw new Error(`unexpected request ${url}`)
+}
+
+test('mirror URLs are derived from the GitHub tag and file name', () => {
+  assert.equal(mirrorDownloadUrl('v1.8.0', 'LightRead_1.8.0_x64-setup.exe'), `${GC_DL}/v1.8.0/LightRead_1.8.0_x64-setup.exe`)
+  assert.equal(mirrorDownloadUrl('v1.8.0', 'a b#.deb'), `${GC_DL}/v1.8.0/a%20b%23.deb`)
+  assert.deepEqual(parseReleaseDownloadUrl(`${GH_DL}/v1.8.0/LightRead_1.8.0_amd64.AppImage`),
+    { source: 'github', tag: 'v1.8.0', name: 'LightRead_1.8.0_amd64.AppImage' })
+  assert.deepEqual(parseReleaseDownloadUrl(`${GC_DL}/v1.8.0/a%20b.deb?x=1`), { source: 'gitcode', tag: 'v1.8.0', name: 'a b.deb' })
+  assert.equal(parseReleaseDownloadUrl(`${GH_DL}/v1.8.0/sub/dir.exe`), null)
+  assert.equal(parseReleaseDownloadUrl(`${GH_DL}/v1.8.0/%2F..%2Fx`), null)
+  assert.equal(parseReleaseDownloadUrl('https://github.com/other/repo/releases/download/v1/x.exe'), null)
+  assert.equal(parseReleaseDownloadUrl(`${GH_DL}/v1.8.0/%E0%A4%A`), null)
+})
+
+test('release page links map to GitCode only for this repository', () => {
+  assert.equal(RELEASES_URL, 'https://github.com/yzfly/LightRead/releases')
+  assert.equal(MIRROR_RELEASES_URL, 'https://gitcode.com/yzfly/LightRead/releases')
+  for (const link of [RELEASES_URL, `${RELEASES_URL}/`, `${RELEASES_URL}/latest`, `${RELEASES_URL}/tag/v1.8.0`]) {
+    assert.equal(mirrorLinkFor(link), MIRROR_RELEASES_URL, link)
+  }
+  assert.equal(mirrorLinkFor(`${GH_DL}/v1.8.0/x.apk`), `${GC_DL}/v1.8.0/x.apk`)
+  assert.equal(mirrorLinkFor(`${GC_DL}/v1.8.0/x.apk`), null)
+  assert.equal(mirrorLinkFor('https://github.com/yzfly/LightRead/issues'), null)
+  assert.equal(mirrorLinkFor('https://github.com/yzfly/LightRead/releasesx'), null)
+  assert.equal(mirrorLinkFor('https://github.com/yzfly/LightRead/blob/main/docs/ambient-sources.md'), null)
+})
+
+test('download plan tries GitHub fast, then GitCode, then GitHub with the old patience', () => {
+  const plan = downloadPlan(`${GH_DL}/v1.8.0/app.dmg`)
+  assert.deepEqual(plan.map(step => [step.source, step.url, step.connect]), [
+    ['github', `${GH_DL}/v1.8.0/app.dmg`, 8_000],
+    ['gitcode', `${GC_DL}/v1.8.0/app.dmg`, 15_000],
+    ['github', `${GH_DL}/v1.8.0/app.dmg`, 30_000],
+  ])
+  assert.deepEqual(downloadPlan(`${GC_DL}/v1.8.0/app.dmg`).map(step => step.source), ['gitcode', 'github'])
+  assert.deepEqual(downloadPlan('https://example.com/x.zip').map(step => step.url), ['https://example.com/x.zip'])
+})
+
+test('SHA256SUMS parsing accepts text and binary markers', () => {
+  const sums = parseSha256Sums(`${'A'.repeat(64)}  a.apk\n${'b'.repeat(64)} *b.dmg\r\njunk\n`)
+  assert.deepEqual([...sums], [['a.apk', 'a'.repeat(64)], ['b.dmg', 'b'.repeat(64)]])
+})
+
+test('mirror metadata picks the newest complete vX.Y.Z release and rebuilds asset URLs', () => {
+  const info = parseMirrorReleases([
+    mirrorRelease('tts-models', ['kokoro-multi-lang-v1_1.tar.bz2', 'SHA256SUMS']),
+    mirrorRelease('v1.9.0', ['LightRead_v1.9.0_android_arm64.apk']),
+    mirrorRelease('v2.0.0', ['x.apk', 'SHA256SUMS'], { prerelease: true }),
+    mirrorRelease('v1.4.0', [apk.name, dmg.name, 'SHA256SUMS']),
+    mirrorRelease('v1.3.5', ['SHA256SUMS']),
+  ])
+  assert.equal(info.version, '1.4.0')
+  assert.equal(info.hasUpdate, true)
+  assert.equal(info.source, 'gitcode')
+  assert.equal(info.notes, 'Mirror notes')
+  assert.equal(info.publishedAt, '2026-10-04')
+  assert.equal(info.pageUrl, MIRROR_RELEASES_URL)
+  assert.deepEqual(info.assets.map(a => a.url), [
+    `${GC_DL}/v1.4.0/${apk.name}`, `${GC_DL}/v1.4.0/${dmg.name}`, `${GC_DL}/v1.4.0/SHA256SUMS`,
+  ])
+  assert.equal(info.assets[0].size, 70519328)
+  assert.equal(info.assets[1].size, 0)
+  assert.equal(pickRecommendedDownload(info.assets).url, `${GC_DL}/v1.4.0/${apk.name}`)
+  assert.equal(parseMirrorReleases([mirrorRelease('v1.9.0', ['x.apk'])]), null)
+  assert.equal(parseMirrorReleases({ error_code: 404 }), null)
+})
+
+test('GitHub failure falls back to GitCode metadata and release links follow the mirror', async () => {
+  state.fetcher = route([
+    [/api\.github\.com/, async () => { throw new Error('connect timeout') }],
+    [/api\.gitcode\.com/, async () => json([mirrorRelease('v1.4.0', [apk.name, dmg.name, 'SHA256SUMS'])])],
+  ])
+  const info = await checkUpdate(true)
+  assert.equal(info.source, 'gitcode')
+  assert.equal(info.version, '1.4.0')
+  assert.equal(state.calls.length, 2)
+  assert.equal(githubUnreachable(), true)
+  await openDownload(RELEASES_URL)
+  await openDownload(`${GH_DL}/v1.4.0/${apk.name}`)
+  await openDownload('https://github.com/yzfly/LightRead/issues')
+  assert.deepEqual(state.opened, [MIRROR_RELEASES_URL, `${GC_DL}/v1.4.0/${apk.name}`, 'https://github.com/yzfly/LightRead/issues'])
+
+  // GitHub 恢复后链接回到 GitHub
+  state.fetcher = async () => json(release())
+  assert.equal((await checkUpdate(true)).source, 'github')
+  assert.equal(githubUnreachable(), false)
+  await openDownload(RELEASES_URL)
+  assert.equal(state.opened.at(-1), RELEASES_URL)
+})
+
+test('an older mirror never reports an update the installed version already has', async () => {
+  state.fetcher = route([
+    [/api\.github\.com/, async () => { throw new Error('offline') }],
+    [/api\.gitcode\.com/, async () => json([mirrorRelease('v1.2.0', [apk.name, 'SHA256SUMS'])])],
+  ])
+  assert.equal((await checkUpdate(true)).hasUpdate, false)
+})
+
+test('missing mirror (not set up yet) keeps the old GitHub behaviour via the patient retry', async () => {
+  let github = 0
+  state.fetcher = route([
+    [/api\.github\.com/, async () => { if (++github === 1) throw new Error('slow'); return json(release()) }],
+    [/api\.gitcode\.com/, async () => { throw new Error('地址不存在 (404)') }],
+  ])
+  const info = await checkUpdate(true)
+  assert.equal(info.source, 'github')
+  assert.deepEqual(state.calls.map(c => new URL(c[0]).host), ['api.github.com', 'api.gitcode.com', 'api.github.com'])
+  assert.equal(githubUnreachable(), false)
+
+  state.fetcher = route([
+    [/api\.github\.com/, async () => { throw new Error('github down') }],
+    [/api\.gitcode\.com/, async () => { throw new Error('mirror down') }],
+  ])
+  await assert.rejects(checkUpdate(true), /github down/)
+})
+
+test('installer download falls back to GitCode and is verified against SHA256SUMS', async () => {
+  const bytes = new TextEncoder().encode('installer-bytes')
+  const progress = []
+  state.fetcher = route([
+    [/^https:\/\/github\.com\/.*\/SHA256SUMS$/, async () => { throw new Error('github down') }],
+    [/^https:\/\/github\.com\//, async () => { throw new Error('github down') }],
+    [/^https:\/\/gitcode\.com\/.*\/SHA256SUMS$/, async () => text(`${sha(bytes)}  app.dmg\n`)],
+    [/^https:\/\/gitcode\.com\//, async () => binary(bytes)],
+  ])
+  const path = await downloadInstaller(`${GH_DL}/v1.4.0/app.dmg`, 'app.dmg', p => progress.push(p))
+  assert.equal(path, '/dl/app.dmg')
+  assert.deepEqual([...state.written[0].data], [...bytes])
+  assert.equal(progress.at(-1).fraction, 1)
+  assert.deepEqual(state.calls.map(c => c[0]), [
+    `${GH_DL}/v1.4.0/app.dmg`, `${GC_DL}/v1.4.0/app.dmg`, `${GH_DL}/v1.4.0/SHA256SUMS`, `${GC_DL}/v1.4.0/SHA256SUMS`,
+  ])
+})
+
+test('mirror downloads with a wrong or missing checksum are rejected and never written', async () => {
+  const bytes = new TextEncoder().encode('tampered')
+  state.fetcher = route([
+    [/SHA256SUMS$/, async () => text(`${'0'.repeat(64)}  app.dmg\n`)],
+    [/^https:\/\/gitcode\.com\//, async () => binary(bytes)],
+  ])
+  await assert.rejects(downloadInstaller(`${GC_DL}/v1.4.0/app.dmg`, 'app.dmg', () => {}), /update\.checksumMismatch/)
+  // 校验失败不换源重试
+  assert.equal(state.calls.filter(c => !c[0].endsWith('SHA256SUMS')).length, 1)
+
+  state.fetcher = route([
+    [/SHA256SUMS$/, async () => { throw new Error('地址不存在 (404)') }],
+    [/^https:\/\/gitcode\.com\//, async () => binary(bytes)],
+  ])
+  await assert.rejects(downloadInstaller(`${GC_DL}/v1.4.0/app.dmg`, 'app.dmg', () => {}), /update\.checksumUnavailable/)
+  assert.equal(state.written.length, 0)
+})
+
+test('GitHub downloads keep working without SHA256SUMS but fail on a mismatch', async () => {
+  const bytes = new TextEncoder().encode('github-bytes')
+  state.fetcher = route([
+    [/SHA256SUMS$/, async () => { throw new Error('404') }],
+    [/^https:\/\/github\.com\//, async () => binary(bytes)],
+  ])
+  await downloadInstaller(`${GH_DL}/v1.4.0/app.dmg`, 'app.dmg', () => {})
+  assert.equal(state.written.length, 1)
+
+  state.fetcher = route([
+    [/^https:\/\/github\.com\/.*SHA256SUMS$/, async () => text(`${'f'.repeat(64)}  app.dmg\n`)],
+    [/^https:\/\/github\.com\//, async () => binary(bytes)],
+  ])
+  await assert.rejects(downloadInstaller(`${GH_DL}/v1.4.0/app.dmg`, 'app.dmg', () => {}), /update\.checksumMismatch/)
+})
+
+test('truncated GitHub responses fall back to the mirror', async () => {
+  const bytes = new TextEncoder().encode('full-file')
+  state.fetcher = route([
+    [/SHA256SUMS$/, async () => text(`${sha(bytes)}  app.dmg\n`)],
+    [/^https:\/\/github\.com\//, async () => new Response(bytes.slice(0, 4), { headers: { 'content-length': String(bytes.length) } })],
+    [/^https:\/\/gitcode\.com\//, async () => binary(bytes)],
+  ])
+  await downloadInstaller(`${GH_DL}/v1.4.0/app.dmg`, 'app.dmg', () => {})
+  assert.deepEqual([...state.written[0].data], [...bytes])
+})
+
+test('a GitHub download that stops making progress switches to the mirror', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const bytes = new TextEncoder().encode('mirror-bytes')
+  let cancelled = false
+  state.fetcher = route([
+    [/SHA256SUMS$/, async () => text(`${sha(bytes)}  app.dmg\n`)],
+    [/^https:\/\/github\.com\//, async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new Uint8Array([1, 2])) },
+      cancel() { cancelled = true },
+    }), { headers: { 'content-length': '100' } })],
+    [/^https:\/\/gitcode\.com\//, async () => binary(bytes)],
+  ])
+  const done = downloadInstaller(`${GH_DL}/v1.4.0/app.dmg`, 'app.dmg', () => {})
+  await settled()
+  t.mock.timers.tick(SOURCE_TIMEOUTS.primary.stall)
+  const path = await done
+  assert.equal(path, '/dl/app.dmg')
+  assert.equal(cancelled, true)
+  assert.deepEqual([...state.written[0].data], [...bytes])
 })

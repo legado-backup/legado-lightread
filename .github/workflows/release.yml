@@ -380,3 +380,16 @@ jobs:
       - name: 全部平台验证完成后公开 Release
         if: ${{ !inputs.tag || inputs.full_release }}
         run: gh release edit "$RELEASE_TAG" --draft=false
+
+  # 国内镜像（GitCode）：仅在 publish 成功后运行，只读 GitHub Release；未配置 GITCODE_TOKEN 时内部跳过。
+  # 它在 GitHub Release 公开之后才开始，失败不会撤回或修改 GitHub Release，可在
+  # Actions → Mirror to GitCode 手动补跑。见 docs/gitcode-mirror.md。
+  mirror-gitcode:
+    needs: publish
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/mirror-gitcode.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+    secrets: inherit
