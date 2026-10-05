@@ -637,7 +637,7 @@ await step('PDF 书籍视图支持连续滚动双页', async () => {
 await step('PDF 自动阅读按模式滚动或翻页', async () => {
   await page.click('.paper-actions .reader-segment button:has-text("滚动")')
   await page.waitForSelector('.pane-left .p-holder canvas', { timeout: 8000 })
-  await page.click('.paper-actions .reader-tool:has-text("自动阅读")')
+  await page.click('.paper-actions .reader-tool:has-text("自动翻页")')
   await page.fill('.auto-panel input[type="range"]', '3')
   const before = await page.locator('.pane-left').evaluate(el => el.scrollTop)
   await page.click('.auto-panel .auto-toggle')
@@ -649,10 +649,10 @@ await step('PDF 自动阅读按模式滚动或翻页', async () => {
   await page.click('.paper-actions .reader-segment button:has-text("翻页")')
   await page.waitForSelector('.paged-box .p-holder canvas', { timeout: 8000 })
   const pageBefore = await page.locator('.page-input').inputValue()
-  await page.click('.paper-actions .reader-tool:has-text("自动阅读")')
+  await page.click('.paper-actions .reader-tool:has-text("自动翻页")')
   await page.click('.auto-panel .auto-toggle')
   await page.waitForFunction(before => document.querySelector('.page-input')?.value !== before, pageBefore, { timeout: 4000 })
-  await page.click('.paper-actions .reader-tool:has-text("自动阅读中")')
+  await page.click('.paper-actions .reader-tool:has-text("自动翻页中")')
   await page.click('.auto-panel button[title="停止"]')
 })
 
@@ -680,25 +680,25 @@ await step('PDF Sumatra 单页、对页与书籍视图快捷键', async () => {
 })
 
 await step('PDF 自动阅读控制条自动与手动收起', async () => {
-  await page.click('.paper-actions .reader-tool:has-text("自动阅读")')
+  await page.click('.paper-actions .reader-tool:has-text("自动翻页")')
   await page.waitForSelector('.auto-panel')
   await page.locator('.auto-panel').screenshot({ path: join(TMP, 'shots', '06d-pdf-auto-controls.png') })
   await page.click('.auto-panel .auto-toggle')
   await page.waitForSelector('.auto-panel', { state: 'hidden', timeout: 4000 })
-  await page.waitForSelector('.paper-actions .reader-tool:has-text("自动阅读中")')
+  await page.waitForSelector('.paper-actions .reader-tool:has-text("自动翻页中")')
   await page.locator('.paper-actions').screenshot({ path: join(TMP, 'shots', '06e-pdf-auto-collapsed.png') })
 
   // 自动收起后可从顶部状态按钮重新展开；手动收起不应停止阅读。
-  await page.click('.paper-actions .reader-tool:has-text("自动阅读中")')
+  await page.click('.paper-actions .reader-tool:has-text("自动翻页中")')
   await page.waitForSelector('.auto-panel')
   await page.click('.auto-panel .auto-collapse')
   await page.waitForSelector('.auto-panel', { state: 'hidden' })
-  await page.waitForSelector('.paper-actions .reader-tool:has-text("自动阅读中")')
+  await page.waitForSelector('.paper-actions .reader-tool:has-text("自动翻页中")')
 
   // 清理运行状态，避免定时器影响后续持久化断言。
-  await page.click('.paper-actions .reader-tool:has-text("自动阅读中")')
+  await page.click('.paper-actions .reader-tool:has-text("自动翻页中")')
   await page.click('.auto-panel button[title="停止"]')
-  await page.waitForSelector('.paper-actions .reader-tool:has-text("自动阅读")')
+  await page.waitForSelector('.paper-actions .reader-tool:has-text("自动翻页")')
 })
 
 await step('双语横版 PDF 适宽后四周和页间均无接缝', async () => {

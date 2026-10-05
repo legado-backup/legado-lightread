@@ -1,0 +1,61 @@
+# 背景音：声音来源与许可
+
+轻阅「背景音」里的声音来自两处：
+
+1. **本机合成。** 雨夜书房、林间风声、专注噪音、夜曲铺底这四个场景由应用在你的设备上实时生成（白噪、粉噪、棕噪，雨，风，柔和的铺底音，远处的轻响），没有用到任何录音文件。合成代码在 `src/services/ambient/dsp.ts`，随轻阅一起以 AGPL-3.0 发布。它生成的声音本身不主张任何权利，可以当作 CC0 使用。
+2. **录音包（按需下载）。** 窗边雨、咖啡馆、壁炉、林间鸟鸣、海边、夏夜虫鸣、钢琴夜曲这七个场景使用下面列出的录音。所有录音都是 **CC0 1.0（公有领域贡献）**，可以自由使用和再分发，不要求署名。这里仍写明作者，以示感谢。
+
+我们只收 CC0、公有领域或 CC BY 许可的声音，不收 NC（禁止商用）、ND（禁止演绎）、Pixabay 许可和 BBC RemArc 许可的素材，原因见 `docs/research/reading-ambient-audio.md` §3。
+
+## 录音清单
+
+许可均在 2026-10-04 逐页重新核对过（Freesound 页面的许可栏、Wikimedia Commons 的文件信息、Internet Archive 的 `licenseurl` 元数据）。
+
+| 场景 | 素材 | 作者 / 来源 | 许可 | 我们做了什么 |
+|---|---|---|---|---|
+| 窗边雨 | [Rain Slowly Passing TREATED LOOP_Edgewater_06192020](https://freesound.org/people/speakwithanimals/sounds/525046/) | speakwithanimals（Freesound） | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | 截取 60 秒 |
+| 咖啡馆 | [People talking at cafe ambience](https://freesound.org/people/priesjensen/sounds/482990/) | priesjensen（Freesound），哥本哈根户外咖啡馆 | CC0 1.0 | 截取 60 秒；1.3 kHz 双重低通（像隔着一面墙），交谈声只剩语调、听不清字句 |
+| 壁炉 | [fireplace](https://freesound.org/people/martats/sounds/138018/) | martats（Freesound） | CC0 1.0 | 截取 60 秒；限制噼啪声的峰值 |
+| 林间鸟鸣 | [sfx_amb_forest_spring_afternoon-01](https://freesound.org/people/bajko/sounds/385280/) | bajko（Freesound） | CC0 1.0 | 截取 60 秒 |
+| 海边 | [Waves at Baltic Sea shore](https://freesound.org/people/pulswelle/sounds/339517/) | pulswelle（Freesound） | CC0 1.0 | 截取 60 秒 |
+| 夏夜虫鸣 | [Night Crickets Back Porch](https://freesound.org/people/hdfreema/sounds/333221/) | hdfreema（Freesound） | CC0 1.0 | 截取 60 秒 |
+| 钢琴夜曲 | 埃里克·萨蒂《裸体歌舞曲》第 1 号（[Gymnopédie No. 1](https://commons.wikimedia.org/wiki/File:Gymnopedie_No._1..ogg)） | Teknopazzo 演奏并上传（Wikimedia Commons，own work） | CC0 1.0 | 去掉首尾静音 |
+| 钢琴夜曲 | 肖邦《夜曲》Op. 9 No. 2，降 E 大调（[Musopen — The Complete Chopin Collection](https://archive.org/details/musopen-chopin)） | Musopen（Internet Archive，由 Musopen 官方账号上传） | CC0 1.0 | 去掉首尾静音 |
+
+作曲家萨蒂（1866–1925）和肖邦（1810–1849）的作品早已进入公有领域，上面两份**录音**也由演奏者或发布方以 CC0 放弃了权利。
+
+## 后期处理
+
+所有录音经过同一套处理，参照 GNOME Blanket 的响度规范：
+
+- **选段：** 从原录音里自动挑出响度最平稳的一段，避开关门、雷声这类突发声音。
+- **无缝循环：** 环境音把片段末尾 3 秒和开头做等功率交叉淡化，循环时不会出现接缝。播放时还会再做一次 2.5 秒交叉淡化作为保险。
+- **响度：** 统一到 Integrated −27 LUFS，True Peak ≤ −6 dBTP。
+- **编码：** Opus 80 kbps（`.ogg`），另备一份 AAC 96 kbps（`.m4a`），给不支持 Opus 的系统（旧版 Safari / macOS）使用。应用会自动选择其中一种下载。
+
+| 素材 | 时长 | Opus | AAC | 响度 / 真峰值 |
+|---|---|---|---|---|
+| 窗边雨 | 60 秒（循环） | 537 KB | 737 KB | −27.0 LUFS / −7.3 dBTP |
+| 咖啡馆 | 60 秒（循环） | 548 KB | 735 KB | −27.0 LUFS / −10.8 dBTP |
+| 壁炉 | 60 秒（循环） | 707 KB | 743 KB | −27.1 LUFS / −9.6 dBTP |
+| 林间鸟鸣 | 60 秒（循环） | 583 KB | 744 KB | −27.0 LUFS / −9.9 dBTP |
+| 海边 | 60 秒（循环） | 508 KB | 741 KB | −27.1 LUFS / −7.0 dBTP |
+| 夏夜虫鸣 | 60 秒（循环） | 570 KB | 741 KB | −27.0 LUFS / −15.9 dBTP |
+| 萨蒂《裸体歌舞曲》第 1 号 | 3 分 24 秒 | 2.3 MB | 2.5 MB | −26.9 LUFS / −8.4 dBTP |
+| 肖邦《夜曲》Op. 9 No. 2 | 4 分 32 秒 | 3.2 MB | 3.3 MB | −27.0 LUFS / −7.1 dBTP |
+| **合计** | | **9.0 MB** | **10.3 MB** | |
+
+## 托管与校验
+
+- 录音不放进代码仓库，托管在 `https://lightread-assets.jiangshu.ai/ambient/v1/`，清单是同目录下的 `manifest.json`（格式见 `src/services/ambient/pack.ts`，应用内也内置了一份）。
+- 文件名里带内容哈希的前 8 位，清单里记录完整 SHA-256，下载后会逐个校验。
+- 下载后存在本机（浏览器的 Cache Storage，不可用时用 IndexedDB），之后离线也能播放。在背景音面板里可以随时删除。
+
+## 想贡献声音？
+
+欢迎推荐或提供新声音，要求如下：
+
+- 许可是 CC0、公有领域或 CC BY，并附上能核实许可的页面链接；
+- 不能有听得清内容的人声，也不能有可辨认的版权音乐（咖啡馆这类录音尤其要注意背景音乐）；
+- 没有关门声、雷击这类突然的大声；
+- 原始录音质量至少 44.1 kHz，立体声。

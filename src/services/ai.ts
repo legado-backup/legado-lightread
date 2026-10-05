@@ -21,21 +21,22 @@ export interface AiProviderPreset {
 }
 
 /** 内置试用通道 (Cloudflare Worker 中转, 密钥在服务端): 开箱即用, 有限速 */
-export const TRIAL_BASE_URL = 'https://lightread-ai.lightread.workers.dev/v1'
+export const TRIAL_BASE_URL = 'https://lightread-ai.jiangshu.ai/v1'
 
 export const AI_PROVIDERS: AiProviderPreset[] = [
   {
     id: 'trial',
     label: '内置试用通道',
     baseUrl: TRIAL_BASE_URL,
-    defaultModel: 'glm-4.7-flash',
+    // 服务端转发到 SiliconFlow DeepSeek-V4-Flash (关思考); 旧客户端的 glm-4.7-flash 由 relay 映射到同一模型
+    defaultModel: 'deepseek-ai/DeepSeek-V4-Flash',
     needsKey: false,
   },
   {
     id: 'siliconflow',
     label: '硅基流动 SiliconFlow',
     baseUrl: 'https://api.siliconflow.cn/v1',
-    defaultModel: 'Qwen/Qwen2.5-7B-Instruct',
+    defaultModel: 'deepseek-ai/DeepSeek-V4-Flash',
     needsKey: true,
     docsUrl: 'https://cloud.siliconflow.cn/i/TxUlXG3u',
   },
@@ -96,6 +97,14 @@ export interface AiMessage {
 }
 
 /** 匿名设备标识: 首启生成随机 id, 仅用于试用通道按设备限额, 不含任何个人信息 */
+export function trialDeviceId(): string {
+  try {
+    return deviceId()
+  } catch {
+    return 'noid-' + Math.random().toString(36).slice(2, 12)
+  }
+}
+
 function deviceId(): string {
   const KEY = 'lightread-device-id'
   let id = localStorage.getItem(KEY)

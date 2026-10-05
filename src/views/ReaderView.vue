@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getStorage, type AnnotationRec, type BookMeta } from '../storage'
 import { useSettings } from '../stores/settings'
@@ -8,7 +8,7 @@ import { isTextLike } from '../services/format'
 import { convertToEpub, TEXT_EPUB_LAYOUT } from '../services/textToEpub'
 import { getReaderCSS, resolveReaderColors, resolveReaderTheme, READER_THEME_CHOICES, FONT_FAMILIES, HIGHLIGHT_COLORS } from '../services/readerTheme'
 import { resolvedTheme } from '../services/appearance'
-import { setPageBarsDark } from '../services/systemBars'
+import { setPageBarsDark, setSystemBarsHidden, setKeepScreenOn } from '../services/systemBars'
 import { listSystemFonts, importFontFile, injectFontIntoDoc, resolveFontFamily } from '../services/fonts'
 import { isTauri } from '../storage/types'
 import { listVoicesSorted, warmUpSpeech, resetEdgeFailure } from '../services/tts'
@@ -21,11 +21,23 @@ import { useReadingTimer } from '../composables/useReadingTimer'
 import { toast } from '../services/toast'
 import { t } from '../i18n'
 import { searchBook, type SearchHit } from '../services/bookSearch'
-import { chatStream, aiConfigured, readerSystemPrompt, explainPrompt, type AiMessage } from '../services/ai'
+import { chatStream, aiConfigured, readerSystemPrompt, explainPrompt, providerById, type AiMessage } from '../services/ai'
 import TocList, { type TocItem } from '../components/TocList.vue'
 import ReadingModePanel from '../components/ReadingModePanel.vue'
 import ReadingModeMini from '../components/ReadingModeMini.vue'
 import { useReadingModes } from '../composables/useReadingModes'
+import AmbientPanel from '../components/AmbientPanel.vue'
+import ReadingModeLayer from '../components/ReadingModeLayer.vue'
+import DianjingToggle from '../components/DianjingToggle.vue'
+import DianjingConsent from '../components/DianjingConsent.vue'
+import DianjingCard from '../components/DianjingCard.vue'
+import DianjingChapterCard from '../components/DianjingChapterCard.vue'
+import DianjingOutline from '../components/DianjingOutline.vue'
+import DianjingSkim from '../components/DianjingSkim.vue'
+import DianjingStatus from '../components/DianjingStatus.vue'
+import { useDianjing } from '../composables/useDianjing'
+import { djThemeName } from '../services/dianjing/theme'
+import { useAmbient } from '../services/ambient'
 import type { ReadingModeProgress } from '../services/readingModes/progress'
 import { buildSmartToc, findCurrentSmartItem, flattenToc } from '../services/smartToc'
 import {
@@ -60,7 +72,7 @@ const barsVisible = ref(true)
 let barsTimer: ReturnType<typeof setTimeout> | undefined
 
 const anyOverlayOpen = () =>
-  panel.value !== 'none' || settingsOpen.value || ttsPanel.value || modes.panelOpen.value || !!activeAnnotation.value || jumpOpen.value
+  panel.value !== 'none' || settingsOpen.value || ttsPanel.value || modes.panelOpen.value || ambientPanel.value || !!activeAnnotation.value || jumpOpen.value || dj.overlayOpen.value
 
 /** 显示工具栏; autoHide 时若几秒内无交互且无面板打开则自动隐去 */
 function showBars(autoHide = false) {
@@ -88,6 +100,8 @@ function closeOverlays() {
   settingsOpen.value = false
   ttsPanel.value = false
   modes.closePanel()
+  dj.closeOverlays()
+  ambientPanel.value = false
   activeAnnotation.value = null
   jumpOpen.value = false
 }
@@ -105,7 +119,7 @@ function toggleSettings() {
 }
 
 /** 手机端抽屉打开时显示遮罩 (桌面端遮罩由 CSS 隐藏) */
-const sheetOpen = computed(() => panel.value !== 'none' || settingsOpen.value || ttsPanel.value || modes.panelOpen.value)
+const sheetOpen = computed(() => panel.value !== 'none' || settingsOpen.value || ttsPanel.value || modes.panelOpen.value || ambientPanel.value)
 
 // ---- 一键全屏沉浸 ----
 const isFullscreen = ref(false)
@@ -157,6 +171,20 @@ const isBookmarked = computed(() => bookmarks.value.some(b => b.cfi === currentC
 
 // 听书
 const ttsPanel = ref(false)
+/** 背景音面板 (见 services/ambient); 背景音本身是全局单例, 只在阅读器里提供入口 */
+const ambientPanel = ref(false)
+const ambient = useAmbient()
+
+function toggleAmbientPanel() {
+  const next = !ambientPanel.value
+  closeOverlays()
+  ambientPanel.value = next
+}
+
+async function showAmbientSources() {
+  const { openDownload } = await import('../services/updater')
+  openDownload('https://github.com/yzfly/LightRead/blob/main/docs/ambient-sources.md')
+}
 const ttsState = ref<'stopped' | 'playing' | 'paused'>('stopped')
 const ttsVoices = ref<{ name: string; lang: string }[]>([])
 let sectionLoadResolvers: Array<() => void> = []
@@ -233,6 +261,19 @@ function aiExplainSelection() {
   sendAi(explainPrompt(text, settings.language))
 }
 
+/** 一键改用内置试用通道 (服务端中转, 免注册免密钥) */
+function useTrialAi() {
+  const trial = providerById('trial')
+  settings.aiProvider = trial.id
+  settings.aiBaseUrl = trial.baseUrl
+  settings.aiModel = trial.defaultModel
+}
+
+const THEME_LABEL_KEYS: Record<string, string> = {
+  light: 'reader.themeLight', sepia: 'reader.themeSepia', green: 'reader.themeGreen', dark: 'reader.themeDark', auto: 'reader.themeAuto',
+}
+const themeLabel = (name: string) => (THEME_LABEL_KEYS[name] ? t(THEME_LABEL_KEYS[name]) : name)
+
 async function openRegister() {
   const { openDownload } = await import('../services/updater')
   openDownload('https://cloud.siliconflow.cn/i/TxUlXG3u')
@@ -258,7 +299,12 @@ let Overlayer: any = null
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 
 const appDark = computed(() => resolvedTheme.value === 'dark')
-const themeColors = computed(() => resolveReaderColors(settings.reader.theme, appDark.value))
+// 阅读模式与点睛在下方声明, 二者初始化时会互相 / 回头读取这里的值;
+// 先用响应式占位, 声明完再填入, 避免初始化顺序问题 (TDZ), 填入后依赖它们的 computed 自动重算
+const lateModes = shallowRef<ReturnType<typeof useReadingModes>>()
+const lateDj = shallowRef<ReturnType<typeof useDianjing>>()
+// 墨水屏等阅读模式会改写正文配色 (纯黑白)
+const themeColors = computed(() => resolveReaderColors(settings.reader.theme, appDark.value, lateModes.value?.readerStyle.value))
 // 正文主题铺满全屏 (含状态栏下方), 安卓系统栏图标按正文深浅切换
 watch(
   () => resolveReaderTheme(settings.reader.theme, appDark.value) === 'dark',
@@ -276,13 +322,16 @@ function applyPrefs() {
   if (!view) return
   const prefs = settings.reader
   try {
-    view.renderer.setAttribute('animated', '')
+    // 墨水屏: 去掉翻页动画 (残影)
+    if (modes.einkActive.value) view.renderer.removeAttribute('animated')
+    else view.renderer.setAttribute('animated', '')
     view.renderer.setAttribute('flow', prefs.flow)
     view.renderer.setAttribute('gap', `${prefs.gap}%`)
-    view.renderer.setAttribute('max-column-count', String(prefs.maxColumnCount))
+    // 大字 / 歌词运行时强制单栏, 不改用户自己的分栏设置
+    view.renderer.setAttribute('max-column-count', String(modes.forceSingleColumn.value ? 1 : prefs.maxColumnCount))
     // 页眉页脚带 (章节名 / 进度) 的高度; 手机屏幕矮, 收窄些把空间留给正文
     view.renderer.setAttribute('margin', window.innerWidth <= 600 ? '36px' : '48px')
-    view.renderer.setStyles?.(getReaderCSS({ ...prefs, fontFamily: resolveFontFamily(prefs.fontFamily) }, appDark.value))
+    view.renderer.setStyles?.(getReaderCSS({ ...prefs, fontFamily: resolveFontFamily(prefs.fontFamily) }, appDark.value, modes.readerStyle.value))
     const custom = selectedCustomFont()
     if (custom) {
       for (const content of view.renderer.getContents?.() ?? []) {
@@ -332,8 +381,9 @@ watch([() => settings.reader, appDark], () => {
 
 function onRelocate(e: CustomEvent) {
   modes.onRelocate(e.detail)
-  // 朗读跟随翻页 / 打字机自动翻页属于自动推进, 不能无限续命计时
-  if (ttsState.value === 'playing' || modes.typewriterActive.value) pingReadingAuto()
+  dj.onRelocate(e.detail)
+  // 朗读跟随翻页 / 打字机、歌词自动推进都不能无限续命计时
+  if (ttsState.value === 'playing' || modes.progressActive.value) pingReadingAuto()
   else pingReading()
   const { cfi, fraction: frac, tocItem } = e.detail
   fraction.value = frac ?? 0
@@ -356,13 +406,15 @@ function onRelocate(e: CustomEvent) {
 function updateMarginals() {
   const r = view?.renderer
   if (!r?.heads?.length || !r?.feet?.length) return
+  // 沉浸等模式可要求页眉 / 页脚留白
+  const policy = modes.marginalsPolicy.value
   r.heads.forEach((el: HTMLElement, i: number) => {
-    el.textContent = i === 0 ? (chapterLabel.value || meta.value?.title || '') : ''
+    el.textContent = i === 0 && policy.head ? (chapterLabel.value || meta.value?.title || '') : ''
   })
   // 左下: 本章剩余; 右下: 页码 / 百分比。双栏时分居左右两栏, 单栏时同一行两端对齐
   const feet: HTMLElement[] = r.feet
-  const left = chapterLeftText.value
-  const right = progressText.value
+  const left = policy.footLeft ? chapterLeftText.value : ''
+  const right = policy.footRight ? progressText.value : ''
   feet.forEach(el => {
     el.replaceChildren()
     el.style.display = 'flex'
@@ -375,7 +427,7 @@ function updateMarginals() {
     el.append(span)
   }
   if (left) put(feet[0], left, false)
-  put(feet[feet.length - 1], right, true)
+  if (right) put(feet[feet.length - 1], right, true)
 }
 
 // ---- 页码 ----
@@ -661,6 +713,7 @@ function handleKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape' && el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return
   // 阅读模式快捷键 (M 面板 / Shift+T 打字机; 打字机运行中空格暂停等)
   if (modes.handleKey(e)) return
+  if (dj.handleKey(e)) return
   if (e.key === 'ArrowLeft' || e.key === 'PageUp') turnPage('left')
   else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') turnPage('right')
   else if (e.key === 'Escape') {
@@ -673,7 +726,7 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 function startAutoRead() {
-  modes.stopTypewriterFor('auto')
+  modes.stopForExternal('auto')
   stopAutoRead()
   autoReading.value = true
   autoTimer = setInterval(() => {
@@ -1046,12 +1099,12 @@ function listenRange(key = currentListenKey.value): Range | null {
  */
 const TTS_MARK = 'lr-tts-sentence'
 const TTS_MARK_COLOR = '#4f7cff'
-function highlightListen(range: Range) {
+function highlightListen(range: Range, scroll = true) {
   clearListenHighlight()
   const doc = range.startContainer.ownerDocument
   const target = view.renderer.getContents?.()?.find((c: any) => c.doc === doc)
   try { target?.overlayer?.add(TTS_MARK, range, Overlayer.highlight, { color: TTS_MARK_COLOR, padding: 1 }) } catch { /* 叠层未就绪 */ }
-  view.renderer.scrollToAnchor?.(range)
+  if (scroll) view.renderer.scrollToAnchor?.(range)
 }
 
 function clearListenHighlight() {
@@ -1071,7 +1124,13 @@ async function onListenSentence(key: string) {
       try { await view.renderer.goTo({ index }) } catch { /* 留在原处, 继续读 */ }
     }
     const range = listenRange(key)
-    if (range) highlightListen(range)
+    if (range) {
+      // 歌词跟读: 由歌词把当前行固定在 40% 处, 朗读这里只画高亮不滚动 (否则两者抢位置)
+      if (modes.lyricFollowing.value) {
+        modes.followRange(range)
+        highlightListen(range, false)
+      } else highlightListen(range)
+    }
   }
   saveBookmarkFor(key)
   updateMediaSession()
@@ -1153,7 +1212,7 @@ type ListenFrom = 'auto' | 'page' | 'bookmark' | { range: Range }
 /** 开始朗读: auto = 断点在本页则接着断点, 否则从本页第一句 */
 async function startTTS(from: ListenFrom = 'auto') {
   if (!view) return
-  modes.stopTypewriterFor('tts')
+  modes.stopForExternal('tts')
   if (view.isFixedLayout) {
     toast(t('tts.fixedLayoutUnsupported'), 'error')
     return
@@ -1198,6 +1257,7 @@ function pauseTTS() {
   ttsState.value = 'paused'
   pausedAt = performance.now()
   listenPlayer.pause()
+  modes.setFollowPaused(true)
   updateMediaSession()
 }
 
@@ -1207,6 +1267,7 @@ function resumeTTS() {
   if (pausedAt) pausedTotal += performance.now() - pausedAt
   pausedAt = 0
   listenPlayer.resume()
+  modes.setFollowPaused(false)
   updateMediaSession()
 }
 
@@ -1297,6 +1358,9 @@ function listenFromSelection() {
   if (range) void startTTS({ range })
 }
 
+// 听书出声时压低背景音
+watch(ttsState, s => ambient.duck(s === 'playing'), { immediate: true })
+
 // 换音色 / 倍速 / 引擎: 已合成的预读作废, 从下一句起按新设置
 watch(() => [settings.ttsEngine, settings.ttsRate, settings.edgeVoice, settings.localVoiceId, settings.ttsVoice], () => {
   if (ttsState.value !== 'stopped') listenPlayer.invalidate()
@@ -1324,6 +1388,8 @@ function setSleep(mode: SleepMode) {
 
 function sleepNow() {
   setSleep(0)
+  // 听书定时到点, 背景音跟着慢慢淡出
+  if (ambient.state.playing) ambient.fadeOutAndStop(30)
   if (ttsState.value === 'playing') {
     pauseTTS()
     toast(t('tts.sleepDone'))
@@ -1380,6 +1446,7 @@ function clearMediaSession() {
 function onSectionLoad(e: CustomEvent) {
   // 打字机: 在新章节首次绘制前隐藏未打出的文字
   modes.onSectionLoad(e.detail)
+  dj.onSectionLoad(e.detail)
   const { doc, index } = e.detail
   for (const resolve of sectionLoadResolvers.splice(0)) resolve()
   const custom = selectedCustomFont()
@@ -1400,6 +1467,7 @@ function onSectionLoad(e: CustomEvent) {
       const cfi = view.getCFI(index, sel.getRangeAt(0))
       selectionRange = sel.getRangeAt(0).cloneRange()
       selection.value = cfi ? { cfi, text } : null
+      dj.onSelection(index, selectionRange)
     } catch {
       selection.value = null
     }
@@ -1416,7 +1484,7 @@ function onSectionLoad(e: CustomEvent) {
   doc.addEventListener('click', (e: MouseEvent) => {
     // 触屏轻点已在 touchend 处理过, 吞掉其后的合成 click
     if (Date.now() < suppressClickUntil) return
-    onContentClick(e.clientX, doc, e.target as Element)
+    onContentClick(e.clientX, doc, e.target as Element, e.clientY)
   })
 
   // 触屏轻点: 触摸设备上合成 click 与 foliate 的 touch 吸附赛跑, 时有丢失/弹回
@@ -1497,7 +1565,7 @@ function onSectionLoad(e: CustomEvent) {
       settingsOpen.value = false
       activeAnnotation.value = null
     } else {
-      onContentClick(t0.clientX, doc, e.target as Element)
+      onContentClick(t0.clientX, doc, e.target as Element, t0.clientY)
     }
     // 吞掉这次轻点随后的合成 click (必须在处理之后设置)
     suppressClickUntil = Date.now() + 700
@@ -1517,7 +1585,7 @@ let suppressClickUntil = 0
 // 点正文左/右侧翻页
 let overlayDismissed = false
 
-function onContentClick(clientX: number, doc: Document, target?: Element | null) {
+function onContentClick(clientX: number, doc: Document, target?: Element | null, clientY = 0) {
   if (overlayDismissed) {
     overlayDismissed = false
     return
@@ -1529,10 +1597,14 @@ function onContentClick(clientX: number, doc: Document, target?: Element | null)
   const sel = doc.getSelection()
   if (sel && !sel.isCollapsed) return
   if (target?.closest?.('a[href]')) return
-  // 打字机运行时轻点任意处只切换暂停, 不翻页
-  const tap = modes.onContentTap()
+  // 点睛: 点到概念 / 注释时弹出解释卡, 不翻页
+  if (dj.onContentTap(doc, clientX, clientY)) return
+  // 打字机 / 歌词运行时轻点只切换暂停或移动当前行, 不翻页
+  const tap = modes.onContentTap({ y: clientY })
   if (tap) {
-    tap === 'paused' ? showBars() : hideBars()
+    if (tap === 'paused') showBars()
+    else if (tap === 'menu') barsVisible.value ? hideBars() : showBars()
+    else hideBars()
     return
   }
   // iframe 内坐标换算到窗口坐标 (分页模式下 iframe 比可视区宽且随翻页平移)
@@ -1854,23 +1926,83 @@ const modes = useReadingModes({
   getView: () => view,
   getColors: () => themeColors.value,
   pingReadingAuto,
+  appDark: () => appDark.value,
   onExclusiveStart: () => {
     stopAutoRead()
     if (ttsState.value === 'playing') pauseTTS()
   },
+  stopAutoRead,
+  pauseTTS: () => { if (ttsState.value === 'playing') pauseTTS() },
   isAutoReading: () => autoReading.value,
   isTTSActive: () => ttsState.value === 'playing',
-  pauseWhen: () => panel.value !== 'none' || settingsOpen.value || ttsPanel.value || jumpOpen.value || !!activeAnnotation.value,
+  pauseWhen: () => panel.value !== 'none' || settingsOpen.value || ttsPanel.value || jumpOpen.value || ambientPanel.value
+    || !!activeAnnotation.value || !!lateDj.value?.overlayOpen.value,
   beforePanelOpen: closeOverlays,
+  // 沉浸: 安卓隐藏系统栏 + 常亮 (网页 / 桌面用 Wake Lock), 并收起工具栏
+  onImmersiveChange: on => {
+    setSystemBarsHidden(on)
+    void setKeepScreenOn(on)
+    if (on) hideBars()
+  },
+  refreshMarginals: () => updateMarginals(),
+  onReminder: () => stopAutoRead(),
+  // 跟听书的歌词: 点了另一行 → 听书从那一句读
+  onLyricSeek: range => { void startTTS({ range }) },
+  isDianjingActive: () => !!lateDj.value?.active.value,
+  onWordGuideEnabled: () => { if (lateDj.value?.active.value) lateDj.value.toggle() },
 })
-const readingModeActive = computed(() => modes.panelOpen.value || autoReading.value || modes.typewriterActive.value)
+lateModes.value = modes
+
+// ---- 点睛阅读 (docs/dianjing-reading.md) ----
+const dj = useDianjing({
+  getView: () => view,
+  bookId,
+  getMeta: () => meta.value && {
+    title: meta.value.title,
+    author: meta.value.author,
+    language: (meta.value as any).language,
+    tags: (meta.value as any).tags,
+    subjects: (view?.book?.metadata?.subject ?? []).map((x: any) => (typeof x === 'string' ? x : x?.name ?? '')),
+  },
+  getThemeName: () => djThemeName(resolveReaderTheme(settings.reader.theme, appDark.value), !!lateModes.value?.einkActive.value),
+  isEink: () => !!lateModes.value?.einkActive.value,
+  // 「我也觉得」: 收为自己的划线 (与划词划线同一份存储, 会随同步)
+  adoptHighlight: async ({ index, range, text, withNote }) => {
+    let cfi = ''
+    try { cfi = view.getCFI(index, range) } catch { return }
+    const storage = await getStorage()
+    const rec: Omit<AnnotationRec, 'id'> = { bookId, kind: 'highlight', cfi, text: text.slice(0, 300), color: 'yellow', createdAt: Date.now() }
+    const id = await storage.addAnnotation(rec)
+    const saved = { ...rec, id }
+    annotations.value.push(saved)
+    try { view.addAnnotation({ value: cfi, color: 'yellow' }) } catch { /* 绘制失败不影响保存 */ }
+    if (withNote) {
+      noteDraft.value = ''
+      activeAnnotation.value = saved
+    } else toast(t('reader.highlighted'), 'success')
+  },
+  openAi: prompt => {
+    closeOverlays()
+    panel.value = 'ai'
+    void sendAi(prompt)
+  },
+  beforeOverlay: closeOverlays,
+})
+lateDj.value = dj
+
+// 排版相关的阅读模式 (大字 / 墨水屏 / 歌词等) 切换后重排正文; 放在 modes 声明之后 (watch 立即求值)
+watch(() => modes.renderKey.value, () => {
+  clearTimeout(prefsTimer)
+  prefsTimer = setTimeout(applyPrefs, 60)
+})
+const readingModeActive = computed(() => modes.panelOpen.value || autoReading.value || modes.progressActive.value)
 
 /**
  * 打字机的进度与剩余时间: 与听书同一套页码模型 (每页字数 × 剩余页数), 速度取设定值;
  * 西文按词/分换算为字母/分 (约 5 个字母一个词), 开了标点停顿再放宽一成。
  */
 const typewriterProgress = computed<ReadingModeProgress | null>(() => {
-  if (!modes.typewriterActive.value) return null
+  if (!modes.progressActive.value) return null
   const p = pageInfo.value
   let eta: { chapter: number; book: number } | null = null
   if (p && charsPerPage.value && !fixedLayout.value) {
@@ -1896,7 +2028,7 @@ const typewriterProgress = computed<ReadingModeProgress | null>(() => {
 
 // 「几点读完」随时间刷新
 let twClockTimer: ReturnType<typeof setInterval> | undefined
-watch(() => modes.typewriterActive.value, on => {
+watch(() => modes.progressActive.value, on => {
   clearInterval(twClockTimer)
   if (on) {
     nowTick.value = Date.now()
@@ -1905,6 +2037,8 @@ watch(() => modes.typewriterActive.value, on => {
 })
 
 onMounted(async () => {
+  // 手机切后台时背景音暂停, 但听书在播时跟随听书的后台策略
+  ambient.setPauseWhenHidden(() => ttsState.value !== 'playing')
   window.addEventListener('keydown', handleKeydown)
   document.addEventListener('fullscreenchange', syncFullscreenState)
   showBars(true)
@@ -2014,13 +2148,17 @@ onBeforeUnmount(() => {
   stopAutoRead()
   stopTTS()
   modes.dispose()
+  dj.dispose()
+  // 背景音属于阅读场景, 离开阅读器即淡出停止
+  ambient.stop()
+  ambient.setPauseWhenHidden(null)
   view?.close?.()
   view?.remove()
 })
 </script>
 
 <template>
-  <div class="reader" :class="{ 'bars-on': barsVisible }" :style="{ background: themeColors.bg, color: themeColors.fg }">
+  <div class="reader" :class="[{ 'bars-on': barsVisible }, modes.shellClass.value]" :style="{ background: themeColors.bg, color: themeColors.fg }">
     <!-- 工具栏隐藏时: 鼠标移到上下边缘呼出 -->
     <div v-if="!barsVisible" class="bar-peek top" @mouseenter="showBars()" />
     <div v-if="!barsVisible" class="bar-peek bottom" @mouseenter="showBars()" />
@@ -2084,6 +2222,16 @@ onBeforeUnmount(() => {
         </button>
         <button class="icon-btn" :class="{ 'auto-on': panel === 'ai' }" :title="t('ai.title')" @click="togglePanel('ai')">
           <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2.5a1 1 0 0 1 .95.69l1.4 4.3a3 3 0 0 0 1.92 1.92l4.3 1.4a1 1 0 0 1 0 1.9l-4.3 1.4a3 3 0 0 0-1.92 1.92l-1.4 4.3a1 1 0 0 1-1.9 0l-1.4-4.3a3 3 0 0 0-1.92-1.92l-4.3-1.4a1 1 0 0 1 0-1.9l4.3-1.4a3 3 0 0 0 1.92-1.92l1.4-4.3A1 1 0 0 1 12 2.5zm7.5 12.7a.8.8 0 0 1 .76.55l.42 1.28a1.6 1.6 0 0 0 1.02 1.02l1.28.42a.8.8 0 0 1 0 1.52l-1.28.42a1.6 1.6 0 0 0-1.02 1.02l-.42 1.28a.8.8 0 0 1-1.52 0l-.42-1.28a1.6 1.6 0 0 0-1.02-1.02l-1.28-.42a.8.8 0 0 1 0-1.52l1.28-.42a1.6 1.6 0 0 0 1.02-1.02l.42-1.28a.8.8 0 0 1 .76-.55z"/></svg>
+        </button>
+        <button
+          class="icon-btn ambient-btn"
+          :class="{ 'auto-on': ambientPanel || ambient.state.playing }"
+          :title="t('ambient.title')"
+          :aria-label="t('ambient.title')"
+          @click="toggleAmbientPanel"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 3a1 1 0 0 1 1 1v16a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1zM8 7a1 1 0 0 1 1 1v8a1 1 0 1 1-2 0V8a1 1 0 0 1 1-1zm8 0a1 1 0 0 1 1 1v8a1 1 0 1 1-2 0V8a1 1 0 0 1 1-1zM4 10a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1zm16 0a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1z"/></svg>
+          <span v-if="ambient.state.playing" class="ambient-dot" aria-hidden="true" />
         </button>
         <button class="icon-btn" :title="t('reader.searchInBook')" @click="togglePanel('search')">
           <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M10.5 3a7.5 7.5 0 1 0 4.55 13.46l3.75 3.75a1 1 0 0 0 1.4-1.42l-3.74-3.74A7.5 7.5 0 0 0 10.5 3zM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0z"/></svg>
@@ -2243,12 +2391,27 @@ onBeforeUnmount(() => {
       :modes="modes"
       :progress="typewriterProgress"
       :auto-reading="autoReading"
+      :tts-active="ttsState === 'playing'"
       v-model:auto-read-seconds="settings.autoReadSeconds"
       @start-auto="startAutoRead"
       @stop-auto="stopAutoRead"
+      @open-tts="openTTSPanel"
       @close="modes.closePanel()"
-    />
+    >
+      <template #top>
+        <DianjingToggle :dj="dj" @open-settings="router.push('/settings')" @open-outline="dj.openOutline()" @open-skim="dj.openSkim()" />
+      </template>
+    </ReadingModePanel>
     <ReadingModeMini :modes="modes" :bars-visible="barsVisible" :progress="typewriterProgress" />
+    <ReadingModeLayer :modes="modes" :bars-visible="barsVisible" :suggest-eink="modes.einkSuggested.value" />
+
+    <!-- 点睛阅读: 首次同意 / 解释卡 / 章首要义 / 脉络 / 速读 / 状态 -->
+    <DianjingConsent v-if="dj.consentOpen.value" :dj="dj" />
+    <DianjingCard v-if="dj.card.value" :dj="dj" />
+    <DianjingChapterCard v-if="dj.chapterCard.value" :dj="dj" />
+    <DianjingOutline v-if="dj.outlineOpen.value" :dj="dj" />
+    <DianjingSkim v-if="dj.skimOpen.value" :dj="dj" />
+    <DianjingStatus :dj="dj" @open-settings="router.push('/settings')" />
 
     <!-- 高亮选区浮条 -->
     <div v-if="selection" class="highlight-bar card">
@@ -2260,10 +2423,11 @@ onBeforeUnmount(() => {
         :style="{ background: hex }"
         @click="addHighlight(name as string)"
       />
-      <button class="btn btn-sm" @click="addHighlight('yellow', true)">💬 {{ t('reader.writeNote') }}</button>
-      <button class="btn btn-sm" @click="aiExplainSelection">✨ {{ t('ai.explain') }}</button>
+      <button class="btn btn-sm" @click="addHighlight('yellow', true)"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-4.3 3.4A1 1 0 0 1 4 19.6V6a2 2 0 0 1 1-2zm1 2v11.5L9.3 15H19V6H6zm2 2.5h8a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2zm0 3h5a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2z"/></svg>{{ t('reader.writeNote') }}</button>
+      <button class="btn btn-sm" @click="aiExplainSelection"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M10 3a1 1 0 0 1 .95.68l1.3 3.9a3 3 0 0 0 1.9 1.9l3.9 1.3a1 1 0 0 1 0 1.9l-3.9 1.3a3 3 0 0 0-1.9 1.9l-1.3 3.9a1 1 0 0 1-1.9 0l-1.3-3.9a3 3 0 0 0-1.9-1.9l-3.9-1.3a1 1 0 0 1 0-1.9l3.9-1.3a3 3 0 0 0 1.9-1.9l1.3-3.9A1 1 0 0 1 10 3zm8-1a1 1 0 0 1 .95.68l.4 1.2.97.32a1 1 0 0 1 0 1.9l-.97.32-.4 1.2a1 1 0 0 1-1.9 0l-.4-1.2-.97-.32a1 1 0 0 1 0-1.9l.97-.32.4-1.2A1 1 0 0 1 18 2z"/></svg>{{ t('ai.explain') }}</button>
+      <button v-if="dj.selectionKey.value" class="btn btn-sm" @click="dj.openKeyCard(); selection = null">{{ t('dianjing.why') }}</button>
       <button v-if="!fixedLayout" class="btn btn-sm" @click="listenFromSelection"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 3a7 7 0 0 0-7 7v1.1A3.5 3.5 0 0 0 3 14.5v2A3.5 3.5 0 0 0 6.5 20H8a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-.9A5 5 0 0 1 12 5a5 5 0 0 1 4.9 6H16a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h1.5a3.5 3.5 0 0 0 3.5-3.5v-2a3.5 3.5 0 0 0-2-3.16V10a7 7 0 0 0-7-7z"/></svg>{{ t('tts.listenFromSelection') }}</button>
-      <button class="icon-btn" :title="t('common.cancel')" @click="selection = null">✕</button>
+      <button class="icon-btn" :title="t('common.cancel')" :aria-label="t('common.cancel')" @click="selection = null"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg></button>
     </div>
 
     <!-- 标注详情 / 想法编辑浮层 -->
@@ -2319,6 +2483,14 @@ onBeforeUnmount(() => {
       <button v-if="listenDetached" class="tts-mini-btn" :title="t('tts.backToListening')" :aria-label="t('tts.backToListening')" @pointerdown.stop @click.stop="returnToListening"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2a1 1 0 0 1 1 1v1.06A8 8 0 0 1 19.94 11H21a1 1 0 1 1 0 2h-1.06A8 8 0 0 1 13 19.94V21a1 1 0 1 1-2 0v-1.06A8 8 0 0 1 4.06 13H3a1 1 0 1 1 0-2h1.06A8 8 0 0 1 11 4.06V3a1 1 0 0 1 1-1zm0 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12zm0 3a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/></svg></button>
       <button class="tts-mini-btn" :title="t('common.stop')" :aria-label="t('common.stop')" @pointerdown.stop @click.stop="stopTTS()"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></svg></button>
     </div>
+
+    <!-- 背景音 -->
+    <AmbientPanel
+      v-if="ambientPanel"
+      :tts-active="ttsState === 'playing'"
+      @close="ambientPanel = false"
+      @show-sources="showAmbientSources"
+    />
 
     <!-- 听书面板 -->
     <div v-if="ttsPanel" class="tts-panel card" role="dialog" :aria-label="t('tts.title')">
@@ -2471,7 +2643,7 @@ onBeforeUnmount(() => {
               <span class="anno-dot" :style="{ background: HIGHLIGHT_COLORS[a.color] ?? a.color }" />
               <span class="anno-body">
                 <span class="anno-text">{{ a.text }}</span>
-                <span v-if="a.note" class="anno-note">💬 {{ a.note }}</span>
+                <span v-if="a.note" class="anno-note"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-4.3 3.4A1 1 0 0 1 4 19.6V6a2 2 0 0 1 1-2zm1 2v11.5L9.3 15H19V6H6zm2 2.5h8a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2zm0 3h5a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2z"/></svg>{{ a.note }}</span>
               </span>
             </div>
             <p v-if="!highlights.length" class="panel-empty">{{ t('reader.highlightEmptyHint') }}</p>
@@ -2482,7 +2654,7 @@ onBeforeUnmount(() => {
               <span class="anno-body">
                 <span class="anno-text">{{ a.text }}</span>
               </span>
-              <button class="icon-btn anno-del" :title="t('common.delete')" @click.stop="removeAnnotation(a)">✕</button>
+              <button class="icon-btn anno-del" :title="t('common.delete')" :aria-label="t('common.delete')" @click.stop="removeAnnotation(a)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg></button>
             </div>
             <p v-if="!bookmarks.length" class="panel-empty">{{ t('reader.bookmarkEmptyHint') }}</p>
           </template>
@@ -2490,7 +2662,7 @@ onBeforeUnmount(() => {
       </template>
 
       <template v-else-if="panel === 'ai'">
-        <h3>✨ {{ t('ai.title') }}</h3>
+        <h3 class="ai-title"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M10 3a1 1 0 0 1 .95.68l1.3 3.9a3 3 0 0 0 1.9 1.9l3.9 1.3a1 1 0 0 1 0 1.9l-3.9 1.3a3 3 0 0 0-1.9 1.9l-1.3 3.9a1 1 0 0 1-1.9 0l-1.3-3.9a3 3 0 0 0-1.9-1.9l-3.9-1.3a1 1 0 0 1 0-1.9l3.9-1.3a3 3 0 0 0 1.9-1.9l1.3-3.9A1 1 0 0 1 10 3zm8-1a1 1 0 0 1 .95.68l.4 1.2.97.32a1 1 0 0 1 0 1.9l-.97.32-.4 1.2a1 1 0 0 1-1.9 0l-.4-1.2-.97-.32a1 1 0 0 1 0-1.9l.97-.32.4-1.2A1 1 0 0 1 18 2z"/></svg>{{ t('ai.title') }}</h3>
         <div v-if="!aiReady()" class="ai-setup">
           <p>{{ t('ai.setupHint') }}</p>
           <ol class="ai-steps">
@@ -2499,7 +2671,8 @@ onBeforeUnmount(() => {
             <li>{{ t('ai.step3') }}</li>
           </ol>
           <div class="ai-setup-actions">
-            <button class="btn btn-sm btn-primary" @click="openRegister">{{ t('ai.register') }}</button>
+            <button class="btn btn-sm btn-primary" @click="useTrialAi">{{ t('ai.useTrial') }}</button>
+            <button class="btn btn-sm" @click="openRegister">{{ t('ai.register') }}</button>
             <button class="btn btn-sm" @click="router.push('/settings')">{{ t('ai.goSettings') }}</button>
           </div>
           <p class="ai-setup-alt">{{ t('ai.setupAlt') }}</p>
@@ -2559,7 +2732,7 @@ onBeforeUnmount(() => {
       <div class="set-row">
         <label>{{ t('reader.fontSize') }}</label>
         <button class="step-btn" :title="t('reader.fontSmaller')" :aria-label="t('reader.fontSmaller')" @click="setFontSize(String(settings.reader.fontSize - 1))">A−</button>
-        <input v-model.number="settings.reader.fontSize" type="range" min="12" max="64" step="1" :aria-label="t('reader.fontSize')" />
+        <input v-model.number="settings.reader.fontSize" type="range" min="8" max="64" step="1" :aria-label="t('reader.fontSize')" />
         <button class="step-btn big" :title="t('reader.fontLarger')" :aria-label="t('reader.fontLarger')" @click="setFontSize(String(settings.reader.fontSize + 1))">A+</button>
         <input
           class="input set-num"
@@ -2607,7 +2780,8 @@ onBeforeUnmount(() => {
             class="theme-btn"
             :class="{ active: settings.reader.theme === choice.name }"
             :style="{ background: choice.bg, color: choice.fg }"
-            :title="choice.name === 'auto' ? t('reader.themeAuto') : undefined"
+            :title="themeLabel(choice.name)"
+            :aria-label="themeLabel(choice.name)"
             @click="settings.reader.theme = choice.name"
           >{{ t('reader.themeSample') }}</button>
         </div>
@@ -3180,6 +3354,18 @@ onBeforeUnmount(() => {
 .tts-mini-eta {
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
+}
+.ambient-btn {
+  position: relative;
+}
+.ambient-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand);
 }
 .tts-head {
   display: flex;

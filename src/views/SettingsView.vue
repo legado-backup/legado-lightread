@@ -1225,9 +1225,12 @@ const APPEARANCE_OPTIONS = [
           </div>
           <div class="app-tagline">{{ t('settings.tagline') }}</div>
         </div>
-        <button class="btn" :disabled="checking" @click="doCheckUpdate()">
-          {{ checking ? t('update.checking') : t('update.check') }}
-        </button>
+        <div class="about-actions">
+          <button class="btn" @click="$router.push('/manual')">{{ t('manual.title') }}</button>
+          <button class="btn" :disabled="checking" @click="doCheckUpdate()">
+            {{ checking ? t('update.checking') : t('update.check') }}
+          </button>
+        </div>
       </div>
 
       <!-- 检查结果 -->
@@ -1338,6 +1341,11 @@ const APPEARANCE_OPTIONS = [
 </template>
 
 <style scoped>
+.about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .settings {
   padding: 24px 28px calc(40px + var(--lr-safe-bottom));
   max-width: 820px;

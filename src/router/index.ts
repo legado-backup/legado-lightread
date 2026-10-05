@@ -15,5 +15,6 @@ export const router = createRouter({
     { path: '/catalogs', component: () => import('../views/CatalogView.vue') },
     { path: '/stats', component: () => import('../views/StatsView.vue') },
     { path: '/settings', component: () => import('../views/SettingsView.vue') },
+    { path: '/manual', component: () => import('../views/ManualView.vue') },
   ],
 })

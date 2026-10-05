@@ -4041,7 +4041,7 @@ onBeforeUnmount(() => {
               @click="setDrawerTab('annotations')"
             >{{ t('reader.highlightsTab') }}</button>
           </div>
-          <button class="icon-btn" :title="t('common.close')" @click="closeDrawer">✕</button>
+          <button class="icon-btn" :title="t('common.close')" @click="closeDrawer" :aria-label="t('common.close')"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg></button>
         </div>
         <div v-show="tocOpen" class="drawer-body">
           <TocList
@@ -4085,7 +4085,7 @@ onBeforeUnmount(() => {
               <p v-if="a.note" class="anno-note">{{ a.note }}</p>
               <span class="anno-page">P{{ decodeLoc(a.cfi)?.page }}</span>
             </div>
-            <button class="icon-btn anno-del" :title="t('reader.deleteHighlight')" @click.stop="removeAnnotation(a)">✕</button>
+            <button class="icon-btn anno-del" :title="t('reader.deleteHighlight')" @click.stop="removeAnnotation(a)" :aria-label="t('reader.deleteHighlight')"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg></button>
           </div>
           <p v-if="!highlights.length" class="drawer-empty">{{ t('reader.highlightEmptyHint') }}</p>
         </div>
@@ -4375,7 +4375,7 @@ onBeforeUnmount(() => {
           <div class="chat-head ai-top">
             <strong>{{ t('paper.translationTitle') }}</strong>
             <span style="flex: 1" />
-            <button class="icon-btn" :title="t('common.close')" @click="closeRight">✕</button>
+            <button class="icon-btn" :title="t('common.close')" @click="closeRight" :aria-label="t('common.close')"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg></button>
           </div>
           <div class="pt-setup">
             <p>{{ t('paper.setupHint') }}</p>
@@ -4396,7 +4396,7 @@ onBeforeUnmount(() => {
               <button v-if="translatingPage" class="pt-act" @click="cancelTranslate">{{ t('paper.cancelTranslate') }}</button>
               <button v-else class="pt-act" @click="runTranslateFor(mirCur, true)">{{ t('paper.retranslate') }}</button>
               <span v-if="translatingPage" class="pt-busy">{{ t('paper.translating') }} P{{ translatingPage }}</span>
-              <button class="icon-btn" :title="t('common.close')" @click="closeRight">✕</button>
+              <button class="icon-btn" :title="t('common.close')" @click="closeRight" :aria-label="t('common.close')"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg></button>
             </div>
             <p v-if="curMir && !curMir.paras.length" class="pt-empty">
               {{ t('paper.noText') }}
@@ -4490,7 +4490,7 @@ onBeforeUnmount(() => {
         <span v-if="selTr.busy" class="pt-busy">{{ t('paper.translating') }}</span>
         <span style="flex: 1" />
         <button class="icon-btn" :title="t('paper.copy')" :disabled="!selTr.out" @click="copySelTr">⧉</button>
-        <button class="icon-btn" @click="closeSelTr">✕</button>
+        <button class="icon-btn" @click="closeSelTr"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg></button>
       </div>
       <p class="sel-tr-src">{{ selTr.src }}</p>
       <p class="sel-tr-out">{{ selTr.out || '…' }}</p>
@@ -4525,10 +4525,11 @@ onBeforeUnmount(() => {
           class="btn btn-sm btn-primary"
           @click="ttsState === 'playing' ? pauseTTS() : ttsState === 'paused' ? resumeTTS() : startTTS()"
         >
-          {{ ttsState === 'playing' ? '⏸ ' + t('common.pause') : ttsState === 'paused' ? '▶ ' + t('common.resume') : '▶ ' + t('tts.startReading') }}
+          <template v-if="ttsState === 'playing'"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 5a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-3 0v-11A1.5 1.5 0 0 1 8 5zm8 0a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-3 0v-11A1.5 1.5 0 0 1 16 5z"/></svg>{{ t('common.pause') }}</template>
+          <template v-else><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8.5 5.2a1 1 0 0 1 1.02.03l9 5.95a1 1 0 0 1 0 1.66l-9 5.95A1 1 0 0 1 8 17.95V6.05a1 1 0 0 1 .5-.85z"/></svg>{{ ttsState === 'paused' ? t('common.resume') : t('tts.startReading') }}</template>
         </button>
-        <button class="btn btn-sm" :disabled="ttsState === 'stopped'" @click="stopTTS">⏹ {{ t('common.stop') }}</button>
-        <button class="icon-btn" :title="t('common.close')" @click="ttsPanel = false; stopTTS()">✕</button>
+        <button class="btn btn-sm" :disabled="ttsState === 'stopped'" @click="stopTTS"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></svg>{{ t('common.stop') }}</button>
+        <button class="icon-btn" :title="t('common.close')" @click="ttsPanel = false; stopTTS()" :aria-label="t('common.close')"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg></button>
       </div>
       <div class="tts-row">
         <label>{{ t('tts.rate') }}</label>
@@ -4583,7 +4584,8 @@ onBeforeUnmount(() => {
         @focusout="scheduleAutoPanelCollapse(1800)"
       >
         <button class="btn btn-sm auto-toggle" :class="{ 'btn-active': autoReading }" @click="autoReading ? stopAutoRead() : startAutoRead()">
-          {{ autoReading ? '⏸ ' + t('common.pause') : '▶ ' + t('common.start') }}
+          <template v-if="autoReading"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 5a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-3 0v-11A1.5 1.5 0 0 1 8 5zm8 0a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-3 0v-11A1.5 1.5 0 0 1 16 5z"/></svg>{{ t('common.pause') }}</template>
+          <template v-else><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8.5 5.2a1 1 0 0 1 1.02.03l9 5.95a1 1 0 0 1 0 1.66l-9 5.95A1 1 0 0 1 8 17.95V6.05a1 1 0 0 1 .5-.85z"/></svg>{{ t('common.start') }}</template>
         </button>
         <label>{{ t('reader.speed') }}</label>
         <input v-model.number="settings.autoReadSeconds" type="range" min="3" max="60" step="1" />
@@ -4591,7 +4593,7 @@ onBeforeUnmount(() => {
         <button class="icon-btn auto-collapse" :title="t('reader.collapseControls')" @click="collapseAutoPanel">
           <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="m5.5 7.5 4.5 4.5 4.5-4.5" /></svg>
         </button>
-        <button class="icon-btn" :title="t('common.stop')" @click="autoPanel = false; stopAutoRead()">✕</button>
+        <button class="icon-btn" :title="t('common.stop')" @click="autoPanel = false; stopAutoRead()" :aria-label="t('common.stop')"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg></button>
       </section>
     </Transition>
   </div>

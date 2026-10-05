@@ -12,6 +12,8 @@ export interface ReaderPrefs {
   maxColumnCount: 1 | 2
   fontFamily: string
   justify: boolean
+  /** 字距 (em), 0 为书籍原样; 大字预设为 0.05 */
+  letterSpacing: number
   /** 页脚 / 底栏的阅读进度显示: 页码 + 百分比 / 只看页码 / 只看百分比 */
   progressDisplay: 'both' | 'page' | 'percent'
 }
@@ -48,24 +50,53 @@ export interface TypewriterPrefs {
   pageDwellMs: number
 }
 
-/** 阅读模式 (打字机 / 行聚焦 / 词块引导); 行聚焦与词块引导为后续分期, 先占位设置结构 */
+/** 歌词模式 (docs/research/reading-modes-landscape.md §4.7); 速度复用 typewriter.cpm / wpm */
+export interface LyricPrefs {
+  /** 聚焦行数: 1 行 / 3 行 (滑动窗口) */
+  lines: 1 | 3
+  /** 其余行: 淡显 (正文色 30%) / 隐藏 */
+  others: 'dim' | 'hide'
+  /** 当前行固定在视口高度的位置 */
+  anchor: 0.4 | 0.5
+  /** 推进: 按速度自动 / 跟听书 / 手动 */
+  driver: 'pace' | 'tts' | 'manual'
+  /** 歌词字号: 正文字号的倍数 (1.0–1.6) */
+  scale: number
+}
+
+/** 预设开关的快照 (大字 / 墨水屏 / 歌词 / 夜间 / 护眼): 开启时记下原值, 关闭时恢复; 见 services/readingModes/presets.ts */
+export interface PresetRecordPrefs {
+  before: Record<string, unknown>
+  applied: Record<string, unknown>
+  order: number
+}
+
+/** 阅读模式 (docs/research/reading-modes-landscape.md §5) */
 export interface ReadingModePrefs {
   typewriter: TypewriterPrefs
-  lineFocus: {
-    enabled: boolean
-    lines: 1 | 3 | 5
-    style: 'shade' | 'bar' | 'box'
-    driver: 'manual' | 'pace' | 'tts'
-  }
+  lyric: LyricPrefs
+  /** 仿生阅读 (实验, 默认关): 西文词首强调 / 中文分词交替着色 */
   wordGuide: {
     enabled: boolean
     style: 'auto' | 'alternate' | 'fixation'
     strength: 'light' | 'normal'
   }
+  /** 大字: 预设开关; custom 为在大字模式里手动调过的值 (下次开启沿用) */
+  largeText: { enabled: boolean; size: 'large' | 'xlarge'; custom: Record<string, unknown> }
+  /** 墨水屏: 纯黑白高对比、字重 +100、无动画; suggestDismissed 为「识别到墨水屏设备」提示已处理 */
+  eink: { enabled: boolean; suggestDismissed: boolean }
+  /** 沉浸: 隐藏页眉页脚文字 / 工具栏只在轻点时出现; hideFooter 连页码也隐藏 */
+  immersive: { enabled: boolean; hideFooter: boolean }
+  /** 护眼: 暖色主题 + 应用内调暗 (0–60%) + 休息提醒 (分钟) */
+  eyeCare: { theme: 'sepia' | 'green'; dim: number; reminder: boolean; intervalMin: 20 | 30 | 45 }
+  /** 夜间定时: from–to 之间自动切到夜间 (HH:MM, 可跨午夜) */
+  night: { schedule: boolean; from: string; to: string }
+  /** 预设快照 (按预设 id), 持久化以便崩溃后恢复 */
+  presets: Record<string, PresetRecordPrefs>
 }
 
 /** 结构版本: 修正历史默认值时递增 */
-const SETTINGS_VERSION = 11
+const SETTINGS_VERSION = 12
 
 /** v3 时代曾并入用户设置的内置书库 (v4 起社区清单独立远程拉取, 此表仅供迁移清理) */
 const BUILTIN_BOOK_REPOS = [
@@ -79,6 +110,44 @@ const BUILTIN_BOOK_REPOS = [
 export interface CustomFontRec {
   name: string
   file: string
+}
+
+/** 背景音 (services/ambient, docs/research/reading-ambient-audio.md §5.5); 只记住选择, 从不自动播放 */
+export interface AmbientPrefs {
+  /** 最近一次使用的场景 id */
+  scene: string
+  /** 主音量 0..1 (滑块值, 按感知曲线映射到增益), 默认 0.3 */
+  master: number
+  /** 每层音量 0..1, 键为「场景/层」; 缺省用场景默认值 */
+  layers: Record<string, number>
+  /** 专注噪音的颜色 */
+  noiseColor: 'pink' | 'white' | 'brown'
+  /** 听书时自动降低 */
+  duckWithVoice: boolean
+  /** 降低到的倍数 (0.25 = -12 dB) */
+  duckLevel: number
+  /** 手机切到后台时暂停 (只有背景音在播时) */
+  pauseWhenHidden: boolean
+}
+
+/** 点睛阅读 (docs/dianjing-reading.md §4.1); 默认关, 首次开启需同意 */
+export interface DianjingPrefs {
+  /** 「所有书开启」后的全局开关 (perBook 未设置的书跟随它) */
+  enabled: boolean
+  /** 已同意「所有书开启」 */
+  consentAll: boolean
+  /** 按书开关 (bookId → 开/关); 选「仅本书」即写这里 */
+  perBook: Record<string, boolean>
+  /** 密度: 少 5% / 标准 8% / 多 15% (按字数) */
+  density: 'low' | 'normal' | 'high'
+  /** 标记类型 */
+  kinds: { key: boolean; term: boolean; note: boolean }
+  /** 通道: auto (已配置自己的密钥则用自己的, 否则内置) / builtin / own */
+  channel: 'auto' | 'builtin' | 'own'
+  /** 体裁手动设置 (bookId → 叙事 / 非叙事), 未设置时自动识别 */
+  fiction: Record<string, 'fiction' | 'nonfiction'>
+  /** 章首要义卡 */
+  chapterCard: boolean
 }
 
 interface SettingsState {
@@ -133,8 +202,12 @@ interface SettingsState {
   webdavSyncFiles: boolean
   /** 阅读记录: 每日阅读目标 (分钟), 0 表示不设目标 */
   dailyGoalMinutes: number
+  /** 点睛阅读 */
+  dianjing: DianjingPrefs
   /** 阅读模式 (打字机等) */
   readingMode: ReadingModePrefs
+  /** 背景音 */
+  ambient: AmbientPrefs
 }
 
 const STORAGE_KEY = 'lightread-settings'
@@ -154,6 +227,7 @@ const defaults: SettingsState = {
     maxColumnCount: 2,
     fontFamily: '',
     justify: true,
+    letterSpacing: 0,
     progressDisplay: 'both',
   },
   pdf: {
@@ -173,10 +247,10 @@ const defaults: SettingsState = {
   httpProxy: '',
   calibrePath: '',
   libraryRoot: '',
-  aiProvider: 'siliconflow',
-  aiBaseUrl: 'https://api.siliconflow.cn/v1',
+  aiProvider: 'trial',
+  aiBaseUrl: 'https://lightread-ai.jiangshu.ai/v1',
   aiApiKey: '',
-  aiModel: 'Qwen/Qwen2.5-7B-Instruct',
+  aiModel: 'deepseek-ai/DeepSeek-V4-Flash',
   paperAgentEngine: 'pi',
   paperAgentExecutables: { codex: '', claude: '', pi: '' },
   webdavUrl: '',
@@ -186,6 +260,16 @@ const defaults: SettingsState = {
   webdavSyncAuto: false,
   webdavSyncFiles: true,
   dailyGoalMinutes: 30,
+  dianjing: {
+    enabled: false,
+    consentAll: false,
+    perBook: {},
+    density: 'normal',
+    kinds: { key: true, term: true, note: true },
+    channel: 'auto',
+    fiction: {},
+    chapterCard: true,
+  },
   readingMode: {
     typewriter: {
       unit: 'char',
@@ -197,8 +281,23 @@ const defaults: SettingsState = {
       sound: false,
       pageDwellMs: 800,
     },
-    lineFocus: { enabled: false, lines: 1, style: 'shade', driver: 'manual' },
+    lyric: { lines: 1, others: 'dim', anchor: 0.4, driver: 'pace', scale: 1.2 },
     wordGuide: { enabled: false, style: 'auto', strength: 'light' },
+    largeText: { enabled: false, size: 'large', custom: {} },
+    eink: { enabled: false, suggestDismissed: false },
+    immersive: { enabled: false, hideFooter: false },
+    eyeCare: { theme: 'sepia', dim: 0, reminder: true, intervalMin: 20 },
+    night: { schedule: false, from: '22:00', to: '07:00' },
+    presets: {},
+  },
+  ambient: {
+    scene: 'rain-study',
+    master: 0.3,
+    layers: {},
+    noiseColor: 'pink',
+    duckWithVoice: true,
+    duckLevel: 0.25,
+    pauseWhenHidden: true,
   },
 }
 
@@ -211,8 +310,14 @@ function mergeReadingMode(saved: unknown): ReadingModePrefs {
     v && typeof v === 'object' && !Array.isArray(v) ? { ...base, ...(v as Partial<T>) } : base
   return {
     typewriter: part(d.typewriter, s.typewriter),
-    lineFocus: part(d.lineFocus, s.lineFocus),
+    lyric: part(d.lyric, s.lyric),
     wordGuide: part(d.wordGuide, s.wordGuide),
+    largeText: part(d.largeText, s.largeText),
+    eink: part(d.eink, s.eink),
+    immersive: part(d.immersive, s.immersive),
+    eyeCare: part(d.eyeCare, s.eyeCare),
+    night: part(d.night, s.night),
+    presets: part(d.presets, s.presets),
   }
 }
 
@@ -233,6 +338,11 @@ function load(): SettingsState {
       pdf: { ...defaults.pdf, ...saved.pdf },
       paperAgentExecutables: { ...defaults.paperAgentExecutables, ...savedAgentExecutables },
       readingMode: mergeReadingMode(saved.readingMode),
+      dianjing: {
+        ...structuredClone(defaults.dianjing),
+        ...(saved.dianjing && typeof saved.dianjing === 'object' ? saved.dianjing : {}),
+        kinds: { ...defaults.dianjing.kinds, ...(saved.dianjing?.kinds ?? {}) },
+      },
     }
     if (!['codex', 'claude', 'pi'].includes(merged.paperAgentEngine)) merged.paperAgentEngine = 'pi'
     if (!['system', 'light', 'dark'].includes(merged.appearance)) merged.appearance = 'system'
@@ -273,6 +383,14 @@ function load(): SettingsState {
     // v11: 在线听书默认音色改为台湾腔女声 (曉臻); 仍是旧默认 (晓晓) 的视为未显式选择, 一并迁入。
     if ((saved.version ?? 1) < 11 && (saved.edgeVoice ?? 'zh-CN-XiaoxiaoNeural') === 'zh-CN-XiaoxiaoNeural') {
       merged.edgeVoice = 'zh-TW-HsiaoChenNeural'
+    }
+    // v12: AI 默认改为内置试用通道 (免配置, 模型 DeepSeek-V4-Flash); 还停在旧默认且没填密钥的 (实际用不了) 一并迁入。
+    // 内置通道迁到 jiangshu 账号 (lightread-ai.jiangshu.ai), 旧地址不认新模型名, 已在用内置通道的一并改地址与模型。
+    const onOldDefault = (saved.aiProvider ?? 'siliconflow') === 'siliconflow' && !(saved.aiApiKey ?? '').trim()
+    if ((saved.version ?? 1) < 12 && (onOldDefault || saved.aiProvider === 'trial')) {
+      merged.aiProvider = 'trial'
+      merged.aiBaseUrl = defaults.aiBaseUrl
+      merged.aiModel = defaults.aiModel
     }
     merged.version = SETTINGS_VERSION
     return merged

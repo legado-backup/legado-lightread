@@ -28,6 +28,8 @@
     "check:release": "node scripts/check-release.mjs",
     "test:listen-eta": "node --experimental-strip-types --test scripts/test-listen-eta.mjs",
     "test:read-aloud": "node --experimental-strip-types --test scripts/test-read-aloud.mjs scripts/test-listen-player.mjs scripts/test-voice-catalog.mjs",
+    "test:dianjing": "node --experimental-strip-types --test scripts/test-dianjing.mjs",
+    "test:ambient": "node --experimental-strip-types --test scripts/test-ambient.mjs",
     "test:reader-pages": "node --experimental-strip-types --test scripts/test-reader-pages.mjs",
     "test:tts": "node --experimental-strip-types --test scripts/test-tts.mjs",
     "test:reading-modes": "node --experimental-strip-types --test scripts/test-reading-modes.mjs",

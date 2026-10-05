@@ -42,13 +42,25 @@ export function supportsHighlights(win: Window | null | undefined): boolean {
   return !!(w && typeof w.Highlight === 'function' && w.CSS?.highlights)
 }
 
-/** 兜底清理: 删除文档里所有 lr-* 高亮和待显示标记 (卸载、换书、出错时调用, 保证不会残留透明正文) */
-export function clearReadingModeMarks(doc: Document | null | undefined) {
+/** 各阅读模式的高亮前缀: 打字机 / 歌词 / 仿生阅读 (点睛阅读的 lr-dj-* 不归这里管, 不能顺手删掉) */
+export const TYPEWRITER_PREFIX = 'lr-tw-'
+export const READING_MODE_PREFIXES = ['lr-tw-', 'lr-ly-', 'lr-wg-'] as const
+
+/**
+ * 兜底清理: 删除文档里指定前缀的高亮 (默认只删打字机的) 和待显示标记 (卸载、换书、出错时调用, 保证不会残留透明正文)。
+ * 只按前缀删, 不碰其他功能 (点睛阅读等) 注册的高亮。
+ */
+export function clearReadingModeMarks(doc: Document | null | undefined, prefixes: readonly string[] = [TYPEWRITER_PREFIX]) {
   if (!doc) return
   try {
     const reg = (doc.defaultView as any)?.CSS?.highlights
-    if (reg) for (const name of Array.from(reg.keys()) as string[]) if (name.startsWith('lr-')) reg.delete(name)
+    if (reg) {
+      for (const name of Array.from(reg.keys()) as string[]) {
+        if (prefixes.some(p => name.startsWith(p))) reg.delete(name)
+      }
+    }
   } catch { /* 文档已卸载 */ }
+  if (!prefixes.includes(TYPEWRITER_PREFIX)) return
   try {
     for (const el of Array.from(doc.querySelectorAll(`[${PENDING_ATTR}]`))) el.removeAttribute(PENDING_ATTR)
   } catch { /* 文档已卸载 */ }

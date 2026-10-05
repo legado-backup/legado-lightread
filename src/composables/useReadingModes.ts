@@ -1,6 +1,9 @@
 /**
- * 阅读模式与 ReaderView 的对接层 (docs/reading-modes.md §4 §5.2)。
+ * 阅读模式与 ReaderView 的对接层 (docs/reading-modes.md, docs/research/reading-modes-landscape.md §4–§6)。
  * 逻辑全部在这里和 services/readingModes/*, ReaderView 只做接线。
+ *
+ * 模式 (一个名字一个模式): 显示 = 夜间 / 护眼 / 墨水屏 / 大字; 版面 = 沉浸 / 双栏;
+ * 带读 = 自动翻页 / 打字机 / 歌词 / 听书 (同一时刻只运行一个; 听书可以驱动歌词); 实验 = 仿生阅读。
  *
  * ## 接线清单 (ReaderView.vue)
  *
@@ -9,41 +12,69 @@
  *   getView: () => view,
  *   getColors: () => themeColors.value,
  *   pingReadingAuto,
- *   // 打字机开始前: 停掉自动翻页、暂停听书 (互斥)
+ *   appDark: () => appDark.value,
  *   onExclusiveStart: () => { stopAutoRead(); if (ttsState.value === 'playing') pauseTTS() },
+ *   stopAutoRead,                                   // 跟听书的歌词: 只停自动翻页, 不停听书
+ *   pauseTTS: () => { if (ttsState.value === 'playing') pauseTTS() },
  *   isAutoReading: () => autoReading.value,
  *   isTTSActive: () => ttsState.value === 'playing',
- *   // 任一浮层 / 面板打开时自动暂停
  *   pauseWhen: () => panel.value !== 'none' || settingsOpen.value || ttsPanel.value || jumpOpen.value || !!activeAnnotation.value,
  *   beforePanelOpen: closeOverlays,
+ *   onImmersiveChange: on => { setSystemBarsHidden(on); setKeepScreenOn(on); if (on) hideBars() },  // 原生部分由主会话实现
+ *   refreshMarginals: updateMarginals,
+ *   onReminder: () => { stopAutoRead() },           // 休息提醒出现时 (打字机 / 歌词已自动暂停)
+ *   onLyricSeek: range => listenFromRange(range),   // 跟听书时点了另一行: 听书从那一句读 (复用「从这里听」)
+ *   isDianjingActive: () => dj.active.value,        // 点睛开启时仿生阅读自动让位 (wordGuideActive=false, 面板提示); 点睛关掉后自动恢复
+ *   onWordGuideEnabled: () => { if (dj.active.value) dj.toggle() },   // 用户开仿生阅读: 后开的生效, 关掉点睛
  * })
+ * (useDianjing 的 onExclusive 可留空: 点睛开启时这里已自动让位, 不必改仿生阅读的设置。)
  * ```
- * 1. onRelocate(e): 开头加 `modes.onRelocate(e.detail)`; 计时改为
- *    `if (ttsState.value === 'playing' || modes.typewriterActive.value) pingReadingAuto() else pingReading()`。
- * 2. onSectionLoad(e): 开头加 `modes.onSectionLoad(e.detail)` (在首次绘制前隐藏新章节)。
- * 3. onContentClick: 在选区 / 链接判断之后、三分区翻页之前加
- *    `const tap = modes.onContentTap(); if (tap) { tap === 'paused' ? showBars() : hideBars(); return }`
- *    (打字机运行时轻点任意处只切换暂停, 不翻页)。
- * 4. handleKeydown: 输入框判断之后第一行 `if (modes.handleKey(e)) return`
- *    (M 面板、Shift+T 开始/退出; 打字机运行时 空格 暂停、→ 显示到段末、← 重打本句、Shift+↑/↓ 调速;
- *    Esc 退出打字机后返回 false, 继续走原有的 Esc 逻辑)。
- * 5. startAutoRead() 开头加 `modes.stopTypewriterFor('auto')`; startTTS() 开头加 `modes.stopTypewriterFor('tts')`。
- * 6. 入口: 底栏「自动」→「模式」, 顶栏「自动阅读」→「阅读模式」, 都调 `modes.togglePanel()`
- *    (打开前会调 beforePanelOpen 收起其他浮层); closeOverlays() 里加 `modes.closePanel()`;
- *    sheetOpen 加上 `|| modes.panelOpen.value`; 按钮 active = `modes.panelOpen.value || autoReading.value || modes.typewriterActive.value`。
- *    删除旧的 autoPanel / .auto-panel 浮条 (自动翻页迁入面板第一栏, 仍用 .auto-panel 类名)。
- * 7. 模板 (替换旧 auto-panel 块):
- *    <ReadingModePanel v-if="modes.panelOpen.value" :modes="modes" :auto-reading="autoReading"
- *      v-model:auto-read-seconds="settings.autoReadSeconds" @start-auto="startAutoRead" @stop-auto="stopAutoRead" />
- *    <ReadingModeMini :modes="modes" :bars-visible="barsVisible" />
- * 8. onBeforeUnmount: `modes.dispose()` (也会随组件作用域自动调用; 显式调用保证在 view.close() 之前清除隐藏)。
- * 9. 目录 / 搜索 / 书签 / 标注跳转前可调 `modes.pause()` (pauseWhen 已覆盖面板打开的情况)。
+ *
+ * 1. applyPrefs():
+ *    - `view.renderer.setAttribute('max-column-count', String(modes.forceSingleColumn.value ? 1 : prefs.maxColumnCount))`
+ *      (大字、歌词运行时强制单栏, 不改用户的双栏设置);
+ *    - 墨水屏去掉翻页动画: `modes.einkActive.value ? r.removeAttribute('animated') : r.setAttribute('animated', '')`;
+ *    - `getReaderCSS(prefsWithFont, appDark.value, modes.readerStyle.value)`;
+ *    - themeColors 改为 `resolveReaderColors(settings.reader.theme, appDark.value, modes.readerStyle.value)` (墨水屏纯黑白);
+ *    - 重排 watch 加上 `() => modes.renderKey.value`: `watch([() => settings.reader, appDark, () => modes.renderKey.value], …)`。
+ * 2. onRelocate(e): 开头 `modes.onRelocate(e.detail)`; 计时
+ *    `if (ttsState.value === 'playing' || modes.progressActive.value) pingReadingAuto() else pingReading()`;
+ *    沉浸时不要因 relocate 呼出工具栏。
+ * 3. onSectionLoad(e): 开头 `modes.onSectionLoad(e.detail)`。
+ * 4. onContentClick(clientX, doc, target, clientY): 选区 / 链接判断之后
+ *    `const tap = modes.onContentTap({ y: clientY }); if (tap) { tap === 'paused' ? showBars() : tap === 'menu' ? (barsVisible.value ? hideBars() : showBars()) : hideBars(); return }`
+ *    (需要把 iframe 内 click 的 clientY 传进来; 歌词按 y 判断点了哪一行 / 上下半屏)。
+ * 5. handleKeydown: 输入框判断之后第一行 `if (modes.handleKey(e)) return`
+ *    (M 面板; Shift+T 打字机; Shift+L 歌词; 运行中 空格 / 方向键 / J K / Shift+↑↓ / Esc)。
+ * 6. startAutoRead() 开头 `modes.stopForExternal('auto')`; startTTS() 开头 `modes.stopForExternal('tts')`
+ *    (旧名 stopTypewriterFor 仍可用)。听书开始时若歌词在跑, 歌词改为跟听书, 不会被停掉。
+ * 7. 听书 × 歌词 (跟读): onListenSentence 里拿到 range 之后
+ *    `if (modes.lyricFollowing.value) { modes.followRange(range); 画朗读高亮但不要 scrollToAnchor } else highlightListen(range)`;
+ *    听书暂停 / 继续时 `modes.setFollowPaused(paused)`; 停止听书时可调用 `modes.stopLyric()` (可选)。
+ * 8. 入口 / 面板 / 迷你条 / 外层 (模板):
+ *    <div class="reader" :class="[{ 'bars-on': barsVisible }, modes.shellClass.value]">
+ *    <ReadingModePanel v-if="modes.panelOpen.value" :modes="modes" :progress="readingModeProgress"
+ *      :auto-reading="autoReading" :tts-active="ttsState === 'playing'" v-model:auto-read-seconds="settings.autoReadSeconds"
+ *      @start-auto="startAutoRead" @stop-auto="stopAutoRead" @open-tts="openTTSPanel" @close="modes.closePanel()">
+ *      <template #top><DianjingToggle … /></template>
+ *    </ReadingModePanel>
+ *    <ReadingModeMini :modes="modes" :bars-visible="barsVisible" :progress="readingModeProgress" />
+ *    <ReadingModeLayer :modes="modes" :bars-visible="barsVisible" />   (调暗遮罩、休息提醒、「回到当前行」、全局模式样式)
+ *    readingModeProgress = 原 typewriterProgress, 条件改为 `modes.progressActive.value` (打字机与歌词共用 字/分);
+ *    按钮 active = `modes.panelOpen.value || autoReading.value || modes.progressActive.value`。
+ * 9. updateMarginals(): 按 `modes.marginalsPolicy.value` 取舍 —— head=false 时页眉不写章名, footLeft=false 时不写本章剩余,
+ *    footRight=false 时页脚整条留空 (沉浸 + 隐藏页码)。
+ * 10. 大字: `modes.largeUi.value` 时 (shellClass 已带 lr-large-ui, 工具栏按钮放大到 60px) 可把左 1/3 设为上一页、
+ *    右 2/3 为下一页 (§6.4, 可选)。
+ * 11. 墨水屏提示 (可选): `modes.einkSuggested.value` 时提示一次「要开启墨水屏吗？」, 同意调 `modes.toggleEink()`,
+ *    不论选什么都调 `modes.dismissEinkSuggestion()`。
+ * 12. onBeforeUnmount: `modes.dispose()` (退出歌词并恢复排版、清除所有阅读模式高亮、沉浸回调 false)。
  */
 import { computed, onScopeDispose, ref, shallowRef, watch } from 'vue'
 import { useSettings } from '../stores/settings'
 import { t } from '../i18n'
 import { toast } from '../services/toast'
-import type { ReaderThemeColors } from '../services/readerTheme'
+import type { ReaderModeStyle, ReaderThemeColors } from '../services/readerTheme'
 import {
   adjustSpeed as stepSpeed,
   clampSpeed,
@@ -53,11 +84,49 @@ import {
   type Script,
 } from '../services/readingModes/pacing'
 import { TypewriterController, type TypewriterConfig, type TypewriterHost, type TypewriterState } from '../services/readingModes/typewriter'
-import { clearReadingModeMarks } from '../services/readingModes/revealLayer'
+import { READING_MODE_PREFIXES, clearReadingModeMarks } from '../services/readingModes/revealLayer'
 import { createTypingSound, type TypingSound } from '../services/readingModes/sound'
+import {
+  LyricController,
+  type LyricConfig,
+  type LyricDriver,
+  type LyricHost,
+  type LyricSide,
+  type LyricState,
+} from '../services/readingModes/lyricController'
+import { estimateUnitsPerLine, secondsPerLine } from '../services/readingModes/lyric'
+import {
+  einkValues,
+  engagePreset,
+  holderOf,
+  isEyeCareTheme,
+  isNightTheme,
+  largeTextValues,
+  looksLikeEinkDevice,
+  lyricValues,
+  releasePreset,
+  sameValue,
+  themeAfterRelease,
+  type PresetValues,
+  type ThemeName,
+} from '../services/readingModes/presets'
+import {
+  afterReminder,
+  clampDim,
+  dimBackground,
+  inNightWindow,
+  minutesOfDay,
+  newBreakTimer,
+  nightScheduleAction,
+  noteActivity as noteBreakActivity,
+  reminderDue as isReminderDue,
+} from '../services/readingModes/eyeCare'
+import { WordGuideLayer } from '../services/readingModes/wordGuideLayer'
 
-export type ReadingModeTab = 'auto' | 'typewriter'
-export type { TypewriterState }
+/** 「带读」分段: 自动翻页 / 打字机 / 歌词 / 听书 */
+export type ReadingModeTab = 'auto' | 'typewriter' | 'lyric' | 'tts'
+export type GuideKind = 'typewriter' | 'lyric'
+export type { TypewriterState, LyricState, LyricDriver, LyricSide }
 
 export interface UseReadingModesOptions {
   /** foliate-view 元素 */
@@ -66,8 +135,14 @@ export interface UseReadingModesOptions {
   getColors: () => ReaderThemeColors
   /** 自动推进的阅读计时 (与听书同口径) */
   pingReadingAuto: () => void
-  /** 打字机开始前调用: 停止自动翻页、暂停听书 */
+  /** 界面是否为深色外观 (正文主题 auto 时夜间开关的判定) */
+  appDark?: () => boolean
+  /** 打字机 / 歌词开始前调用: 停止自动翻页、暂停听书 */
   onExclusiveStart?: () => void
+  /** 只停自动翻页 (歌词跟听书时不能停听书); 不传时退回 onExclusiveStart */
+  stopAutoRead?: () => void
+  /** 只暂停听书 */
+  pauseTTS?: () => void
   isAutoReading?: () => boolean
   isTTSActive?: () => boolean
   /** 返回 true 时 (面板、浮层、脚注弹层打开) 自动暂停 */
@@ -76,13 +151,29 @@ export interface UseReadingModesOptions {
   nextPage?: () => unknown
   /** 面板打开前调用 (收起其他浮层, 保持同一时间只开一个) */
   beforePanelOpen?: () => void
+  /** 沉浸开关变化 (含 setup 时已开启 → true、dispose → false): 阅读器隐藏系统栏、屏幕常亮 */
+  onImmersiveChange?: (on: boolean) => void
+  /** 页眉页脚要按 marginalsPolicy 重画 */
+  refreshMarginals?: () => void
+  /** 20-20-20 休息提醒出现 (打字机、歌词已自动暂停; 阅读器可暂停自动翻页) */
+  onReminder?: () => void
+  /** 跟听书时点了另一行: 阅读器让听书从这一行所在的句子开始读 */
+  onLyricSeek?: (range: Range) => void
+  /** 点睛阅读是否开启 (与仿生阅读互斥, 点睛优先) */
+  isDianjingActive?: () => boolean
+  /** 用户开启了仿生阅读: 阅读器关闭点睛阅读 */
+  onWordGuideEnabled?: () => void
 }
 
 const REDUCED_DEFAULT_KEY = 'lightread-reading-mode-reduced-default'
+const ACTIVITY_THROTTLE_MS = 10000
+const REMINDER_CHECK_MS = 30000
 
 export function useReadingModes(opts: UseReadingModesOptions) {
   const settings = useSettings()
   const tw = computed(() => settings.readingMode.typewriter)
+  const ly = computed(() => settings.readingMode.lyric)
+  const appDark = () => !!opts.appDark?.()
 
   const panelOpen = ref(false)
   const panelTab = ref<ReadingModeTab>('typewriter')
@@ -90,7 +181,7 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   const typewriterActive = computed(() => typewriterState.value !== 'idle')
   /** 书的主文字: 决定速度单位 (字/分 或 词/分) */
   const bookScript = ref<Script>('cjk')
-  /** 固定版式 (漫画、PDF 式 EPUB) 不支持打字机 */
+  /** 固定版式 (漫画、PDF 式 EPUB) 不支持打字机 / 歌词 / 仿生阅读 */
   const supported = ref(true)
   const reducedMotion = ref(false)
 
@@ -120,6 +211,167 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     }
   } catch { /* 存储或 matchMedia 不可用 */ }
 
+  // =====================================================================
+  // 预设 (夜间 / 护眼 / 墨水屏 / 大字 / 歌词): 快照与恢复, 见 services/readingModes/presets.ts
+  // =====================================================================
+
+  const read = (key: string): unknown => {
+    const [ns, k] = key.split('.')
+    if (ns === 'reader') return (settings.reader as any)[k]
+    if (ns === 'typewriter') return (settings.readingMode.typewriter as any)[k]
+    return undefined
+  }
+  const write = (vals: PresetValues) => {
+    for (const [key, v] of Object.entries(vals)) {
+      const [ns, k] = key.split('.')
+      const target: any = ns === 'reader' ? settings.reader : ns === 'typewriter' ? settings.readingMode.typewriter : null
+      if (target && !sameValue(target[k], v)) target[k] = v
+    }
+  }
+  /** 开启预设; 返回是否真的改了设置 */
+  function engage(id: string, values: PresetValues): boolean {
+    const { records, writes } = engagePreset(settings.readingMode.presets as any, id, values, read)
+    const changed = Object.entries(writes).some(([k, v]) => !sameValue(read(k), v))
+    write(writes)
+    settings.readingMode.presets = records as any
+    return changed
+  }
+  function release(id: string): PresetValues {
+    if (!settings.readingMode.presets[id]) return {}
+    const { records, writes, custom } = releasePreset(settings.readingMode.presets as any, id, read)
+    write(writes)
+    settings.readingMode.presets = records as any
+    return custom
+  }
+
+  // ---- 夜间 (手动开为预设 night, 定时开为 nightAuto: 离开时间段时只关定时开的那个, 重启后也认得) ----
+  const theme = computed(() => settings.reader.theme as ThemeName)
+  const nightOn = computed(() => isNightTheme(theme.value, appDark()))
+
+  function setNight(on: boolean, by: 'user' | 'schedule' = 'user') {
+    if (on === nightOn.value) return
+    if (on) {
+      engage(by === 'schedule' ? 'nightAuto' : 'night', { 'reader.theme': 'dark' })
+      return
+    }
+    for (const id of ['nightAuto', 'night']) {
+      if (settings.readingMode.presets[id] && theme.value === 'dark') release(id)
+    }
+    if (isNightTheme(theme.value, appDark())) settings.reader.theme = themeAfterRelease(theme.value, 'night', appDark())
+  }
+  function toggleNight() { setNight(!nightOn.value) }
+
+  // ---- 护眼: 暖色主题 + 应用内调暗 + 休息提醒 ----
+  const eyeCareOn = computed(() => isEyeCareTheme(theme.value))
+  function setEyeCare(on: boolean) {
+    if (on === eyeCareOn.value) return
+    if (on) {
+      engage('eyeCare', { 'reader.theme': settings.readingMode.eyeCare.theme })
+      breakTimer = newBreakTimer(Date.now())
+      return
+    }
+    if (settings.readingMode.presets.eyeCare && isEyeCareTheme(theme.value)) release('eyeCare')
+    if (isEyeCareTheme(theme.value)) settings.reader.theme = themeAfterRelease(theme.value, 'eyeCare', appDark())
+    reminderDue.value = false
+  }
+  function toggleEyeCare() { setEyeCare(!eyeCareOn.value) }
+  function setEyeCareTheme(v: 'sepia' | 'green') {
+    settings.readingMode.eyeCare.theme = v
+    if (eyeCareOn.value) engage('eyeCare', { 'reader.theme': v })
+  }
+
+  // 用户在设置里直接换了主题: 夜间 / 护眼的快照不再适用, 丢掉 (下次开关从当时的主题记起)
+  watch(theme, th => {
+    for (const id of ['night', 'nightAuto', 'eyeCare']) {
+      const cur = settings.readingMode.presets
+      const rec = cur[id]
+      if (rec && holderOf(cur as any, 'reader.theme') === id && th !== rec.applied['reader.theme']) {
+        const next = { ...cur }
+        delete next[id]
+        settings.readingMode.presets = next
+      }
+    }
+  })
+
+  const dimLevel = computed(() => (eyeCareOn.value ? clampDim(settings.readingMode.eyeCare.dim) : 0))
+  /** 调暗遮罩 (阅读器正文之上, pointer-events:none); 0 时为 null */
+  const dimOverlayStyle = computed(() => {
+    const bg = dimBackground(dimLevel.value)
+    return bg ? { background: bg } : null
+  })
+
+  // ---- 墨水屏 ----
+  const einkActive = computed(() => !!settings.readingMode.eink.enabled)
+  function setEink(on: boolean) {
+    if (on === einkActive.value) return
+    if (on) {
+      settings.readingMode.eink.enabled = true
+      engage('eink', einkValues(read))
+    } else {
+      release('eink')
+      settings.readingMode.eink.enabled = false
+    }
+    settings.readingMode.eink.suggestDismissed = true
+  }
+  function toggleEink() { setEink(!einkActive.value) }
+  const einkDevice = (() => {
+    try {
+      return looksLikeEinkDevice(navigator.userAgent, {
+        update: window.matchMedia?.('(update: slow)')?.matches ? 'slow' : undefined,
+        monochrome: !!window.matchMedia?.('(monochrome)')?.matches,
+      })
+    } catch {
+      return false
+    }
+  })()
+  /** 识别到墨水屏设备且用户还没处理过: 阅读器可提示一次「要开启墨水屏吗？」 */
+  const einkSuggested = computed(() => einkDevice && !settings.readingMode.eink.enabled && !settings.readingMode.eink.suggestDismissed)
+  function dismissEinkSuggestion() { settings.readingMode.eink.suggestDismissed = true }
+
+  // ---- 大字 ----
+  const largeTextOn = computed(() => !!settings.readingMode.largeText.enabled)
+  function setLargeText(on: boolean) {
+    if (on === largeTextOn.value) return
+    const lt = settings.readingMode.largeText
+    if (on) {
+      engage('largeText', largeTextValues(lt.size, lt.custom))
+      lt.enabled = true
+      return
+    }
+    const custom = release('largeText')
+    const keep: PresetValues = {}
+    for (const key of Object.keys(largeTextValues(lt.size))) if (key in custom) keep[key] = custom[key]
+    lt.custom = { ...lt.custom, ...keep }
+    lt.enabled = false
+  }
+  function toggleLargeText() { setLargeText(!largeTextOn.value) }
+  function setLargeTextSize(size: 'large' | 'xlarge') {
+    const lt = settings.readingMode.largeText
+    if (lt.size === size) return
+    lt.size = size
+    lt.custom = {}
+    if (lt.enabled) engage('largeText', largeTextValues(size))
+  }
+
+  // ---- 沉浸 ----
+  const immersive = computed(() => !!settings.readingMode.immersive.enabled)
+  function toggleImmersive() { settings.readingMode.immersive.enabled = !settings.readingMode.immersive.enabled }
+  /** 页眉页脚: 沉浸时不写章名与本章剩余; 再开「隐藏页码」连页脚也留空 */
+  const marginalsPolicy = computed(() => ({
+    head: !immersive.value,
+    footLeft: !immersive.value,
+    footRight: !(immersive.value && settings.readingMode.immersive.hideFooter),
+  }))
+  watch(immersive, on => {
+    opts.onImmersiveChange?.(on)
+    opts.refreshMarginals?.()
+  }, { immediate: immersive.value })
+  watch(() => settings.readingMode.immersive.hideFooter, () => opts.refreshMarginals?.())
+
+  // =====================================================================
+  // 带读: 打字机
+  // =====================================================================
+
   const config = (): TypewriterConfig => ({
     unit: tw.value.unit,
     unitsPerMinute: speed.value,
@@ -130,35 +382,40 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   })
 
   // ---- foliate 适配 ----
+  const renderer = () => opts.getView()?.renderer
   const host: TypewriterHost = {
     contents: () => {
-      const c = opts.getView()?.renderer?.getContents?.()?.[0]
+      const c = renderer()?.getContents?.()?.[0]
       return c?.doc ? c : null
     },
     visibleRange: () => opts.getView()?.lastLocation?.range ?? null,
-    scrolled: () => !!opts.getView()?.renderer?.scrolled,
+    scrolled: () => !!renderer()?.scrolled,
     atBookEnd: () => {
       const view = opts.getView()
       const r = view?.renderer
       if (!r) return true
       if (!r.scrolled) return !!r.atEnd
-      const index = host.contents()?.index ?? -1
-      const sections: any[] = view.book?.sections ?? []
-      return !sections.slice(index + 1).some(s => s?.linear !== 'no')
+      return lastSection()
     },
     nextPage: () => (opts.nextPage ? opts.nextPage() : opts.getView()?.next()),
-    nextSection: () => opts.getView()?.renderer?.nextSection?.(),
+    nextSection: () => renderer()?.nextSection?.(),
     scrollForward: px => {
-      const r = opts.getView()?.renderer
+      const r = renderer()
       // 只在本节内滚动: 到底时 renderer.next 会跨节, 交给节末逻辑
       if (r && r.viewSize - r.end > 2 && px > 0) void r.next(px)
     },
-    viewportRect: () => opts.getView()?.renderer?.getBoundingClientRect?.() ?? null,
+    viewportRect: () => renderer()?.getBoundingClientRect?.() ?? null,
     colors: () => opts.getColors(),
     lang: () => {
       const doc = host.contents()?.doc
       return doc?.documentElement?.lang || opts.getView()?.language?.canonical || (bookScript.value === 'cjk' ? 'zh' : 'en')
     },
+  }
+  function lastSection(): boolean {
+    const view = opts.getView()
+    const index = host.contents()?.index ?? -1
+    const sections: any[] = view?.book?.sections ?? []
+    return !sections.slice(index + 1).some(s => s?.linear !== 'no')
   }
 
   let sound: TypingSound | null = null
@@ -171,11 +428,7 @@ export function useReadingModes(opts: UseReadingModesOptions) {
       controller.value = new TypewriterController(host, config(), {
         onState: s => { typewriterState.value = s },
         onAdvance: ticks => {
-          const now = Date.now()
-          if (now - lastPing > 1000) {
-            lastPing = now
-            opts.pingReadingAuto()
-          }
+          pingAuto()
           if (!tw.value.sound || ticks <= 0 || opts.isTTSActive?.()) return
           soundCount += ticks
           if (soundCount >= soundEvery(speed.value)) {
@@ -192,6 +445,16 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     return controller.value
   }
 
+  /** 带读推进时的阅读计时 (与听书同口径), 顺带记一次休息提醒的阅读活动 */
+  function pingAuto() {
+    const now = Date.now()
+    if (now - lastPing > 1000) {
+      lastPing = now
+      opts.pingReadingAuto()
+      noteActivity()
+    }
+  }
+
   const refreshBookInfo = () => {
     const view = opts.getView()
     supported.value = !!view && !view.isFixedLayout
@@ -206,22 +469,25 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     watchedDocs.add(doc)
     doc.addEventListener('selectionchange', () => {
       const c = controller.value
-      if (!c?.active || c.doc !== doc) return
       const sel = doc.getSelection()
       if (!sel || sel.isCollapsed || !sel.rangeCount) return
-      // 长按选字: 暂停, 选区越过光标时把光标推进到选区末尾
+      // 长按选字: 歌词暂停
+      if (lyric.value?.active && lyric.value.doc === doc) pauseLyric()
+      if (!c?.active || c.doc !== doc) return
+      // 打字机: 暂停, 选区越过光标时把光标推进到选区末尾
       c.pause()
       c.revealSelection(sel.getRangeAt(0))
     })
   }
 
-  // ---- 打字机控制 ----
+  /** 开始打字机 (从本页开始); 互斥: 停自动翻页、暂停听书、退出歌词 */
   function start(): boolean {
     refreshBookInfo()
     if (!supported.value) {
       toast(t('readingMode.fixedLayoutUnsupported'), 'error')
       return false
     }
+    if (lyricActive.value) stopLyric()
     const hadAuto = !!opts.isAutoReading?.()
     const hadTTS = !!opts.isTTSActive?.()
     opts.onExclusiveStart?.()
@@ -240,30 +506,305 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     return ok
   }
 
-  function pause() { controller.value?.pause() }
-  function resume() { controller.value?.resume() }
-  function stop() { controller.value?.stop() }
-
-  function togglePause() {
-    const s = typewriterState.value
-    if (s === 'running' || s === 'turning') pause()
-    else if (s === 'paused') {
-      panelOpen.value = false
-      resume()
-    }
-  }
-
   function toggleTypewriter() {
-    if (typewriterActive.value) stop()
+    if (typewriterActive.value) controller.value?.stop()
     else start()
   }
 
-  /** 另一种自动推进 (自动翻页 / 听书) 开始前调用: 退出打字机并提示 */
-  function stopTypewriterFor(_reason: 'auto' | 'tts') {
-    if (!typewriterActive.value) return
-    stop()
-    toast(t('readingMode.typewriterStopped'))
+  // =====================================================================
+  // 带读: 歌词
+  // =====================================================================
+
+  const lyric = shallowRef<LyricController | null>(null)
+  const lyricState = ref<LyricState>('idle')
+  /** 切换排版、等待重排的那一小段时间 */
+  const lyricStarting = ref(false)
+  const lyricActive = computed(() => lyricState.value !== 'idle' || lyricStarting.value)
+  /** 运行中的驱动 (听书开始后会从「自动」临时改为「跟听书」, 不改设置) */
+  const lyricDriver = ref<LyricDriver>(settings.readingMode.lyric.driver)
+  const lyricFollowing = computed(() => lyricActive.value && lyricDriver.value === 'tts')
+  /** 手动滚动后当前行在视口哪一侧; null 为正常跟随 */
+  const lyricDetached = ref<LyricSide | null>(null)
+  const lyricUnitsPerLine = ref(0)
+  let lyricToken = 0
+
+  const lyricConfig = (): LyricConfig => ({
+    lines: ly.value.lines,
+    others: ly.value.others,
+    anchor: ly.value.anchor,
+    driver: lyricDriver.value,
+    unitsPerMinute: speed.value,
+    punctuationPause: tw.value.punctuationPause,
+    smooth: !reducedMotion.value && !einkActive.value,
+    eink: einkActive.value,
+  })
+
+  const lyricHost: LyricHost = {
+    contents: host.contents,
+    visibleRange: host.visibleRange,
+    viewportRect: host.viewportRect,
+    getScroll: () => renderer()?.start ?? 0,
+    setScroll: px => {
+      const r = renderer()
+      if (r) r.containerPosition = px
+    },
+    maxScroll: () => {
+      const r = renderer()
+      return r ? Math.max(0, (r.viewSize ?? 0) - (r.size ?? 0)) : 0
+    },
+    nextSection: () => renderer()?.nextSection?.(),
+    atBookEnd: lastSection,
+    colors: () => opts.getColors(),
+    lang: host.lang,
   }
+
+  const ensureLyric = () => {
+    if (!lyric.value) {
+      lyric.value = new LyricController(lyricHost, lyricConfig(), {
+        onState: s => { lyricState.value = s },
+        onLine: () => pingAuto(),
+        onDetach: side => { lyricDetached.value = side },
+        onSeek: range => opts.onLyricSeek?.(range),
+        onMeasure: units => { lyricUnitsPerLine.value = units },
+        onFinish: reason => {
+          if (reason === 'book-end') toast(t('readingMode.bookEnd'), 'success')
+          else toast(t('readingMode.lyricError'), 'error', 4000)
+          restoreLyricLayout(null)
+        },
+      })
+    }
+    return lyric.value
+  }
+
+  // 渲染器的滚动事件: 歌词据此区分用户手动滚动
+  let scrollTarget: EventTarget | null = null
+  const onRendererScroll = () => lyric.value?.onScroll()
+  function listenScroll(on: boolean) {
+    try { scrollTarget?.removeEventListener('scroll', onRendererScroll) } catch { /* 忽略 */ }
+    scrollTarget = null
+    const r = renderer()
+    if (on && r?.addEventListener) {
+      r.addEventListener('scroll', onRendererScroll)
+      scrollTarget = r
+    }
+  }
+
+  // 等排版切换生效: relocate 到来 (或超时)
+  let relocateWaiters: Array<() => void> = []
+  function waitRelocate(ms: number): Promise<void> {
+    return new Promise(resolve => {
+      const done = () => {
+        clearTimeout(timer)
+        relocateWaiters = relocateWaiters.filter(w => w !== done)
+        resolve()
+      }
+      const timer = setTimeout(done, ms)
+      relocateWaiters.push(done)
+    })
+  }
+  const nextFrame = () => new Promise<void>(r => requestAnimationFrame(() => r()))
+
+  /**
+   * 开始歌词。driver 不传时: 听书正在播放 → 跟听书, 否则用设置里的驱动。
+   * 互斥: 退出打字机、停自动翻页; 非跟听书时暂停听书。临时切到滚动排版 (歌词预设), 退出时恢复。
+   */
+  async function startLyric(driver?: LyricDriver): Promise<boolean> {
+    refreshBookInfo()
+    if (!supported.value) {
+      toast(t('readingMode.lyricFixedLayout'), 'error')
+      return false
+    }
+    if (lyricActive.value) return true
+    const ttsOn = !!opts.isTTSActive?.()
+    const drv: LyricDriver = driver ?? (ttsOn ? 'tts' : ly.value.driver)
+    if (typewriterActive.value) controller.value?.stop()
+    if (opts.isAutoReading?.()) {
+      if (opts.stopAutoRead) opts.stopAutoRead()
+      else if (!ttsOn) opts.onExclusiveStart?.()
+      toast(t('readingMode.autoStopped'))
+    }
+    if (drv !== 'tts' && ttsOn) {
+      if (opts.pauseTTS) opts.pauseTTS()
+      else opts.onExclusiveStart?.()
+      toast(t('readingMode.ttsPaused'))
+    } else if (drv === 'tts' && !ttsOn) toast(t('readingMode.lyricWaitTts'))
+    panelOpen.value = false
+    const token = ++lyricToken
+    const vis = host.visibleRange()
+    const from = vis ? vis.cloneRange() : null
+    lyricDriver.value = drv
+    lyricStarting.value = true
+    try {
+      const changed = engage('lyric', lyricValues(read, ly.value.scale))
+      if (changed) {
+        // ReaderView 的 applyPrefs 有 120ms 防抖, 之后 foliate 重排并 relocate
+        await waitRelocate(1500)
+        for (let i = 0; i < 20 && !renderer()?.scrolled; i++) await waitRelocate(100)
+        await nextFrame()
+        await nextFrame()
+      }
+    } catch (e) {
+      console.warn('lyric: layout switch failed', e)
+    }
+    if (token !== lyricToken) return false
+    lyricStarting.value = false
+    if (!renderer()?.scrolled) {
+      restoreLyricLayout(null)
+      toast(t('readingMode.lyricStartFailed'), 'error')
+      return false
+    }
+    const c = ensureLyric()
+    c.setConfig(lyricConfig())
+    listenScroll(true)
+    ensureDocListeners(host.contents()?.doc)
+    const startFrom = from && from.startContainer?.ownerDocument === host.contents()?.doc ? from : null
+    const ok = c.start(startFrom)
+    if (!ok) {
+      listenScroll(false)
+      restoreLyricLayout(null)
+      toast(t('readingMode.lyricStartFailed'), 'error')
+    }
+    return ok
+  }
+
+  /** 恢复排版: 先让渲染器以当前行为锚点, 再撤销歌词预设 (切回分页后停在这一行所在的页) */
+  function restoreLyricLayout(range: Range | null) {
+    listenScroll(false)
+    lyricDetached.value = null
+    if (!settings.readingMode.presets.lyric) return
+    try { if (range) void renderer()?.scrollToAnchor?.(range) } catch { /* 忽略 */ }
+    release('lyric')
+  }
+
+  function stopLyric() {
+    lyricToken++
+    const wasStarting = lyricStarting.value
+    lyricStarting.value = false
+    const c = lyric.value
+    const range = c?.active ? c.currentRange() : null
+    c?.stop()
+    if (wasStarting || range || settings.readingMode.presets.lyric) restoreLyricLayout(range)
+    lyricDriver.value = settings.readingMode.lyric.driver
+  }
+
+  function toggleLyric(driver?: LyricDriver) {
+    if (lyricActive.value) stopLyric()
+    else void startLyric(driver)
+  }
+
+  function pauseLyric() {
+    const c = lyric.value
+    if (!c?.active || lyricDriver.value !== 'pace') return
+    c.pause()
+  }
+
+  /** 跟听书: 阅读器在每句开始出声时传入这一句的 Range */
+  function followRange(range: Range) {
+    if (!lyricFollowing.value) return
+    lyric.value?.followRange(range)
+  }
+  function setFollowPaused(paused: boolean) { lyric.value?.setFollowPaused(paused) }
+  function lyricNext() { lyric.value?.next() }
+  function lyricPrev() { lyric.value?.prev() }
+  function returnToCurrentLine() { lyric.value?.returnToCurrent() }
+
+  /** 面板上的「≈ 2.6 秒/行」: 测量后用实测每行字当量, 之前按视口宽度和字号估计 */
+  const lyricSecondsPerLine = computed(() => {
+    let units = lyricUnitsPerLine.value
+    if (!units) {
+      const w = host.viewportRect()?.width || window.innerWidth || 375
+      const est = estimateUnitsPerLine(w, settings.reader.fontSize * ly.value.scale, settings.reader.gap, settings.reader.letterSpacing)
+      units = bookScript.value === 'cjk' ? est : Math.max(2, Math.round(est * 2 / 5))
+    }
+    return secondsPerLine(units, speed.value)
+  })
+
+  watch(
+    () => [ly.value.lines, ly.value.others, ly.value.anchor, speed.value, tw.value.punctuationPause, reducedMotion.value, einkActive.value],
+    () => lyric.value?.setConfig(lyricConfig()),
+  )
+  // 运行中改驱动: 跟设置走; 改为非跟听书且听书在播放时暂停听书
+  watch(() => ly.value.driver, d => {
+    if (!lyricActive.value) {
+      lyricDriver.value = d
+      return
+    }
+    if (d !== 'tts' && opts.isTTSActive?.()) {
+      opts.pauseTTS?.()
+      toast(t('readingMode.ttsPaused'))
+    } else if (d === 'tts' && !opts.isTTSActive?.()) toast(t('readingMode.lyricWaitTts'))
+    lyricDriver.value = d
+    lyric.value?.setConfig({ driver: d })
+  })
+  // 歌词字号变化: 运行中重新套用预设
+  watch(() => ly.value.scale, () => {
+    if (lyricActive.value && settings.readingMode.presets.lyric) {
+      const before = settings.readingMode.presets.lyric.before
+      const base = (key: string) => (key in before ? before[key] : read(key))
+      engage('lyric', lyricValues(base, ly.value.scale))
+    }
+  })
+
+  // =====================================================================
+  // 带读的统一控制 (迷你条、面板、快捷键、自动暂停)
+  // =====================================================================
+
+  const activeGuide = computed<GuideKind | null>(() => (typewriterActive.value ? 'typewriter' : lyricActive.value ? 'lyric' : null))
+  /** 打字机或歌词在运行: 阅读器据此计算进度 / 剩余时间 (两者共用 字/分) */
+  const progressActive = computed(() => activeGuide.value !== null)
+  /** 统一的运行状态 (迷你条用) */
+  const guideState = computed<'idle' | 'running' | 'paused' | 'turning'>(() => {
+    if (typewriterActive.value) return typewriterState.value
+    if (lyricStarting.value) return 'running'
+    return lyricState.value
+  })
+
+  function pause() {
+    controller.value?.pause()
+    pauseLyric()
+  }
+  function resume() {
+    if (typewriterActive.value) controller.value?.resume()
+    else lyric.value?.resume()
+  }
+  function stop() {
+    controller.value?.stop()
+    if (lyricActive.value) stopLyric()
+  }
+  function togglePause() {
+    if (typewriterActive.value) {
+      const s = typewriterState.value
+      if (s === 'running' || s === 'turning') controller.value?.pause()
+      else if (s === 'paused') {
+        panelOpen.value = false
+        controller.value?.resume()
+      }
+      return
+    }
+    if (lyricActive.value) {
+      if (lyricState.value === 'paused') panelOpen.value = false
+      lyric.value?.togglePause()
+    }
+  }
+
+  /** 另一种带读 (自动翻页 / 听书) 开始前调用: 退出打字机; 自动翻页还会退出歌词, 听书则让歌词改为跟听书 */
+  function stopForExternal(kind: 'auto' | 'tts') {
+    if (typewriterActive.value) {
+      controller.value?.stop()
+      toast(t('readingMode.typewriterStopped'))
+    }
+    if (!lyricActive.value) return
+    if (kind === 'auto') {
+      stopLyric()
+      toast(t('readingMode.lyricStopped'))
+    } else if (lyricDriver.value !== 'tts') {
+      lyricDriver.value = 'tts'
+      lyric.value?.setConfig({ driver: 'tts' })
+      toast(t('readingMode.lyricFollowTts'))
+    }
+  }
+  /** 旧名 (v1.6 接线) */
+  const stopTypewriterFor = stopForExternal
 
   function adjustSpeed(dir: 1 | -1) {
     speed.value = clampSpeed(stepSpeed(speed.value, dir), bookScript.value)
@@ -275,6 +816,7 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     refreshBookInfo()
     if (tab) panelTab.value = tab
     else if (typewriterActive.value) panelTab.value = 'typewriter'
+    else if (lyricActive.value) panelTab.value = 'lyric'
     else if (opts.isAutoReading?.()) panelTab.value = 'auto'
     panelOpen.value = true
   }
@@ -298,7 +840,10 @@ export function useReadingModes(opts: UseReadingModesOptions) {
       sound.warm()
     }
   })
-  watch(() => opts.getColors(), () => controller.value?.refreshColors())
+  watch(() => opts.getColors(), () => {
+    controller.value?.refreshColors()
+    lyric.value?.refreshColors()
+  })
 
   // 切到后台 / 页面隐藏: 暂停
   const onVisibility = () => { if (document.hidden) pause() }
@@ -306,10 +851,159 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   document.addEventListener('visibilitychange', onVisibility)
   window.addEventListener('pagehide', onPageHide)
 
-  // ---- ReaderView 事件 ----
+  // =====================================================================
+  // 双栏、正文样式、外壳类名
+  // =====================================================================
+
+  /** 大字、歌词运行时强制单栏 (不改用户的双栏设置) */
+  const forceSingleColumn = computed(() => largeTextOn.value || lyricActive.value)
+  const twoColumnsOn = computed(() => settings.reader.maxColumnCount === 2)
+  function toggleTwoColumns() {
+    if (forceSingleColumn.value) {
+      toast(t('readingMode.twoColumnsBlocked'))
+      return
+    }
+    settings.reader.maxColumnCount = settings.reader.maxColumnCount === 2 ? 1 : 2
+  }
+
+  /** 传给 getReaderCSS / resolveReaderColors 的附加样式 */
+  const readerStyle = computed<ReaderModeStyle>(() => ({ eink: einkActive.value, largeText: largeTextOn.value }))
+  /** 影响排版 / 样式的模式状态: 阅读器 watch 它来重新 applyPrefs */
+  const renderKey = computed(() => `${einkActive.value ? 1 : 0}${largeTextOn.value ? 1 : 0}${forceSingleColumn.value ? 1 : 0}`)
+  /** 阅读器根元素的类名 (样式在 ReadingModeLayer.vue 里) */
+  const shellClass = computed(() => ({
+    'lr-eink': einkActive.value,
+    'lr-large-ui': largeTextOn.value,
+    'lr-immersive': immersive.value,
+  }))
+  const largeUi = largeTextOn
+
+  // =====================================================================
+  // 仿生阅读 (实验)
+  // =====================================================================
+
+  const dianjingOn = computed(() => !!opts.isDianjingActive?.())
+  /** Highlight API 可用 (旧 WebView 不提供仿生阅读) */
+  const wordGuideSupported = ref(true)
+  const wordGuideActive = computed(() => !!settings.readingMode.wordGuide.enabled && !dianjingOn.value && supported.value)
+  /** 已开启但被点睛阅读压住 (点睛优先) */
+  const wordGuideBlocked = computed(() => !!settings.readingMode.wordGuide.enabled && dianjingOn.value)
+  let wgLayer: WordGuideLayer | null = null
+
+  const wgOptions = () => ({
+    style: settings.readingMode.wordGuide.style,
+    strength: settings.readingMode.wordGuide.strength,
+    lang: host.lang(),
+  })
+
+  function syncWordGuide(doc?: Document | null, visible?: Range | null) {
+    try {
+      if (!wordGuideActive.value) {
+        wgLayer?.dispose()
+        wgLayer = null
+        return
+      }
+      const d = doc ?? host.contents()?.doc
+      if (!d) return
+      if (wgLayer?.doc !== d) {
+        wgLayer?.dispose()
+        wgLayer = WordGuideLayer.create(d, wgOptions())
+        wordGuideSupported.value = !!wgLayer
+      }
+      wgLayer?.update(visible === undefined ? host.visibleRange() : visible)
+    } catch (e) {
+      console.warn('word guide failed', e)
+    }
+  }
+
+  function setWordGuide(on: boolean) {
+    settings.readingMode.wordGuide.enabled = on
+    if (on) opts.onWordGuideEnabled?.()
+  }
+  function toggleWordGuide() { setWordGuide(!settings.readingMode.wordGuide.enabled) }
+
+  watch(wordGuideActive, () => syncWordGuide())
+  watch(
+    () => [settings.readingMode.wordGuide.style, settings.readingMode.wordGuide.strength],
+    () => {
+      wgLayer?.setOptions(wgOptions())
+      syncWordGuide()
+    },
+  )
+
+  // =====================================================================
+  // 休息提醒 (20-20-20) 与夜间定时
+  // =====================================================================
+
+  let breakTimer = newBreakTimer(Date.now())
+  let lastActivity = 0
+  /** 休息提醒正在显示 */
+  const reminderDue = ref(false)
+
+  /** 记一次阅读活动 (翻页、轻点、带读推进), 10 秒节流 */
+  function noteActivity() {
+    const now = Date.now()
+    if (now - lastActivity < ACTIVITY_THROTTLE_MS) return
+    if (typeof document !== 'undefined' && document.hidden) return
+    lastActivity = now
+    breakTimer = noteBreakActivity(breakTimer, now)
+  }
+
+  function checkReminder() {
+    const e = settings.readingMode.eyeCare
+    if (!eyeCareOn.value || !e.reminder || reminderDue.value) return
+    if (!isReminderDue(breakTimer, Date.now(), e.intervalMin)) return
+    reminderDue.value = true
+    pause()
+    opts.onReminder?.()
+  }
+
+  /** 处理休息提醒: done 休息完 / skip 跳过 / snooze 30 分钟内不再提醒 */
+  function dismissReminder(action: 'done' | 'skip' | 'snooze' = 'done') {
+    breakTimer = afterReminder(breakTimer, Date.now(), action)
+    reminderDue.value = false
+  }
+
+  let prevInWindow: boolean | null = null
+  function checkNight() {
+    const n = settings.readingMode.night
+    if (!n.schedule) {
+      prevInWindow = null
+      return
+    }
+    const inWindow = inNightWindow(minutesOfDay(new Date()), n.from, n.to)
+    const autoApplied = !!settings.readingMode.presets.nightAuto
+    const action = nightScheduleAction({ inWindow, prevIn: prevInWindow, nightOn: nightOn.value, autoApplied })
+    prevInWindow = inWindow
+    if (action === 'on') setNight(true, 'schedule')
+    else if (action === 'off') setNight(false)
+  }
+  watch(() => [settings.readingMode.night.schedule, settings.readingMode.night.from, settings.readingMode.night.to], () => {
+    prevInWindow = null
+    checkNight()
+  })
+  const minuteTimer = setInterval(() => {
+    checkReminder()
+    checkNight()
+  }, REMINDER_CHECK_MS)
+  checkNight()
+
+  // 上次异常退出时残留的歌词排版 (切成滚动、放大字号): 恢复
+  if (settings.readingMode.presets.lyric) release('lyric')
+
+  // =====================================================================
+  // ReaderView 事件
+  // =====================================================================
+
   /** foliate relocate 的 e.detail */
-  function onRelocate(detail: { range?: Range | null } | null | undefined) {
+  function onRelocate(detail: { range?: Range | null; reason?: string } | null | undefined) {
+    const waiters = relocateWaiters
+    relocateWaiters = []
+    for (const w of waiters) w()
     controller.value?.onRelocate(detail?.range ?? null)
+    lyric.value?.onRelocate(detail)
+    if (wordGuideActive.value) syncWordGuide(detail?.range?.startContainer?.ownerDocument ?? null, detail?.range ?? null)
+    if (detail?.reason !== 'scroll' || !lyricActive.value) noteActivity()
   }
 
   /** foliate load 的 e.detail */
@@ -317,21 +1011,30 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     if (!detail?.doc) return
     ensureDocListeners(detail.doc)
     controller.value?.onSectionLoad(detail.doc, detail.index)
+    lyric.value?.onSectionLoad(detail.doc, detail.index)
+    if (wordGuideActive.value) syncWordGuide(detail.doc, null)
   }
 
   /**
-   * 轻点正文。打字机未启用时返回 false (按原逻辑翻页 / 呼出工具栏);
-   * 启用时轻点任意位置切换暂停 / 继续, 返回 'paused' 或 'resumed' (不翻页, 防误触)。
+   * 轻点正文。带读未运行时返回 false (按原逻辑翻页 / 呼出工具栏)。
+   * - 打字机: 轻点任意位置切换暂停 / 继续 → 'paused' | 'resumed' (不翻页, 防误触);
+   * - 歌词: 传入点在分节文档里的 y (iframe 内 clientY): 点淡显的行跳过去、手动驱动按上下半屏前后一行 → 'moved';
+   *   自动驱动切换暂停 → 'paused' | 'resumed'; 跟听书 → 'menu' (阅读器切换工具栏)。
    */
-  function onContentTap(): false | 'paused' | 'resumed' {
+  function onContentTap(at?: { y?: number | null } | null): false | 'paused' | 'resumed' | 'moved' | 'menu' {
+    noteActivity()
     const s = typewriterState.value
-    if (s === 'idle') return false
-    if (s === 'paused') {
-      resume()
-      return 'resumed'
+    if (s !== 'idle') {
+      if (s === 'paused') {
+        controller.value?.resume()
+        return 'resumed'
+      }
+      controller.value?.pause()
+      return 'paused'
     }
-    pause()
-    return 'paused'
+    if (lyricStarting.value) return 'menu'
+    if (lyric.value?.active) return lyric.value.tap(at?.y ?? null)
+    return false
   }
 
   /** 键盘; 返回 true 表示已处理 (调用方直接 return) */
@@ -339,6 +1042,7 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return false
     const el = e.target as HTMLElement | null
     if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName ?? ''))) return false
+    noteActivity()
     const key = e.key
     const consume = () => { e.preventDefault(); return true }
     if ((key === 'm' || key === 'M') && !e.shiftKey) {
@@ -349,10 +1053,15 @@ export function useReadingModes(opts: UseReadingModesOptions) {
       toggleTypewriter()
       return consume()
     }
-    if (key === 'Escape' && panelOpen.value && !typewriterActive.value) {
+    if ((key === 'L' || key === 'l') && e.shiftKey) {
+      toggleLyric()
+      return consume()
+    }
+    if (key === 'Escape' && panelOpen.value && !progressActive.value) {
       closePanel()
       return false
     }
+    if (lyricActive.value) return handleLyricKey(e, consume)
     if (!typewriterActive.value) return false
     const c = controller.value!
     if (key === ' ' || key === 'Spacebar') {
@@ -376,9 +1085,41 @@ export function useReadingModes(opts: UseReadingModesOptions) {
       return consume()
     }
     if (key === 'Escape') {
-      stop()
+      c.stop()
       closePanel()
       return false // 让 ReaderView 继续处理 Esc (收起其他面板等)
+    }
+    return false
+  }
+
+  function handleLyricKey(e: KeyboardEvent, consume: () => boolean): boolean {
+    const key = e.key
+    if (key === 'Escape') {
+      stopLyric()
+      closePanel()
+      return false
+    }
+    if (e.shiftKey && key === 'ArrowUp') {
+      adjustSpeed(1)
+      return consume()
+    }
+    if (e.shiftKey && key === 'ArrowDown') {
+      adjustSpeed(-1)
+      return consume()
+    }
+    if (e.shiftKey) return false
+    if (key === ' ' || key === 'Spacebar') {
+      if (lyricDriver.value === 'pace') togglePause()
+      else if (lyricDriver.value === 'manual') lyricNext()
+      return consume()
+    }
+    if (key === 'ArrowDown' || key === 'ArrowRight' || key === 'j' || key === 'J' || key === 'PageDown') {
+      lyricNext()
+      return consume()
+    }
+    if (key === 'ArrowUp' || key === 'ArrowLeft' || key === 'k' || key === 'K' || key === 'PageUp') {
+      lyricPrev()
+      return consume()
     }
     return false
   }
@@ -389,23 +1130,28 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     disposed = true
     controller.value?.dispose()
     controller.value = null
+    if (lyricActive.value || settings.readingMode.presets.lyric) stopLyric()
+    lyric.value?.dispose()
+    lyric.value = null
+    wgLayer?.dispose()
+    wgLayer = null
     sound?.dispose()
     sound = null
+    clearInterval(minuteTimer)
     document.removeEventListener('visibilitychange', onVisibility)
     window.removeEventListener('pagehide', onPageHide)
     motionQuery?.removeEventListener?.('change', onMotionChange)
+    if (immersive.value) opts.onImmersiveChange?.(false)
     try {
-      for (const c of opts.getView()?.renderer?.getContents?.() ?? []) clearReadingModeMarks(c?.doc)
+      for (const c of opts.getView()?.renderer?.getContents?.() ?? []) clearReadingModeMarks(c?.doc, READING_MODE_PREFIXES)
     } catch { /* 已卸载 */ }
   }
   onScopeDispose(dispose)
 
   return {
-    // 状态
+    // ---- 通用状态 ----
     panelOpen,
     panelTab,
-    typewriterState,
-    typewriterActive,
     supported,
     reducedMotion,
     bookScript,
@@ -414,20 +1160,84 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     speedText,
     speedLimits,
     presets,
-    // 面板
+    // ---- 面板 ----
     openPanel,
     closePanel,
     togglePanel,
-    // 打字机
-    start,
+    // ---- 显示: 夜间 / 护眼 / 墨水屏 / 大字 ----
+    nightOn,
+    toggleNight,
+    setNight,
+    eyeCareOn,
+    toggleEyeCare,
+    setEyeCare,
+    setEyeCareTheme,
+    dimLevel,
+    dimOverlayStyle,
+    einkActive,
+    toggleEink,
+    setEink,
+    einkSuggested,
+    dismissEinkSuggestion,
+    largeTextOn,
+    largeUi,
+    toggleLargeText,
+    setLargeText,
+    setLargeTextSize,
+    readerStyle,
+    renderKey,
+    shellClass,
+    // ---- 版面: 沉浸 / 双栏 ----
+    immersive,
+    toggleImmersive,
+    marginalsPolicy,
+    forceSingleColumn,
+    twoColumnsOn,
+    toggleTwoColumns,
+    // ---- 带读: 统一控制 ----
+    activeGuide,
+    progressActive,
+    guideState,
     pause,
     resume,
     stop,
     togglePause,
-    toggleTypewriter,
-    stopTypewriterFor,
     adjustSpeed,
-    // ReaderView 事件
+    stopForExternal,
+    stopTypewriterFor,
+    // ---- 打字机 ----
+    typewriterState,
+    typewriterActive,
+    start,
+    startTypewriter: start,
+    toggleTypewriter,
+    // ---- 歌词 ----
+    lyricState,
+    lyricActive,
+    lyricStarting,
+    lyricDriver,
+    lyricFollowing,
+    lyricDetached,
+    lyricSecondsPerLine,
+    startLyric,
+    stopLyric,
+    toggleLyric,
+    lyricNext,
+    lyricPrev,
+    returnToCurrentLine,
+    followRange,
+    setFollowPaused,
+    // ---- 仿生阅读 ----
+    wordGuideActive,
+    wordGuideBlocked,
+    wordGuideSupported,
+    setWordGuide,
+    toggleWordGuide,
+    // ---- 休息提醒 ----
+    reminderDue,
+    dismissReminder,
+    noteActivity,
+    // ---- ReaderView 事件 ----
     onRelocate,
     onSectionLoad,
     onContentTap,

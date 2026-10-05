@@ -12,6 +12,9 @@ const SIDES: Side[] = ['top', 'right', 'bottom', 'left']
 interface AndroidBridge {
   get(): string
   setBarsDark(dark: boolean): void
+  /** 1.7.0 起: 沉浸阅读隐藏系统栏 / 常亮 (旧版原生壳没有, 调用前判断) */
+  setImmersive?(on: boolean): void
+  setKeepScreenOn?(on: boolean): void
 }
 
 function bridge(): AndroidBridge | undefined {
@@ -59,4 +62,25 @@ export function setAppBarsDark(dark: boolean) {
 export function setPageBarsDark(dark: boolean | null) {
   pageDark = dark
   syncBars()
+}
+
+/** 沉浸阅读: 安卓隐藏状态栏与导航栏 (边缘滑动临时呼出); 其他平台空操作 */
+export function setSystemBarsHidden(hidden: boolean) {
+  try { bridge()?.setImmersive?.(hidden) } catch { /* 旧原生壳 */ }
+}
+
+/**
+ * 阅读时屏幕常亮。安卓走原生 FLAG_KEEP_SCREEN_ON; 网页 / 桌面用 Screen Wake Lock API (支持时)。
+ */
+let wakeLock: { release(): Promise<void> } | null = null
+export async function setKeepScreenOn(on: boolean) {
+  const b = bridge()
+  if (b?.setKeepScreenOn) {
+    try { b.setKeepScreenOn(on) } catch { /* 忽略 */ }
+    return
+  }
+  try {
+    if (on && !wakeLock) wakeLock = await (navigator as any).wakeLock?.request('screen') ?? null
+    else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null }
+  } catch { wakeLock = null }
 }
