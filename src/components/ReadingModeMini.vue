@@ -7,11 +7,14 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { t } from '../i18n'
 import type { ReadingModes } from '../composables/useReadingModes'
+import type { ReadingModeProgress } from '../services/readingModes/progress'
 
 const props = defineProps<{
   modes: ReadingModes
   /** 阅读器工具栏是否显示 (ReaderView 的 barsVisible) */
   barsVisible?: boolean
+  /** 读到哪 / 还要多久 (阅读器计算) */
+  progress?: ReadingModeProgress | null
 }>()
 
 const state = computed(() => props.modes.typewriterState.value)
@@ -59,7 +62,9 @@ onBeforeUnmount(() => clearTimeout(fadeTimer))
     </button>
     <span class="rm-mini-status" aria-live="polite">
       <span class="rm-mini-state">{{ statusText }}</span>
-      <span class="rm-mini-speed">{{ modes.speedText.value }}</span>
+      <span class="rm-mini-speed">
+        {{ modes.speedText.value }}<template v-if="progress"> · {{ progress.chapterLeftShort ? t('readingMode.miniLeft', { time: progress.chapterLeftShort }) : progress.percent }}</template>
+      </span>
     </span>
     <button
       type="button"

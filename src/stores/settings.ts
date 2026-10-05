@@ -65,7 +65,7 @@ export interface ReadingModePrefs {
 }
 
 /** 结构版本: 修正历史默认值时递增 */
-const SETTINGS_VERSION = 10
+const SETTINGS_VERSION = 11
 
 /** v3 时代曾并入用户设置的内置书库 (v4 起社区清单独立远程拉取, 此表仅供迁移清理) */
 const BUILTIN_BOOK_REPOS = [
@@ -167,7 +167,7 @@ const defaults: SettingsState = {
   ttsEngine: 'edge',
   ttsRate: 1,
   ttsVoice: '',
-  edgeVoice: 'zh-CN-XiaoxiaoNeural',
+  edgeVoice: 'zh-TW-HsiaoChenNeural',
   localVoiceId: 50,
   corsProxy: '',
   httpProxy: '',
@@ -269,6 +269,10 @@ function load(): SettingsState {
     // v10: 界面外观默认改为跟随系统; 旧默认 light 视为未显式选择, 一并迁入 system。
     if ((saved.version ?? 1) < 10 && (saved.appearance ?? 'light') === 'light') {
       merged.appearance = 'system'
+    }
+    // v11: 在线听书默认音色改为台湾腔女声 (曉臻); 仍是旧默认 (晓晓) 的视为未显式选择, 一并迁入。
+    if ((saved.version ?? 1) < 11 && (saved.edgeVoice ?? 'zh-CN-XiaoxiaoNeural') === 'zh-CN-XiaoxiaoNeural') {
+      merged.edgeVoice = 'zh-TW-HsiaoChenNeural'
     }
     merged.version = SETTINGS_VERSION
     return merged

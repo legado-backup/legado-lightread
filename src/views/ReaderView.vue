@@ -26,6 +26,7 @@ import TocList, { type TocItem } from '../components/TocList.vue'
 import ReadingModePanel from '../components/ReadingModePanel.vue'
 import ReadingModeMini from '../components/ReadingModeMini.vue'
 import { useReadingModes } from '../composables/useReadingModes'
+import type { ReadingModeProgress } from '../services/readingModes/progress'
 import { buildSmartToc, findCurrentSmartItem, flattenToc } from '../services/smartToc'
 import {
   sectionSizes, sectionPageCounts, fallbackBytesPerPage, pagePosition, pageToFraction, fractionToPage, parseJumpInput,
@@ -819,10 +820,11 @@ function humanTime(seconds: number) {
   return t('tts.aboutHoursMinutes', { h: d.h, m: d.m })
 }
 
-function clockText(seconds: number) {
+function clockText(seconds: number, kind: 'listen' | 'read' = 'listen') {
   const c = finishClock(seconds, new Date(nowTick.value))
   if (!c) return ''
   const clock = `${c.hh}:${c.mm}`
+  if (kind === 'read') return c.dayOffset > 0 ? t('readingMode.finishTomorrow', { clock }) : t('readingMode.finishAt', { clock })
   return c.dayOffset > 0 ? t('tts.finishTomorrow', { clock }) : t('tts.finishAt', { clock })
 }
 
@@ -915,6 +917,16 @@ const currentListenKey = ref('')
 let displayCursor: SentenceCursor | null = null
 const offscreenDocs = new Map<number, Document>()
 const listenTexts = new Map<string, string>()
+/** 本次会话离线合成跟不上的次数; 达到 2 次在面板上给出「改用在线模型」 */
+let localStutters = 0
+const localTooSlow = ref(false)
+
+function switchToOnline() {
+  localTooSlow.value = false
+  localStutters = 0
+  resetEdgeFailure()
+  settings.ttsEngine = 'edge'
+}
 let listenChain: Promise<void> = Promise.resolve()
 let lastSentenceStart: { key: string; at: number; pausedBefore: number } | null = null
 
@@ -926,7 +938,17 @@ const listenPlayer = new ListenPlayer({
     if (reason === 'finished') toast(t('tts.bookFinished'), 'success')
     if (reason !== 'stopped') finishListenSession()
   },
-  onBuffering: waiting => { ttsBuffering.value = waiting },
+  onBuffering: waiting => {
+    ttsBuffering.value = waiting
+    // 已经出声后又缓冲 = 合成跟不上播放; 离线模型连续两次即提示改用在线模型
+    if (waiting && currentListenKey.value && settings.ttsEngine === 'local') {
+      localStutters++
+      if (localStutters === 2) {
+        localTooSlow.value = true
+        toast(t('tts.localSlow'), 'info', 5000)
+      }
+    }
+  },
 })
 
 function displayedContent(): { doc: Document; index: number } | null {
@@ -1164,6 +1186,8 @@ async function startTTS(from: ListenFrom = 'auto') {
   }
   listenDetached.value = false
   lastSentenceStart = null
+  localStutters = 0
+  localTooSlow.value = false
   ttsState.value = 'playing'
   listenPlayer.play(makeFeed(index!, pos))
   setupMediaSession()
@@ -1841,6 +1865,45 @@ const modes = useReadingModes({
 })
 const readingModeActive = computed(() => modes.panelOpen.value || autoReading.value || modes.typewriterActive.value)
 
+/**
+ * 打字机的进度与剩余时间: 与听书同一套页码模型 (每页字数 × 剩余页数), 速度取设定值;
+ * 西文按词/分换算为字母/分 (约 5 个字母一个词), 开了标点停顿再放宽一成。
+ */
+const typewriterProgress = computed<ReadingModeProgress | null>(() => {
+  if (!modes.typewriterActive.value) return null
+  const p = pageInfo.value
+  let eta: { chapter: number; book: number } | null = null
+  if (p && charsPerPage.value && !fixedLayout.value) {
+    const perMinute = modes.speedUnit.value === 'cpm' ? modes.speed.value : modes.speed.value * 5
+    const factor = settings.readingMode.typewriter.punctuationPause ? 1.1 : 1
+    const secondsPerPage = charsPerPage.value / (perMinute / 60) * factor
+    const halfScreen = (p.last - p.current + 1) / 2
+    eta = {
+      chapter: ((chapterLeft.value ?? p.sectionLeft) + halfScreen) * secondsPerPage,
+      book: (p.total - p.last + halfScreen) * secondsPerPage,
+    }
+  }
+  return {
+    chapter: chapterLabel.value || meta.value?.title || '',
+    chapterProgress: chapterProgress.value ?? fraction.value,
+    chapterLeft: eta ? t('tts.chapterLeft', { time: humanTime(eta.chapter) }) : '',
+    chapterLeftShort: eta ? humanTime(eta.chapter) : '',
+    finish: eta ? clockText(eta.chapter, 'read') : '',
+    book: eta ? t('tts.bookSummary', { pct: percentText.value, time: humanTime(eta.book) }) : t('readingMode.bookPercent', { pct: percentText.value }),
+    percent: percentText.value,
+  }
+})
+
+// 「几点读完」随时间刷新
+let twClockTimer: ReturnType<typeof setInterval> | undefined
+watch(() => modes.typewriterActive.value, on => {
+  clearInterval(twClockTimer)
+  if (on) {
+    nowTick.value = Date.now()
+    twClockTimer = setInterval(() => { nowTick.value = Date.now() }, 30000)
+  }
+})
+
 onMounted(async () => {
   window.addEventListener('keydown', handleKeydown)
   document.addEventListener('fullscreenchange', syncFullscreenState)
@@ -1943,6 +2006,7 @@ onBeforeUnmount(() => {
   clearTimeout(jumpBackTimer)
   clearTimeout(tocFractionTimer)
   clearInterval(nowTimer)
+  clearInterval(twClockTimer)
   document.removeEventListener('pointerdown', onJumpOutside, true)
   if (pageMeasure.key) {
     try { localStorage.setItem(PAGE_MEASURE_KEY, JSON.stringify(pageMeasure)) } catch { /* 忽略 */ }
@@ -2177,13 +2241,14 @@ onBeforeUnmount(() => {
     <ReadingModePanel
       v-if="modes.panelOpen.value"
       :modes="modes"
+      :progress="typewriterProgress"
       :auto-reading="autoReading"
       v-model:auto-read-seconds="settings.autoReadSeconds"
       @start-auto="startAutoRead"
       @stop-auto="stopAutoRead"
       @close="modes.closePanel()"
     />
-    <ReadingModeMini :modes="modes" :bars-visible="barsVisible" />
+    <ReadingModeMini :modes="modes" :bars-visible="barsVisible" :progress="typewriterProgress" />
 
     <!-- 高亮选区浮条 -->
     <div v-if="selection" class="highlight-bar card">
@@ -2279,7 +2344,7 @@ onBeforeUnmount(() => {
           :aria-valuenow="Math.round((chapterProgress ?? fraction) * 100)"
           :aria-label="chapterProgress != null ? t('tts.chapterProgress') : t('reader.progress')"
         >
-          <span :style="{ width: `${(chapterProgress ?? fraction) * 100}%` }" />
+          <span :style="{ transform: `scaleX(${(chapterProgress ?? fraction)})` }" />
         </div>
         <div class="tts-progress-sub">
           <span>{{ chapterFinishText }}</span>
@@ -2288,6 +2353,11 @@ onBeforeUnmount(() => {
         <p v-if="!pace.samples" class="tts-progress-hint">{{ t('tts.etaLearning') }}</p>
       </div>
 
+      <!-- 离线合成跟不上: 推荐在线模型 -->
+      <div v-if="localTooSlow && settings.ttsEngine === 'local'" class="tts-notice">
+        <span class="tts-notice-text">{{ t('tts.localSlow') }}</span>
+        <button class="btn btn-sm btn-primary" @click="switchToOnline">{{ t('tts.switchToOnline') }}</button>
+      </div>
       <!-- 朗读中翻到了别处 -->
       <div v-if="listenDetached && ttsState !== 'stopped'" class="tts-notice">
         <span class="tts-notice-text">{{ t('tts.detached') }}</span>
@@ -2340,7 +2410,7 @@ onBeforeUnmount(() => {
         <label>{{ t('tts.engine') }}</label>
         <div class="seg" style="flex: 1">
           <button :class="{ active: settings.ttsEngine === 'edge' }" @click="settings.ttsEngine = 'edge'; resetEdgeFailure()">{{ t('tts.engineEdge') }}</button>
-          <button :class="{ active: settings.ttsEngine === 'local' }" @click="settings.ttsEngine = 'local'; resetEdgeFailure(); refreshLocalStatus()">{{ t('tts.engineLocal') }}</button>
+          <button :class="{ active: settings.ttsEngine === 'local' }" :title="t('tts.engineLocalTitle')" @click="settings.ttsEngine = 'local'; resetEdgeFailure(); refreshLocalStatus()">{{ t('tts.engineLocal') }}</button>
           <button :class="{ active: settings.ttsEngine === 'system' }" @click="settings.ttsEngine = 'system'">{{ t('tts.engineSystem') }}</button>
         </div>
       </div>
@@ -2370,7 +2440,7 @@ onBeforeUnmount(() => {
         </select>
       </div>
       <p class="tts-hint">
-        {{ edgeAvailable() && settings.ttsEngine === 'edge' ? t('tts.hintEdge') : t('tts.hintSystem') }}
+        {{ !edgeAvailable() ? t('tts.hintSystem') : settings.ttsEngine === 'edge' ? t('tts.hintEdge') : settings.ttsEngine === 'local' ? t('tts.hintLocal') : t('tts.hintSystem') }}
         {{ t('tts.hintApply') }}
       </p>
     </div>
@@ -3250,7 +3320,8 @@ onBeforeUnmount(() => {
   height: 100%;
   border-radius: inherit;
   background: var(--brand);
-  transition: width 0.4s ease;
+  transform-origin: left center;
+  transition: transform 0.4s ease;
 }
 .tts-progress-sub {
   display: flex;

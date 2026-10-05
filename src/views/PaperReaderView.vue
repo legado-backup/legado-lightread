@@ -68,6 +68,7 @@ import {
   listVoicesSorted,
 } from '../services/tts'
 import { EDGE_VOICES, edgeAvailable, playAudio } from '../services/edgeTts'
+import { KOKORO_VOICES, DEFAULT_KOKORO_SID, kokoroVoiceLabel } from '../services/kokoroVoices'
 import { localTtsAvailable, localTtsDownload, localTtsStatus, localTtsSynthesize } from '../services/localTts'
 import {
   dispatchPdfReaderShortcut,
@@ -4538,7 +4539,7 @@ onBeforeUnmount(() => {
         <label>{{ t('tts.engine') }}</label>
         <div class="seg" style="flex: 1">
           <button :class="{ active: settings.ttsEngine === 'edge' }" @click="settings.ttsEngine = 'edge'; resetEdgeFailure()">{{ t('tts.engineEdge') }}</button>
-          <button :class="{ active: settings.ttsEngine === 'local' }" @click="settings.ttsEngine = 'local'; resetEdgeFailure(); refreshLocalStatus()">{{ t('tts.engineLocal') }}</button>
+          <button :class="{ active: settings.ttsEngine === 'local' }" :title="t('tts.engineLocalTitle')" @click="settings.ttsEngine = 'local'; resetEdgeFailure(); refreshLocalStatus()">{{ t('tts.engineLocal') }}</button>
           <button :class="{ active: settings.ttsEngine === 'system' }" @click="settings.ttsEngine = 'system'">{{ t('tts.engineSystem') }}</button>
         </div>
       </div>
@@ -4552,7 +4553,7 @@ onBeforeUnmount(() => {
         <label>{{ t('tts.voice') }}</label>
         <template v-if="localInstalled">
           <select v-model.number="settings.localVoiceId" class="input">
-            <option v-for="n in 103" :key="n" :value="n - 1">{{ t('tts.voiceN', { n: n - 1 }) }}{{ n - 1 === 50 ? t('tts.voiceDefault') : '' }}</option>
+            <option v-for="v in KOKORO_VOICES" :key="v.sid" :value="v.sid">{{ kokoroVoiceLabel(v, settings.language === 'en' ? 'en' : 'zh') }}{{ v.sid === DEFAULT_KOKORO_SID ? t('tts.voiceDefault') : '' }}</option>
           </select>
           <button class="btn btn-sm" :disabled="ttsState !== 'stopped'" @click="auditionLocal">{{ t('tts.audition') }}</button>
         </template>
@@ -4567,6 +4568,7 @@ onBeforeUnmount(() => {
           <option v-for="v in ttsVoices" :key="v.name" :value="v.name">{{ v.name }} ({{ v.lang }})</option>
         </select>
       </div>
+      <p v-if="edgeAvailable() && settings.ttsEngine === 'local'" class="tts-local-hint">{{ t('tts.hintLocal') }}</p>
     </div>
 
     <!-- 自动翻页控制条：运行后自动收起到顶部状态按钮，避免遮挡正文。 -->
@@ -4596,6 +4598,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.tts-local-hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
 .paper {
   height: 100%;
   display: flex;

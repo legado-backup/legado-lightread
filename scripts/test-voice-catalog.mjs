@@ -72,7 +72,7 @@ const LEGACY_EDGE_IDS = [
 test('Edge: id 唯一, 默认音色存在, 旧 id 全部保留', () => {
   const ids = EDGE_VOICES.map(v => v.id)
   assert.equal(new Set(ids).size, ids.length)
-  assert.equal(DEFAULT_EDGE_VOICE, 'zh-CN-XiaoxiaoNeural')
+  assert.equal(DEFAULT_EDGE_VOICE, 'zh-TW-HsiaoChenNeural')
   assert.ok(ids.includes(DEFAULT_EDGE_VOICE))
   for (const id of LEGACY_EDGE_IDS) assert.ok(ids.includes(id), `missing legacy voice ${id}`)
 })

@@ -23,6 +23,8 @@ export interface EdgeVoice {
  * 已有 id 不能删改, 否则用户保存的设置会失效.
  */
 export const EDGE_VOICES: EdgeVoice[] = [
+  // 默认: 台湾腔女声 (2026-10-05 用户指定), 语气柔和, 适合长时间听书
+  { id: 'zh-TW-HsiaoChenNeural', label: '曉臻 · 台湾腔女声 (默认)', gender: 'female', group: 'mandarin', style: '通用朗读 · 小说', recommended: true },
   // 普通话 (中国大陆)
   { id: 'zh-CN-XiaoxiaoNeural', label: '晓晓 · 女声温暖 (推荐)', gender: 'female', group: 'mandarin', style: '小说有声书 · 新闻', recommended: true },
   { id: 'zh-CN-YunxiNeural', label: '云希 · 男声阳光 (推荐)', gender: 'male', group: 'mandarin', style: '小说有声书', recommended: true },
@@ -31,7 +33,6 @@ export const EDGE_VOICES: EdgeVoice[] = [
   { id: 'zh-CN-YunyangNeural', label: '云扬 · 男声新闻', gender: 'male', group: 'mandarin', style: '新闻播报' },
   { id: 'zh-CN-YunxiaNeural', label: '云夏 · 少年音', gender: 'male', group: 'mandarin', style: '儿童故事' },
   // 台湾国语
-  { id: 'zh-TW-HsiaoChenNeural', label: '曉臻 · 台湾腔女声', gender: 'female', group: 'mandarin', style: '通用朗读' },
   { id: 'zh-TW-HsiaoYuNeural', label: '曉雨 · 台湾腔女声', gender: 'female', group: 'mandarin', style: '通用朗读' },
   { id: 'zh-TW-YunJheNeural', label: '雲哲 · 台湾腔男声', gender: 'male', group: 'mandarin', style: '通用朗读' },
   // 方言 / 粤语
@@ -49,7 +50,7 @@ export const EDGE_VOICES: EdgeVoice[] = [
   { id: 'ja-JP-KeitaNeural', label: 'Keita · 日语男声', gender: 'male', group: 'foreign', style: '日文朗读' },
 ]
 
-export const DEFAULT_EDGE_VOICE = 'zh-CN-XiaoxiaoNeural'
+export const DEFAULT_EDGE_VOICE = 'zh-TW-HsiaoChenNeural'
 
 export const edgeAvailable = () => isTauri()
 

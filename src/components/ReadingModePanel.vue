@@ -8,6 +8,7 @@ import { computed } from 'vue'
 import { t } from '../i18n'
 import { useSettings } from '../stores/settings'
 import type { ReadingModes, ReadingModeTab } from '../composables/useReadingModes'
+import type { ReadingModeProgress } from '../services/readingModes/progress'
 
 const props = defineProps<{
   modes: ReadingModes
@@ -15,6 +16,8 @@ const props = defineProps<{
   autoReading: boolean
   /** 自动翻页速度, 秒/页 (v-model:auto-read-seconds) */
   autoReadSeconds: number
+  /** 打字机运行时的进度与剩余时间 (阅读器计算); 未运行为 null */
+  progress?: ReadingModeProgress | null
 }>()
 
 const emit = defineEmits<{
@@ -62,6 +65,14 @@ function toggleAuto() {
   emit('start-auto')
 }
 
+/** 输入框给出具体值: 失焦或回车生效, 越界 / 非数字时收敛并把实际生效的值写回输入框 */
+function onSpeedExact(e: Event) {
+  const el = e.target as HTMLInputElement
+  const n = Number(el.value)
+  if (el.value.trim() && Number.isFinite(n)) props.modes.speed.value = n
+  el.value = String(props.modes.speed.value)
+}
+
 function onSpeedInput(e: Event) {
   const n = Number((e.target as HTMLInputElement).value)
   if (Number.isFinite(n)) props.modes.speed.value = n
@@ -76,6 +87,28 @@ function onSpeedInput(e: Event) {
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg>
       </button>
     </header>
+
+    <!-- 打字机运行中: 读到哪、还要多久 -->
+    <div v-if="progress" class="rm-progress">
+      <div class="rm-progress-head">
+        <span class="rm-progress-chapter">{{ progress.chapter }}</span>
+        <span class="rm-progress-eta">{{ progress.chapterLeft || progress.percent }}</span>
+      </div>
+      <div
+        class="rm-progress-track"
+        role="progressbar"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        :aria-valuenow="Math.round(progress.chapterProgress * 100)"
+        :aria-label="t('tts.chapterProgress')"
+      >
+        <span :style="{ transform: `scaleX(${progress.chapterProgress})` }" />
+      </div>
+      <div class="rm-progress-sub">
+        <span>{{ progress.finish }}</span>
+        <span>{{ progress.book }}</span>
+      </div>
+    </div>
 
     <div class="segmented rm-tabs">
       <button type="button" :class="{ active: tab === 'auto' }" :aria-pressed="tab === 'auto'" @click="tab = 'auto'">
@@ -150,7 +183,23 @@ function onSpeedInput(e: Event) {
           <button type="button" class="rm-step" :title="t('readingMode.faster')" :aria-label="t('readingMode.faster')" @click="modes.adjustSpeed(1)">
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 5a1 1 0 0 1 1 1v5h5a1 1 0 1 1 0 2h-5v5a1 1 0 1 1-2 0v-5H6a1 1 0 1 1 0-2h5V6a1 1 0 0 1 1-1z"/></svg>
           </button>
-          <span class="rm-value">{{ modes.speedText.value }}</span>
+          <!-- 直接输入具体速度; 越界时收敛到可用范围并回显 -->
+          <label class="rm-value rm-speed-field">
+            <input
+              class="rm-speed-input"
+              type="number"
+              inputmode="numeric"
+              :min="modes.speedLimits.value[0]"
+              :max="modes.speedLimits.value[1]"
+              step="10"
+              :value="modes.speed.value"
+              :aria-label="t('readingMode.speedExact', { min: modes.speedLimits.value[0], max: modes.speedLimits.value[1] })"
+              :title="t('readingMode.speedExact', { min: modes.speedLimits.value[0], max: modes.speedLimits.value[1] })"
+              @change="onSpeedExact"
+              @keydown.enter="($event.target as HTMLInputElement).blur()"
+            />
+            <span>{{ modes.speedUnit.value === 'cpm' ? t('readingMode.unitCpm') : t('readingMode.unitWpm') }}</span>
+          </label>
         </div>
         <div class="rm-presets">
           <button
@@ -282,6 +331,62 @@ function onSpeedInput(e: Event) {
   outline: none;
   box-shadow: var(--ring);
 }
+.rm-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.rm-progress-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.rm-progress-chapter {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.rm-progress-eta {
+  flex-shrink: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.rm-progress-track {
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.rm-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--brand);
+  transform-origin: left center;
+  transition: transform 0.4s ease;
+}
+.rm-progress-sub {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rm-progress-sub span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .rm-tabs {
   align-self: flex-start;
 }
@@ -318,6 +423,36 @@ function onSpeedInput(e: Event) {
   flex: 1;
   min-width: 0;
   accent-color: var(--brand);
+}
+.rm-speed-field {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.rm-speed-input {
+  width: 64px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.rm-speed-input::-webkit-outer-spin-button,
+.rm-speed-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.rm-speed-input:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px var(--brand-soft);
 }
 .rm-value {
   flex-shrink: 0;
@@ -465,6 +600,10 @@ function onSpeedInput(e: Event) {
   }
 }
 @media (max-width: 600px) {
+  /* 16px 以下 iOS 聚焦时会放大页面 */
+  .rm-speed-input {
+    font-size: 16px;
+  }
   .rm-panel {
     top: auto;
     left: 0;
