@@ -1,6 +1,6 @@
 # GitCode 国内镜像
 
-GitHub Release 公开后，自动把同一版本的全部安装包同步到 GitCode（`https://gitcode.com/yzfly/LightRead/releases`），给中国大陆用户提供更快的下载源。选择 GitCode 的原因见 `docs/research/cn-hosting-and-cosyvoice3.md` §A。
+GitHub Release 公开后，自动把同一版本的全部安装包同步到 GitCode（`https://gitcode.com/langgpt/LightRead/releases`），给中国大陆用户提供更快的下载源。选择 GitCode 的原因见 `docs/research/cn-hosting-and-cosyvoice3.md` §A。
 
 **在负责人完成下面的「一次性设置」之前，这套机制不会做任何事。** 发版流程照常进行，镜像 job 会直接跳过；应用内更新器尝试 GitCode 失败后，会继续按原来的方式使用 GitHub。
 
@@ -20,15 +20,25 @@ GitHub Release 公开后，自动把同一版本的全部安装包同步到 GitC
   2. GitCode 也失败（例如镜像还没开通），再请求一次 GitHub，等待时间与以前相同（30 秒）。
 
   具体规则：
-  - **只采用带 `SHA256SUMS` 的 GitCode 版本**。仍然比较版本号，按平台挑选安装包，下载地址统一拼成 `https://gitcode.com/yzfly/LightRead/releases/download/<tag>/<文件名>`。
+  - **只采用带 `SHA256SUMS` 的 GitCode 版本**。仍然比较版本号，按平台挑选安装包，下载地址统一拼成 `https://gitcode.com/langgpt/LightRead/releases/download/<tag>/<文件名>`。
   - **应用内下载**：8 秒内连不上，或下载中途 15 秒没有新数据，就换下一个源。
   - **校验**：从 GitCode 下载的文件必须通过 `SHA256SUMS` 校验，优先用 GitHub 上的清单，取不到时才用 GitCode 上的；取不到清单就拒绝安装。从 GitHub 直接下载时，能取到清单就校验，取不到就照旧安装。
   - 如果最近一次检查更新只能靠 GitCode 完成，「发布页」「下载」链接会改为打开 GitCode。
 
-## 负责人一次性设置
+## 本机用 GitCode CLI 镜像（当前做法）
+
+镜像仓库 `langgpt/LightRead` 已于 2026-10-05 用 GitCode CLI 创建（GitCode 上没有 yzfly 用户，账号是 langgpt），离线语音包 `tts-models` 和 v1.8.0 已同步。CI 没有配置 `GITCODE_TOKEN` 时，`mirror-gitcode` job 会跳过；此时在发版公开后，在已登录 CLI 的机器上运行：
+
+```bash
+scripts/mirror-gitcode-cli.sh vX.Y.Z
+```
+
+脚本是幂等的：已存在且校验一致的文件会跳过。CLI 自带的 `release upload` 有 30 秒超时，传不完大文件，所以脚本用 CLI 获取预签名上传地址，再用 curl 直传。
+
+## 负责人一次性设置（让 CI 自动镜像，可选）
 
 1. **注册 GitCode**：在 <https://gitcode.com> 用手机号和邮箱注册，用户名最好用 `yzfly`。
-2. **创建仓库**：新建**公开**仓库 `yzfly/LightRead`，tag 的来源二选一：
+2. **创建仓库**：新建**公开**仓库（已建好：`langgpt/LightRead`），tag 的来源二选一：
    - **推荐：推送模式**。新建仓库时勾选「使用 README 初始化」，这样仓库有默认分支，`tts-models` Release 会建在默认分支上。之后由 workflow 在每次发版时把 `vX.Y.Z` tag 连同对应提交推送过去。
    - **也可以用 pull 镜像**：在「项目设置 → 仓库镜像」里设置从 `https://github.com/yzfly/LightRead.git` 拉取。workflow 推送 tag 被拒绝后，最多等 10 分钟让镜像同步。如果同步周期更长，可以在 GitCode 上手动点一次「立即同步」，然后补跑镜像。
 3. **创建访问令牌（PAT）**：在「个人设置 → 访问令牌」中新建，勾选仓库读写（含 Release）权限，设置有效期，**并记下过期日期**。
@@ -36,8 +46,8 @@ GitHub Release 公开后，自动把同一版本的全部安装包同步到 GitC
 
    ```bash
    gh secret set GITCODE_TOKEN -R yzfly/LightRead          # 按提示粘贴令牌，不会回显
-   # 可选：GitCode 仓库路径不是 yzfly/LightRead 时
-   gh variable set GITCODE_REPO -R yzfly/LightRead -b yzfly/LightRead
+   # 可选：GitCode 仓库路径不是默认的 langgpt/LightRead 时
+   gh variable set GITCODE_REPO -R yzfly/LightRead -b langgpt/LightRead
    # 可选：GitCode 用户名与仓库 owner 不同时（推送 tag 时用作 HTTPS 用户名）
    gh variable set GITCODE_USER -R yzfly/LightRead -b <GitCode 用户名>
    ```
@@ -53,7 +63,7 @@ GitHub Release 公开后，自动把同一版本的全部安装包同步到 GitC
    ```
 
    `mirror_tts_models=true` 会从 `k2-fsa/sherpa-onnx` 下载 `kokoro-multi-lang-v1_1.tar.bz2`，核对大小（364816464 字节）和 SHA-256（`a3f4c73d…87dbad`），然后放到 GitCode 的 `tts-models` Release 里。离线语音包下载失败时，会退到这个地址。
-6. **在大陆网络下验收**：打开 <https://gitcode.com/yzfly/LightRead/releases>，下载一个安装包测速。然后在应用的设置页点「检查更新」。
+6. **在大陆网络下验收**：打开 <https://gitcode.com/langgpt/LightRead/releases>，下载一个安装包测速。然后在应用的设置页点「检查更新」。
 
 完成后，以后每次发版都会自动镜像，不用再手动操作。
 
@@ -64,7 +74,7 @@ GitHub Release 公开后，自动把同一版本的全部安装包同步到 GitC
 
   ```bash
   node scripts/mirror-gitcode.mjs --self-test     # 用本地假 GitCode 服务和 bare 仓库跑完整流程
-  node scripts/mirror-gitcode.mjs release --repo yzfly/LightRead --tag vX.Y.Z --dir <含 SHA256SUMS 的目录> \
+  node scripts/mirror-gitcode.mjs release --repo langgpt/LightRead --tag vX.Y.Z --dir <含 SHA256SUMS 的目录> \
     --title "LightRead 轻阅 vX.Y.Z" --commit "$(git rev-parse 'vX.Y.Z^{commit}')" --dry-run
   ```
 

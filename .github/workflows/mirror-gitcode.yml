@@ -35,7 +35,7 @@ permissions:
   contents: read
 
 env:
-  GITCODE_REPO: ${{ vars.GITCODE_REPO || 'yzfly/LightRead' }}
+  GITCODE_REPO: ${{ vars.GITCODE_REPO || 'langgpt/LightRead' }}
 
 jobs:
   gate:

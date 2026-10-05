@@ -86,7 +86,7 @@ const MODEL_URL: &str =
 /// 国内镜像 (GitCode 上 yzfly/LightRead 的 tts-models release, 由发版工作流从 GitHub 原样复制);
 /// 内容与 GitHub 完全一致, 同样按 SHA256 校验, 被替换的文件装不上
 const MODEL_MIRROR_URLS: &[&str] = &[
-    "https://gitcode.com/yzfly/LightRead/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2",
+    "https://gitcode.com/langgpt/LightRead/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2",
 ];
 
 /// GitHub release 资产公布的摘要与大小 (2026-10-05 经 GitHub API 核对)

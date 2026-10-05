@@ -181,7 +181,7 @@ test('slow GitHub metadata falls back to the mirror after 8 s, then retries GitH
   t.mock.timers.tick(1)
   assert.equal(signals[0].aborted, true)
   await settled()
-  assert.match(state.calls[1][0], /^https:\/\/api\.gitcode\.com\/api\/v5\/repos\/yzfly\/LightRead\/releases\?/)
+  assert.match(state.calls[1][0], /^https:\/\/api\.gitcode\.com\/api\/v5\/repos\/langgpt\/LightRead\/releases\?/)
   t.mock.timers.tick(SOURCE_TIMEOUTS.mirror.connect)
   await settled()
   assert.equal(signals[1].aborted, true)
@@ -197,7 +197,7 @@ test('slow GitHub metadata falls back to the mirror after 8 s, then retries GitH
 // ---- GitCode 镜像回退 ----
 
 const GH_DL = 'https://github.com/yzfly/LightRead/releases/download'
-const GC_DL = 'https://gitcode.com/yzfly/LightRead/releases/download'
+const GC_DL = 'https://gitcode.com/langgpt/LightRead/releases/download'
 const sha = bytes => createHash('sha256').update(bytes).digest('hex')
 const mirrorRelease = (tag, names, extra = {}) => ({
   tag_name: tag, name: `LightRead 轻阅 ${tag}`, prerelease: false, release_status: 'none',
@@ -231,7 +231,7 @@ test('mirror URLs are derived from the GitHub tag and file name', () => {
 
 test('release page links map to GitCode only for this repository', () => {
   assert.equal(RELEASES_URL, 'https://github.com/yzfly/LightRead/releases')
-  assert.equal(MIRROR_RELEASES_URL, 'https://gitcode.com/yzfly/LightRead/releases')
+  assert.equal(MIRROR_RELEASES_URL, 'https://gitcode.com/langgpt/LightRead/releases')
   for (const link of [RELEASES_URL, `${RELEASES_URL}/`, `${RELEASES_URL}/latest`, `${RELEASES_URL}/tag/v1.8.0`]) {
     assert.equal(mirrorLinkFor(link), MIRROR_RELEASES_URL, link)
   }
