@@ -42,9 +42,12 @@ export function localTtsRemove(): Promise<void> {
   return invoke('local_tts_remove')
 }
 
-/** 预加载模型 (首次约 10–20s, 在后台线程执行); 未安装语音包时 reject */
-export function localTtsWarmup(): Promise<void> {
-  return invoke('local_tts_warmup')
+/**
+ * 预加载模型 (首次约 10–20s, 在后台线程执行); 未安装语音包时 reject。
+ * 中文与英文音色使用不同的文本规范化规则 (数字 / 日期读法), 按将要使用的音色预热, 免得首句再重载一次。
+ */
+export function localTtsWarmup(sid = useSettings().localVoiceId): Promise<void> {
+  return invoke('local_tts_warmup', { sid })
 }
 
 /** Rust 侧返回 tauri::ipc::Response 原始二进制 (ArrayBuffer), 不经 JSON 数组序列化 */

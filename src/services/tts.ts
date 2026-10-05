@@ -154,21 +154,23 @@ export function splitSpeechText(text: string, maxLen = 80): string[] {
   return chunks.map(c => c.trim()).filter(c => /[\p{L}\p{N}]/u.test(c))
 }
 
-interface NeuralEngine {
+export interface NeuralEngine {
+  kind: 'edge' | 'local'
   synth: (text: string) => Promise<Blob>
   /** 离线引擎: 单线程推理, 合成请求串行排队并按句切块 */
   local: boolean
 }
 
-/** 当前设置下的神经合成器 (edge 在线 / local 离线); 不可用返回 null */
-function neuralEngine(): NeuralEngine | null {
+/** 当前设置下的神经合成器 (edge 在线 / local 离线); 不可用或本次会话已失败返回 null (用系统语音) */
+export function neuralEngine(): NeuralEngine | null {
   const settings = useSettings()
   if (neuralFailed) return null
   if (settings.ttsEngine === 'edge' && edgeAvailable()) {
-    return { local: false, synth: text => edgeSynthesize(text, settings.edgeVoice, settings.ttsRate) }
+    return { kind: 'edge', local: false, synth: text => edgeSynthesize(text, settings.edgeVoice, settings.ttsRate) }
   }
   if (settings.ttsEngine === 'local' && localTtsAvailable()) {
     return {
+      kind: 'local',
       local: true,
       synth: async text => {
         await warmLocal()
@@ -204,6 +206,14 @@ function warmLocal(): Promise<void> {
     })()
   }
   return localWarm
+}
+
+/** 神经引擎出错: 本次会话改用系统语音 (resetEdgeFailure 后恢复), 提示一次 */
+export function reportNeuralFailure(error: unknown) {
+  console.error(error)
+  if (neuralFailed) return
+  neuralFailed = true
+  toast(t('tts.neuralUnavailable'), 'error', 4000)
 }
 
 /** 语音包被删除/重装后调用, 下次合成重新提示加载 */
@@ -378,9 +388,7 @@ export async function speakText(text: string): Promise<'end' | 'cancelled'> {
       return 'end'
     } catch (e) {
       if (generation !== speechGeneration || e instanceof SpeechCancelled) return 'cancelled'
-      console.error(e)
-      neuralFailed = true
-      toast(t('tts.neuralUnavailable'), 'error', 4000)
+      reportNeuralFailure(e)
       // 只用系统语音补读尚未播放的部分
       remaining = parts.slice(index).join(' ') || text
     }

@@ -29,7 +29,7 @@ mod stub {
     }
 
     #[tauri::command]
-    pub fn local_tts_warmup(_app: AppHandle) -> Result<(), String> {
+    pub fn local_tts_warmup(_app: AppHandle, _sid: Option<i32>) -> Result<(), String> {
         Err("移动端暂不支持离线语音".into())
     }
 
@@ -55,7 +55,7 @@ use sherpa_onnx::{
     OfflineTtsModelConfig,
 };
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -63,7 +63,13 @@ const MODEL_DIR: &str = "tts-models/kokoro-multi-lang-v1_1";
 const MODEL_URL: &str =
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2";
 
-static ENGINE: OnceLock<Mutex<Option<OfflineTts>>> = OnceLock::new();
+/// 已加载的引擎及其文本规整配置; 规整配置变化 (切换中/英文音色) 时才重建。
+struct LoadedEngine {
+    tts: OfflineTts,
+    rule_fsts: Option<String>,
+}
+
+static ENGINE: OnceLock<Mutex<Option<LoadedEngine>>> = OnceLock::new();
 
 fn model_root(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
@@ -201,7 +207,48 @@ pub async fn local_tts_remove(app: AppHandle) -> Result<(), String> {
     .await
 }
 
-fn build_engine(root: &PathBuf) -> Result<OfflineTts, String> {
+/// 中文文本规整规则 (电话号码 / 日期 / 数字 → 汉字读法), 按此顺序从左到右应用。
+/// 与 sherpa-onnx 官方 TTS APK 给 kokoro-multi-lang-v1_1 的配置一致
+/// (scripts/apk/generate-tts-apk-script.py); 模型包里自带这三个文件。
+const ZH_RULE_FSTS: [&str; 3] = ["phone-zh.fst", "date-zh.fst", "number-zh.fst"];
+
+/// sid 0–2 是英文音色 (af_maple / af_sol / bf_vale), 3–102 是中文音色
+/// (见 sherpa 文档 kokoro-multi-lang-v1_1 的 sid 表, 前端目录 src/services/kokoroVoices.ts)。
+const FIRST_ZH_SID: i32 = 3;
+
+/// 前端未传 sid 时 (旧版 warmup 调用) 按默认中文音色预加载, 与 DEFAULT_KOKORO_SID 一致。
+const DEFAULT_SID: i32 = 50;
+
+/// sherpa-onnx 把规则 FST 应用到整段文本 (csrc/offline-tts-kokoro-impl.h), 英文句子里的
+/// 数字也会被改写成汉字 ("Chapter 12" → "Chapter 十二"), 所以只给中文音色启用。
+fn rule_fsts_for(root: &Path, sid: i32) -> Option<String> {
+    if sid >= FIRST_ZH_SID {
+        existing_rule_fsts(root)
+    } else {
+        None
+    }
+}
+
+/// 只拼接模型目录里真实存在的规则 FST, 用逗号分隔 (sherpa-onnx 的 `rule_fsts` 格式)。
+/// sherpa-onnx 校验配置时任何一个 FST 缺失都会让引擎初始化失败, 所以旧版/残缺的
+/// 安装要跳过缺失的文件, 全部缺失时返回 None (等同于不做规整, 即之前的行为)。
+/// 路径里带逗号会被 sherpa 误拆, 这种文件同样跳过。
+fn existing_rule_fsts(root: &Path) -> Option<String> {
+    let found: Vec<String> = ZH_RULE_FSTS
+        .iter()
+        .map(|name| root.join(name))
+        .filter(|path| path.is_file())
+        .map(|path| path.to_string_lossy().into_owned())
+        .filter(|path| !path.contains(','))
+        .collect();
+    if found.is_empty() {
+        None
+    } else {
+        Some(found.join(","))
+    }
+}
+
+fn build_engine(root: &PathBuf, rule_fsts: Option<String>) -> Result<OfflineTts, String> {
     let p = |name: &str| Some(root.join(name).to_string_lossy().to_string());
     let lexicon = format!(
         "{},{}",
@@ -215,7 +262,9 @@ fn build_engine(root: &PathBuf) -> Result<OfflineTts, String> {
                 voices: p("voices.bin"),
                 tokens: p("tokens.txt"),
                 data_dir: p("espeak-ng-data"),
-                dict_dir: p("dict"),
+                // sherpa-onnx >= 1.12.15 已内置 jieba 词典, Kokoro 的 dict_dir 被忽略,
+                // 传了只会在每次加载时打一条错误日志 (csrc/offline-tts-kokoro-model-config.cc)。
+                dict_dir: None,
                 lexicon: Some(lexicon),
                 lang: None,
                 length_scale: 1.0,
@@ -223,6 +272,7 @@ fn build_engine(root: &PathBuf) -> Result<OfflineTts, String> {
             num_threads: inference_threads(),
             ..Default::default()
         },
+        rule_fsts,
         ..Default::default()
     };
     OfflineTts::create(&config).ok_or_else(|| "初始化语音引擎失败 (模型文件可能损坏)".to_string())
@@ -236,16 +286,24 @@ fn inference_threads() -> i32 {
 }
 
 /// 在引擎锁内取得 (必要时加载) 模型并执行 `f`; 模型只加载一次, 之后每段复用。
-fn with_engine<T>(root: &PathBuf, f: impl FnOnce(&OfflineTts) -> Result<T, String>) -> Result<T, String> {
+/// 只有在中文/英文音色之间切换导致规整配置变化时才重新加载 (先释放旧模型再加载)。
+fn with_engine<T>(
+    root: &PathBuf,
+    sid: i32,
+    f: impl FnOnce(&OfflineTts) -> Result<T, String>,
+) -> Result<T, String> {
     let lock = ENGINE.get_or_init(|| Mutex::new(None));
     let mut guard = lock.lock().map_err(|_| "语音引擎锁已损坏")?;
     if !model_ready(root) {
         return Err("离线语音包未安装".into());
     }
-    if guard.is_none() {
-        *guard = Some(build_engine(root)?);
+    let rule_fsts = rule_fsts_for(root, sid);
+    if guard.as_ref().map_or(true, |loaded| loaded.rule_fsts != rule_fsts) {
+        *guard = None;
+        let tts = build_engine(root, rule_fsts.clone())?;
+        *guard = Some(LoadedEngine { tts, rule_fsts });
     }
-    f(guard.as_ref().unwrap())
+    f(&guard.as_ref().unwrap().tts)
 }
 
 /// f32 采样 → 16-bit PCM WAV
@@ -271,7 +329,7 @@ fn to_wav(samples: &[f32], sample_rate: i32) -> Vec<u8> {
 }
 
 fn synthesize_at(root: &PathBuf, text: &str, sid: i32, speed: f32) -> Result<Vec<u8>, String> {
-    with_engine(root, |engine| {
+    with_engine(root, sid, |engine| {
         let audio = engine
             .generate_with_config(
                 text,
@@ -297,10 +355,12 @@ async fn run_engine_task<T: Send + 'static>(
 }
 
 /// 预加载模型 (首次约 10–20s), 让前端在开始朗读前就能提示「正在加载」并提前完成加载。
+/// `sid` 可选: 传入将要使用的音色可避免英文音色首段再按另一套规整配置重载一次。
 #[tauri::command]
-pub async fn local_tts_warmup(app: AppHandle) -> Result<(), String> {
+pub async fn local_tts_warmup(app: AppHandle, sid: Option<i32>) -> Result<(), String> {
     let root = model_root(&app)?;
-    run_engine_task(move || with_engine(&root, |_| Ok(()))).await
+    let sid = sid.unwrap_or(DEFAULT_SID);
+    run_engine_task(move || with_engine(&root, sid, |_| Ok(()))).await
 }
 
 /// 合成一段文本，返回 wav 字节流；Tauri 同步命令会阻塞窗口的 IPC 调用线程。
@@ -352,9 +412,44 @@ mod tests {
     }
 
     #[test]
+    fn rule_fsts_only_list_files_that_exist() {
+        let root = std::env::temp_dir().join(format!("lightread-rule-fsts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        // 旧版/残缺安装: 一个都没有 → 不设置, 引擎照旧初始化
+        assert_eq!(existing_rule_fsts(&root), None);
+
+        std::fs::write(root.join("number-zh.fst"), b"").unwrap();
+        std::fs::write(root.join("phone-zh.fst"), b"").unwrap();
+        // 同名目录不算文件
+        std::fs::create_dir_all(root.join("date-zh.fst")).unwrap();
+        let expected = format!(
+            "{},{}",
+            root.join("phone-zh.fst").to_string_lossy(),
+            root.join("number-zh.fst").to_string_lossy()
+        );
+        assert_eq!(existing_rule_fsts(&root).as_deref(), Some(expected.as_str()));
+
+        std::fs::remove_dir_all(root.join("date-zh.fst")).unwrap();
+        std::fs::write(root.join("date-zh.fst"), b"").unwrap();
+        let all = existing_rule_fsts(&root).unwrap();
+        let names: Vec<_> = all
+            .split(',')
+            .map(|f| Path::new(f).file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["phone-zh.fst", "date-zh.fst", "number-zh.fst"]);
+        // 英文音色不做中文规整, 中文音色才带上 FST
+        assert_eq!(rule_fsts_for(&root, 0), None);
+        assert_eq!(rule_fsts_for(&root, 2), None);
+        assert_eq!(rule_fsts_for(&root, 3).as_deref(), Some(all.as_str()));
+        assert_eq!(rule_fsts_for(&root, DEFAULT_SID).as_deref(), Some(all.as_str()));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn warmup_without_model_reports_not_installed() {
         let root = std::env::temp_dir().join("lightread-no-kokoro-model");
-        let err = with_engine(&root, |_| Ok(())).unwrap_err();
+        let err = with_engine(&root, DEFAULT_SID, |_| Ok(())).unwrap_err();
         assert_eq!(err, "离线语音包未安装");
     }
 
@@ -365,8 +460,15 @@ mod tests {
             return;
         };
         let root = PathBuf::from(root);
-        let wav = synthesize_at(&root, "夜色像一块浸了水的墨布，慢慢压下来。", 50, 1.0)
-            .expect("synthesis should succeed");
+        // 可用 KOKORO_TEST_TEXT / KOKORO_TEST_SID 换文本和音色做试听
+        let text = std::env::var("KOKORO_TEST_TEXT").unwrap_or_else(|_| {
+            "夜色像一块浸了水的墨布，慢慢压下来。2026年10月4日，电话13800138000，圆周率约3.14。".into()
+        });
+        let sid = std::env::var("KOKORO_TEST_SID")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(DEFAULT_SID);
+        let wav = synthesize_at(&root, &text, sid, 1.0).expect("synthesis should succeed");
         assert!(wav.len() > 40_000, "audio too small: {}", wav.len());
         assert_eq!(&wav[..4], b"RIFF");
         std::fs::write("/tmp/kokoro-test.wav", &wav).ok();

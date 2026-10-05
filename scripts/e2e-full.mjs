@@ -39,6 +39,13 @@ const check = (name, ok, detail = '') => {
 
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 })
+// 阅读器工具栏翻页后自动隐藏 (沉浸阅读): 先悬停顶边露出工具栏再点
+const clickBar = async selector => {
+  if (!(await page.locator('.bar.top.hidden').count())) return page.click(selector)
+  await page.mouse.move(640, 2)
+  await page.waitForTimeout(300)
+  return page.click(selector)
+}
 const errors = []
 page.on('pageerror', e => errors.push(e.message))
 
@@ -83,7 +90,7 @@ await page.waitForFunction(() => {
 }, null, { timeout: 15000 })
 check('正文渲染', true)
 
-await page.click('button[title="目录"]')
+await clickBar('button[title="目录"]')
 check('目录: 章节数', await page.locator('.toc-item').count() === 5, '5 章')
 await page.click('.toc-item:has-text("第三章")')
 const tocOk = await page.waitForFunction(
@@ -103,7 +110,7 @@ await page.waitForTimeout(500)
 check('键盘翻页', (await page.textContent('.percent')) !== pctBefore)
 
 // 排版设置
-await page.click('button[title="排版设置"]')
+await clickBar('button[title="排版设置"]')
 check('主题数量', await page.locator('.theme-btn').count() === 5, '白/米黄/护眼绿/夜间/跟随外观')
 await page.click('.theme-btn:nth-child(3)')
 await page.waitForTimeout(400)
@@ -133,21 +140,21 @@ await page.click('.highlight-bar .btn:has-text("写想法")')
 await page.fill('.note-input', '测试想法')
 await page.click('.btn:has-text("保存想法")')
 await page.waitForTimeout(400)
-await page.click('button[title="标注与书签"]')
+await clickBar('button[title="标注与书签"]')
 check('划线想法入面板', (await page.locator('.anno-note').first().textContent().catch(() => ''))?.includes('测试想法'))
 
 // 书签
 await page.keyboard.press('Escape')
-await page.click('[title="添加书签"]')
+await clickBar('[title="添加书签"]')
 await page.waitForTimeout(300)
 check('书签添加', await page.locator('[title="移除书签"]').count() === 1)
-await page.click('button[title="标注与书签"]')
+await clickBar('button[title="标注与书签"]')
 await page.click('.anno-tabs button:has-text("书签")')
 check('书签入面板', await page.locator('.panel-body .anno-item').count() >= 1)
 await page.keyboard.press('Escape')
 
 // 书内搜索
-await page.click('button[title="书内搜索"]')
+await clickBar('button[title="书内搜索"]')
 await page.fill('.search-form input', '墨布')
 await page.press('.search-form input', 'Enter')
 await page.waitForSelector('.search-item', { timeout: 10000 })
@@ -155,7 +162,7 @@ check('书内搜索', await page.locator('.search-item').count() > 0)
 await page.click('.btn:has-text("清除并关闭")')
 
 // 自动阅读
-await page.click('[title="自动阅读"]')
+await clickBar('[title="自动阅读"]')
 await page.locator('.auto-panel input[type=range]').fill('3')
 await page.click('.auto-panel .btn')
 const pctAuto = await page.textContent('.percent')
@@ -164,9 +171,9 @@ check('自动阅读推进', (await page.textContent('.percent')) !== pctAuto)
 await page.click('.auto-panel .icon-btn')
 
 // 听书 (打桩)
-await page.click('[title="听书"]')
+await clickBar('[title="听书"]')
 const pctTts = await page.textContent('.percent')
-await page.click('.tts-panel .btn-primary')
+await page.click('.tts-panel .tts-play')
 let ttsFollowed = false
 for (let i = 0; i < 16 && !ttsFollowed; i++) {
   await page.waitForTimeout(500)
@@ -178,7 +185,7 @@ if (await stopBtn.isEnabled()) await stopBtn.click()
 await page.click('.tts-panel .icon-btn')
 
 // 进度持久化
-await page.click('button[title="返回藏书"]')
+await clickBar('button[title="返回藏书"]')
 await page.waitForSelector('.book-card', { timeout: 8000 })
 check('返回书架显示进度', await page.locator('.book-card:has-text("测试小说") .progress').count() === 1)
 
