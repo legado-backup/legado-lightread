@@ -35,12 +35,15 @@ import { useRouter } from 'vue-router'
 import { toast } from '../services/toast'
 import { t } from '../i18n'
 import LibraryUploadDialog from '../components/LibraryUploadDialog.vue'
+import { libraryUploadTask } from '../services/libraryUploadTask'
 
 const library = useLibrary()
 const settings = useSettings()
 const router = useRouter()
 const uploadTarget = ref<CatalogSourceRec | null>(null)
 
+// 后台上传每跑完一轮 (有书进了书库) 就刷新当前书库列表与搜索结果
+watch(() => libraryUploadTask.generation, () => { void refreshAfterUpload() })
 async function refreshAfterUpload() {
   if (activeSource.value) {
     const current = breadcrumbs.value[breadcrumbs.value.length - 1]
@@ -1160,7 +1163,7 @@ async function removeSource(s: CatalogSourceRec) {
         </div>
       </div>
     </div>
-    <LibraryUploadDialog v-if="uploadTarget" :source="uploadTarget" @close="uploadTarget = null" @uploaded="refreshAfterUpload" />
+    <LibraryUploadDialog v-if="uploadTarget" :source="uploadTarget" @close="uploadTarget = null" />
   </div>
 </template>
 

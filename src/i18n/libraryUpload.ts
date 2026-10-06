@@ -23,6 +23,13 @@ export const zhUpload: Record<string, string> = {
   'upload.convertFirst': '上传前转换为 EPUB',
   'upload.convertHint': 'MOBI、AZW3、FB2、TXT 等先在本机转成 EPUB（最通用的格式）再上传，藏书里的原文件不变。',
   'upload.converting': '正在转换为 EPUB…', 'upload.convertFailed': '转换为 EPUB 失败：{msg}',
+  'upload.cancelled': '已取消', 'upload.background': '上传在后台进行，可以关掉这个窗口继续使用，右下角会显示进度。',
+  'upload.task': '后台上传（{done} / {total}）', 'upload.addToTask': '加入后台上传（{n}）',
+  'uploadTask.title': '正在上传到私人书库', 'uploadTask.doneTitle': '私人书库上传完成',
+  'uploadTask.uploading': '正在上传《{name}》', 'uploadTask.converting': '正在转换《{name}》',
+  'uploadTask.added': '已添加 {n} 本', 'uploadTask.skipped': '{n} 本书库已有', 'uploadTask.failedN': '{n} 本失败', 'uploadTask.sep': '，',
+  'uploadTask.doneToast': '私人书库上传完成：{summary}', 'uploadTask.details': '查看明细', 'uploadTask.hide': '收起明细',
+  'uploadTask.cancel': '取消剩余', 'uploadTask.cancelling': '传完当前这本后停止…',
 }
 export const enUpload: Record<string, string> = {
   'upload.title': 'Add to private library', 'upload.target': 'Destination library', 'upload.chooseTarget': 'Choose a private library',
@@ -49,4 +56,11 @@ export const enUpload: Record<string, string> = {
   'upload.convertFirst': 'Convert to EPUB before uploading',
   'upload.convertHint': 'MOBI, AZW3, FB2, TXT and similar files are converted to EPUB (the most widely supported format) on this device first. Your local files are unchanged.',
   'upload.converting': 'Converting to EPUB…', 'upload.convertFailed': 'Could not convert to EPUB: {msg}',
+  'upload.cancelled': 'Cancelled', 'upload.background': 'Uploads continue in the background. You can close this window; progress shows in the corner.',
+  'upload.task': 'Background upload ({done} / {total})', 'upload.addToTask': 'Add to background upload ({n})',
+  'uploadTask.title': 'Uploading to private library', 'uploadTask.doneTitle': 'Private library upload finished',
+  'uploadTask.uploading': 'Uploading “{name}”', 'uploadTask.converting': 'Converting “{name}”',
+  'uploadTask.added': '{n} added', 'uploadTask.skipped': '{n} already there', 'uploadTask.failedN': '{n} failed', 'uploadTask.sep': ', ',
+  'uploadTask.doneToast': 'Private library upload finished: {summary}', 'uploadTask.details': 'Details', 'uploadTask.hide': 'Hide details',
+  'uploadTask.cancel': 'Cancel remaining', 'uploadTask.cancelling': 'Stopping after the current book…',
 }
