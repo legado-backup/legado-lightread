@@ -28,7 +28,7 @@ const { downloadToLibrary } = await import(opdsUrl)
 hook.deregister()
 
 const book = { title: '陋室銘', author: '劉禹錫', summary: '古文', acquisitions: [] }
-const epub = { href: 'https://ws-export.wmcloud.org/?format=epub-3&lang=zh&page=test', type: 'application/epub+zip', label: 'EPUB' }
+const epub = { href: 'https://www.marxists.org/ebooks/hegel/hegels-logic.epub', type: 'application/epub+zip', label: 'EPUB' }
 const response = (body, contentType) => { state.response = { blob: new Blob([body]), contentType } }
 
 beforeEach(() => {
@@ -40,7 +40,7 @@ beforeEach(() => {
 test('200 HTML verification responses fail clearly before importing', async () => {
   for (const mime of ['text/html; charset=utf-8', 'Text/HTML', 'application/xhtml+xml; charset=UTF-8']) {
     response('<!DOCTYPE html><html><body>Verify you are human</body></html>', mime)
-    await assert.rejects(downloadToLibrary(book, epub, 'Wikisource'), { message: zh['catalog.downloadReturnedWebpage'] })
+    await assert.rejects(downloadToLibrary(book, epub, 'Internet Archive'), { message: zh['catalog.downloadReturnedWebpage'] })
   }
   assert.equal(state.imports.length, 0)
 })
@@ -81,13 +81,21 @@ test('a genuine EPUB ZIP reaches importer unchanged with metadata and authentica
   }, { level: 0 })
   response(bytes, 'application/epub+zip')
   const auth = { username: 'reader', password: 'fixture' }
-  assert.equal((await downloadToLibrary(book, epub, 'Wikisource', auth)).ok, true)
+  assert.equal((await downloadToLibrary(book, epub, 'Internet Archive', auth)).ok, true)
   assert.deepEqual(state.fetches, [[epub.href, auth]])
   const [file, source, metadata] = state.imports[0]
   assert.equal(file.name, '陋室銘.epub')
   assert.deepEqual(new Uint8Array(await file.arrayBuffer()), bytes)
-  assert.equal(source, 'Wikisource')
+  assert.equal(source, 'Internet Archive')
   assert.equal(metadata.author, '劉禹錫')
+})
+
+test('real EPUB / PDF bytes mislabelled as text/html still import (Early Modern Texts)', async () => {
+  response(zipSync({ mimetype: strToU8('application/epub+zip') }, { level: 0 }), 'text/html; charset=utf-8')
+  assert.equal((await downloadToLibrary(book, epub, '哲学文库')).ok, true)
+  response('%PDF-1.7\n%\u00e2\u00e3\n1 0 obj', 'text/html')
+  assert.equal((await downloadToLibrary(book, { ...epub, label: 'PDF', type: 'application/pdf' }, '哲学文库')).ok, true)
+  assert.deepEqual(state.imports.map(([file]) => file.name), ['陋室銘.epub', '陋室銘.pdf'])
 })
 
 test('ordinary TXT containing an HTML example later in its text is accepted', async () => {
@@ -99,6 +107,6 @@ test('ordinary TXT containing an HTML example later in its text is accepted', as
 test('English errors also direct the reader to browser verification and import', async () => {
   state.dictionary = en
   response('<html>Challenge</html>', 'text/html')
-  await assert.rejects(downloadToLibrary(book, epub, 'Wikisource'), { message: en['catalog.downloadReturnedWebpage'] })
+  await assert.rejects(downloadToLibrary(book, epub, 'Internet Archive'), { message: en['catalog.downloadReturnedWebpage'] })
   assert.equal(state.imports.length, 0)
 })

@@ -25,7 +25,8 @@ npm run test:compat / test:tts   # 旧 WebView 兼容 (构建目标/polyfill/CSS
 npm run test:reader-pages / test:listen-eta   # 重排书页码 (实测+推算/双栏/跳页往返); 听书剩余时间 (语速学习/人话时长)
 npm run test:read-aloud      # 听书: 句子游标断句 + 播放管线 (分块/预取/无缝拼接/回退, 假时钟) + 音色目录
 npm run test:reading-modes   # 阅读模式: 打字机出字节奏 / 断句 / 按行分组 (纯函数)
-npm run test:book-sources    # 公共书源: 查询归一 / 维基文库标题过滤 / IA·Open Library·GitHub 相关度
+npm run test:book-sources    # 公共书源: 查询归一 / 哲学文库本地索引搜索 / IA·Open Library·GitHub 相关度
+node scripts/build-philosophy-index.mjs   # 重新生成哲学文库离线索引 src/data/philosophy-index.json (限速抓目录页, 约 5 分钟)
 npm run test:opds-library / test:library-upload   # 自建书库: 连接信息解析·搜索发现·EPUB 优先; 上传协议
 npm run test:convert-epub    # 格式转换: MOBI/AZW3/FB2/TXT → EPUB 3 (OPF/nav/资源改写)
 npm run e2e:convert-epub / e2e:library-upload / e2e:book-sources   # 对应功能的浏览器端到端 (需先 build + preview)

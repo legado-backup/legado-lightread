@@ -33,7 +33,7 @@
 - **管理藏书与论文**：本地导入、拖拽导入、分类标签、置顶、批量管理、阅读进度、书签与批注。
 - **专业 PDF 阅读**：MuPDF / PDFium 渲染可选（默认 MuPDF），支持清晰原版页面、连续滚动、单页 / 对页 / 书籍视图、自动阅读和听书。
 - **论文精读**：独立论文库、划词翻译、版式对照翻译、以 Pi Agent 为默认主路径的本机对话、带人工修订的论文十问和 BabelDOC 整本翻译；Codex 与 Claude Code 均为可选引擎。
-- **找书和找论文**：中文维基文库、Internet Archive 公开图书、古登堡计划、arXiv、GitHub、Open Library，以及 OPDS / Calibre。
+- **找书和找论文**：哲学文库（marxists.org 等）、Internet Archive 公开图书、古登堡计划、arXiv、GitHub、Open Library，以及 OPDS / Calibre。
 - **听书**：在线神经音色、本地离线模型和系统语音三种方式。
 - **开放迁移**：按 Google OKF v0.1 导入 / 导出 `.okf.zip` 藏书包，可被其他 OKF 工具读取；另有 WebDAV 云备份和自定义书库存储位置。
 
@@ -199,10 +199,10 @@ Agent 上下文保存在系统应用数据目录的 `paper-agents/<论文 ID>/` 
 ## 藏书、书源与备份
 
 - 拖拽批量导入、本地文件导入、网页直链导入，自动读取标题、作者和封面。
-- 统一搜索默认启用 GitHub 书库、中文维基文库、古登堡计划和 Internet Archive 公开图书，无需账号；可选 arXiv 和 Open Library 书目检索。
-- 维基文库支持 EPUB 导出，Internet Archive 按需读取真实 EPUB / PDF / TXT 下载链接并导入。Open Library 结果标注公开阅读、需登录借阅或暂无电子版。
+- 统一搜索默认启用 GitHub 书库、哲学文库、古登堡计划和 Internet Archive 公开图书，无需账号；可选 arXiv 和 Open Library 书目检索。
+- 哲学文库随应用附带离线书目索引（马克思主义文库 marxists.org 中英文、Early Modern Texts、Standard Ebooks 哲学类，由 `scripts/build-philosophy-index.mjs` 生成），本地搜索，下载时才访问原站；Internet Archive 按需读取真实 EPUB / PDF / TXT 下载链接并导入。Open Library 结果标注公开阅读、需登录借阅或暂无电子版。
 - 补充 Standard Ebooks、书格、Global Grey、Faded Page、Z-Library、Anna’s Archive 的浏览器入口；支持的站点可带关键词搜索。Z-Library / Anna’s Archive 可能有登录、验证、额度或等待要求，入口可用性取决于站点和网络。
-- 网页版访问缺少跨域许可的来源需配置书源代理；维基文库等下载也可直接在浏览器完成，再导入文件。桌面版和 Android 使用原生网络请求；来源要求人机验证时，通过浏览器下载后导入。
+- 网页版访问缺少跨域许可的来源需配置书源代理；马克思主义文库、Internet Archive 等下载也可直接在浏览器完成，再导入文件。桌面版和 Android 使用原生网络请求；来源要求人机验证时，通过浏览器下载后导入。
 - 支持 OPDS 以及带账号验证的 calibre-web。自己添加的 OPDS 书库会出现在「统一搜书」最前面；书库给出的连接信息整段粘贴即可添加。
 - **自建书库**：把自己的书放到服务器、NAS 或网盘上，在各设备的轻阅里搜索、下载，搭建方法见 [自建书库指南](docs/self-hosted-library.md)。
 - 桌面版可以直接连接本机 Calibre 书库文件夹，读取书目、作者和封面。

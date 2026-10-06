@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "test:book-sources": "node --experimental-strip-types --test scripts/test-open-library.mjs scripts/test-internet-archive.mjs scripts/test-wikisource.mjs scripts/test-web-book-sources.mjs scripts/test-opds-download.mjs scripts/test-github-books.mjs scripts/test-book-query.mjs",
+    "test:book-sources": "node --experimental-strip-types --test scripts/test-open-library.mjs scripts/test-internet-archive.mjs scripts/test-philosophy-archive.mjs scripts/test-web-book-sources.mjs scripts/test-opds-download.mjs scripts/test-github-books.mjs scripts/test-book-query.mjs",
     "test:archive": "node scripts/test-library-archive.mjs",
     "test:convert-epub": "node --experimental-strip-types --test scripts/test-convert-epub.mjs",
     "e2e:convert-epub": "node scripts/e2e-convert-epub.mjs",

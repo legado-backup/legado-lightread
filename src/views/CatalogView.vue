@@ -22,7 +22,7 @@ import {
   type GithubBookHit, type CommunityRepo,
 } from '../services/githubBooks'
 import { openDownload } from '../services/updater'
-import { searchWikisource, type WikisourceBook } from '../services/wikisource'
+import { searchPhilosophyArchive, type PhilosophyWork } from '../services/philosophyArchive'
 import { searchOpenLibrary, type OpenLibraryBook } from '../services/openLibrary'
 import { searchInternetArchive, loadArchivePublication, type ArchiveBook } from '../services/internetArchive'
 import { WEB_BOOK_SOURCES, webBookSourceUrl } from '../services/webBookSources'
@@ -112,10 +112,10 @@ async function importGhBook(hit: GithubBookHit) {
 
 // ---- 统一搜书: 默认优先免登录的公开图书 ----
 const uniQuery = ref('')
-const uniScopes = reactive({ github: true, gutenberg: true, archive: true, wikisource: true, openlibrary: false, arxiv: false })
+const uniScopes = reactive({ github: true, gutenberg: true, archive: true, philosophy: true, openlibrary: false, arxiv: false })
 const hasSearchScope = computed(() =>
   Object.values(uniScopes).some(Boolean) || myLibraries.value.some(s => myScopeOn(s.id)))
-const uniWikisource = ref<WikisourceBook[]>([])
+const uniPhilosophy = ref<PhilosophyWork[]>([])
 const uniArchive = ref<ArchiveBook[]>([])
 const uniOpenLibrary = ref<OpenLibraryBook[]>([])
 const archivePublications = reactive<Record<string, OpdsPublication>>(Object.create(null))
@@ -147,20 +147,20 @@ let uniSession = 0
 const uniActiveQuery = ref('')
 
 // ---- 各公开书源的状态: 搜索中 / 有结果 / 未找到 / 出错, 分组按结果相关度排序 ----
-type UniSource = 'wikisource' | 'archive' | 'github' | 'gutenberg' | 'openlibrary' | 'arxiv'
+type UniSource = 'philosophy' | 'archive' | 'github' | 'gutenberg' | 'openlibrary' | 'arxiv'
 /** 同等相关度时的默认顺序 */
-const UNI_SOURCES: UniSource[] = ['wikisource', 'archive', 'github', 'gutenberg', 'openlibrary', 'arxiv']
+const UNI_SOURCES: UniSource[] = ['philosophy', 'archive', 'github', 'gutenberg', 'openlibrary', 'arxiv']
 const uniStatus = reactive<Record<UniSource, 'idle' | 'loading' | 'done' | 'error'>>({
-  wikisource: 'idle', archive: 'idle', github: 'idle', gutenberg: 'idle', openlibrary: 'idle', arxiv: 'idle',
+  philosophy: 'idle', archive: 'idle', github: 'idle', gutenberg: 'idle', openlibrary: 'idle', arxiv: 'idle',
 })
 const uniSourceName = (key: UniSource) => ({
-  wikisource: t('catalog.wikisource'), archive: 'Internet Archive', github: 'GitHub',
+  philosophy: t('catalog.philosophy'), archive: 'Internet Archive', github: 'GitHub',
   gutenberg: t('catalog.gutenberg'), openlibrary: 'Open Library', arxiv: 'arXiv',
 })[key]
 
 function uniTitles(key: UniSource): string[] {
   switch (key) {
-    case 'wikisource': return uniWikisource.value.map(b => b.title)
+    case 'philosophy': return uniPhilosophy.value.map(b => b.title)
     case 'archive': return uniArchive.value.map(b => b.title)
     case 'github': return uniGithub.value.map(h => h.name)
     case 'gutenberg': return uniGutenberg.value.map(p => p.title)
@@ -169,9 +169,9 @@ function uniTitles(key: UniSource): string[] {
   }
 }
 
-/** 该来源最贴切的一条结果的相关度 (维基文库的繁体书名由站点判定, 其余按书名比对) */
+/** 该来源最贴切的一条结果的相关度 (哲学文库在本地索引里已算好, 含繁简归一; 其余按书名比对) */
 function uniBestRelevance(key: UniSource): number {
-  if (key === 'wikisource') return Math.max(0, ...uniWikisource.value.map(b => b.relevance))
+  if (key === 'philosophy') return Math.max(0, ...uniPhilosophy.value.map(b => b.relevance))
   // Open Library 只是书目: 只有能公开阅读/借阅的记录才算数, 免得「暂无电子版」排到可下载的来源前面
   const titles = key === 'openlibrary'
     ? uniOpenLibrary.value.filter(b => b.access === 'public' || b.access === 'borrowable').map(b => b.title)
@@ -218,7 +218,7 @@ async function uniSearch() {
   uniActiveQuery.value = query
   uniSearching.value = true
   uniSearched.value = true
-  uniWikisource.value = []
+  uniPhilosophy.value = []
   uniArchive.value = []
   uniOpenLibrary.value = []
   uniErrors.value = []
@@ -255,7 +255,7 @@ async function uniSearch() {
     })
   }
   if (uniScopes.gutenberg) run('gutenberg', () => searchGutenberg(query, 24), pubs => { uniGutenberg.value = pubs })
-  if (uniScopes.wikisource) run('wikisource', () => searchWikisource(query), books => { uniWikisource.value = books })
+  if (uniScopes.philosophy) run('philosophy', () => searchPhilosophyArchive(query), works => { uniPhilosophy.value = works })
   if (uniScopes.archive) run('archive', () => searchInternetArchive(query), books => { uniArchive.value = books })
   if (uniScopes.openlibrary) run('openlibrary', () => searchOpenLibrary(query), books => { uniOpenLibrary.value = books })
   if (uniScopes.arxiv) {
@@ -274,6 +274,17 @@ const publicDownloadInBrowser = computed(() => !isTauri() && !settings.corsProxy
 function downloadPublicBook(pub: OpdsPublication, acq: OpdsPublication['acquisitions'][number], source: string) {
   if (publicDownloadInBrowser.value) openBookWebsite(acq.href)
   else void uniDownloadPub(pub, acq, source)
+}
+
+/** 哲学文库: 原站允许跨域的 (Early Modern Texts / Standard Ebooks) 网页版也能直接导入 */
+const philosophyInBrowser = (work: PhilosophyWork) => publicDownloadInBrowser.value && !work.source.cors
+/** 网页版无代理时 HTML 文章就是原网页本身, 只留「查看原网页」 */
+const philosophyAcqs = (work: PhilosophyWork) => work.publication.acquisitions
+  .filter(acq => !(philosophyInBrowser(work) && acq.label === 'HTML'))
+  .slice(0, 2)
+function downloadPhilosophy(work: PhilosophyWork, acq: OpdsPublication['acquisitions'][number]) {
+  if (philosophyInBrowser(work)) openBookWebsite(acq.href)
+  else void uniDownloadPub(work.publication, acq, t('catalog.philosophy'))
 }
 
 /** 统一搜书里下载 OPDS/arXiv 出版物 */
@@ -751,7 +762,7 @@ async function removeSource(s: CatalogSourceRec) {
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/></svg>
             {{ s.title }}
           </label>
-          <label class="check-chip" :class="{ on: uniScopes.wikisource }"><input v-model="uniScopes.wikisource" :disabled="uniSearching" type="checkbox" /> {{ t('catalog.wikisource') }}</label>
+          <label class="check-chip" :class="{ on: uniScopes.philosophy }" :title="t('catalog.philosophyHint')"><input v-model="uniScopes.philosophy" :disabled="uniSearching" type="checkbox" /> {{ t('catalog.philosophy') }}</label>
           <label class="check-chip" :class="{ on: uniScopes.gutenberg }"><input v-model="uniScopes.gutenberg" :disabled="uniSearching" type="checkbox" /> {{ t('catalog.gutenberg') }}</label>
           <label class="check-chip" :class="{ on: uniScopes.archive }"><input v-model="uniScopes.archive" :disabled="uniSearching" type="checkbox" /> Internet Archive</label>
           <label class="check-chip" :class="{ on: uniScopes.arxiv }"><input v-model="uniScopes.arxiv" :disabled="uniSearching" type="checkbox" /> arXiv</label>
@@ -767,7 +778,7 @@ async function removeSource(s: CatalogSourceRec) {
         <div v-if="fetchingNotice" class="gh-progress" role="status">{{ fetchingNotice }}</div>
 
         <template v-if="uniSearched">
-          <p v-if="!uniSearching && (UNI_SOURCES.some(key => uniStatus[key] === 'done') || myResults.some(r => r.status === 'done')) && !myResults.some(r => r.publications.length) && !uniWikisource.length && !uniGithub.length && !uniGutenberg.length && !uniArchive.length && !uniOpenLibrary.length && !uniArxiv.length" class="intro" role="status">{{ t('catalog.noSearchResults') }} {{ t('catalog.copyrightHint') }}</p>
+          <p v-if="!uniSearching && (UNI_SOURCES.some(key => uniStatus[key] === 'done') || myResults.some(r => r.status === 'done')) && !myResults.some(r => r.publications.length) && !uniPhilosophy.length && !uniGithub.length && !uniGutenberg.length && !uniArchive.length && !uniOpenLibrary.length && !uniArxiv.length" class="intro" role="status">{{ t('catalog.noSearchResults') }} {{ t('catalog.copyrightHint') }}</p>
           <!-- 我的书库排在最前 -->
           <div v-for="entry in myResults" :key="entry.source.id" class="uni-group mine-group" :aria-busy="entry.status === 'loading'">
             <div class="uni-group-head">
@@ -813,16 +824,14 @@ async function removeSource(s: CatalogSourceRec) {
           </div>
           <!-- 公开书源: 有结果的按最贴切结果排序, 搜索中的在后, 未找到的折叠成一行 -->
           <template v-for="key in uniVisibleGroups" :key="key">
-            <div v-if="key === 'wikisource'" class="uni-group" :aria-busy="uniStatus.wikisource === 'loading'">
-              <div class="uni-group-head">{{ t('catalog.wikisource') }} · {{ uniStatus.wikisource === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniWikisource.length }) }}</div>
-              <div v-for="book in uniWikisource" :key="book.id" class="gh-item uni-pub">
-                <span class="gh-name">{{ book.title }}</span>
-                <span v-if="book.disambiguation" class="gh-meta">{{ t('catalog.wikisourceVersions') }}</span>
-                <span v-else-if="book.summary" class="gh-meta">{{ book.summary }}</span>
+            <div v-if="key === 'philosophy'" class="uni-group" :aria-busy="uniStatus.philosophy === 'loading'">
+              <div class="uni-group-head">{{ t('catalog.philosophy') }} · {{ uniStatus.philosophy === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniPhilosophy.length }) }}</div>
+              <div v-for="work in uniPhilosophy" :key="work.id" class="gh-item uni-pub">
+                <span class="gh-name">{{ work.title }}</span>
+                <span class="gh-meta"><template v-if="work.author">{{ work.author }} · </template>{{ work.source.name }}</span>
                 <span class="uni-acts">
-                  <button v-for="acq in book.publication.acquisitions" :key="acq.href" class="btn btn-sm" :disabled="downloading.has(acq.href)" @click="downloadPublicBook(book.publication, acq, t('catalog.wikisource'))">{{ downloading.has(acq.href) ? t('catalog.downloading') : t(publicDownloadInBrowser ? 'catalog.browserDownload' : 'catalog.download', { label: acq.label }) }}</button>
-                  <button v-if="!publicDownloadInBrowser && book.publication.acquisitions[0]" class="btn btn-sm" @click="openBookWebsite(book.publication.acquisitions[0].href)">{{ t('catalog.browserDownload', { label: 'EPUB' }) }}</button>
-                  <button class="btn btn-sm" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button>
+                  <button v-for="acq in philosophyAcqs(work)" :key="acq.href" class="btn btn-sm" :disabled="downloading.has(acq.href)" @click="downloadPhilosophy(work, acq)">{{ downloading.has(acq.href) ? t('catalog.downloading') : t(philosophyInBrowser(work) ? 'catalog.browserDownload' : 'catalog.download', { label: acq.label }) }}</button>
+                  <button class="btn btn-sm" @click="openBookWebsite(work.url)">{{ t('catalog.viewOriginal') }}</button>
                 </span>
               </div>
             </div>
