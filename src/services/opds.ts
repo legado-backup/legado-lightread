@@ -215,7 +215,11 @@ export async function downloadToLibrary(
       .replace(/^<\?xml\b[\s\S]*?\?>\s*/i, '')
       .replace(/^(?:<!--[\s\S]*?-->\s*)+/, '')
     const looksHtml = /^(?:<!doctype\s+html\b|<(?:html|head|body)(?:\s|>))/i.test(prefix)
-    if (htmlMime.test(contentType.trim()) || looksHtml) {
+    // 个别站点 (如 Early Modern Texts) 给 EPUB 也标 text/html: 文件头是 ZIP / PDF / DjVu 时以内容为准
+    const magic = new Uint8Array(await blob.slice(0, 8).arrayBuffer())
+    const ascii = String.fromCharCode(...magic)
+    const looksBinary = ascii.startsWith('PK\x03\x04') || ascii.startsWith('%PDF') || ascii.startsWith('AT&TFORM')
+    if ((htmlMime.test(contentType.trim()) && !looksBinary) || looksHtml) {
       throw new Error(t('catalog.downloadReturnedWebpage'))
     }
   }
