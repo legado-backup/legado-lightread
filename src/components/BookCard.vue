@@ -12,6 +12,10 @@ const props = defineProps<{
   selectable?: boolean
   selected?: boolean
   showBooklists?: boolean
+  /** 可转换为 EPUB (MOBI / AZW3 / FB2 / TXT 等) */
+  convertible?: boolean
+  /** 正在转换: 按钮禁用 */
+  converting?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -20,6 +24,8 @@ const emit = defineEmits<{
   toggleSelect: []
   togglePin: []
   addToBooklist: []
+  upload: []
+  convert: []
 }>()
 
 const progress = computed(() => {
@@ -78,10 +84,12 @@ function openMenu() {
   menuOpen.value = true
   setTimeout(() => document.addEventListener('pointerdown', onOutsidePointerDown, true))
 }
-function menuAction(event: 'remove' | 'togglePin' | 'addToBooklist') {
+function menuAction(event: 'remove' | 'togglePin' | 'addToBooklist' | 'upload' | 'convert') {
   closeMenu()
   if (event === 'remove') emit('remove')
   else if (event === 'togglePin') emit('togglePin')
+  else if (event === 'upload') emit('upload')
+  else if (event === 'convert') emit('convert')
   else emit('addToBooklist')
 }
 /* 触屏长按封面: 与点「更多」一样展开操作 (系统的长按菜单无意义, 拦掉) */
@@ -103,7 +111,7 @@ function onKeydown(e: KeyboardEvent) {
 <template>
   <div
     class="book-card"
-    :class="{ selected: selectable && selected, selectable }"
+    :class="{ selected: selectable && selected, selectable, 'menu-open': menuOpen }"
     :title="tooltip"
     :role="selectable ? 'checkbox' : 'button'"
     :aria-checked="selectable ? selected : undefined"
@@ -169,6 +177,28 @@ function onKeydown(e: KeyboardEvent) {
           @keydown.stop
         >
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M5 4a2 2 0 0 1 2-2h9a3 3 0 0 1 3 3v6a1 1 0 1 1-2 0V5a1 1 0 0 0-1-1H7v14.38l4.55-2.28a1 1 0 0 1 .9 0l1.1.55a1 1 0 1 1-.9 1.79L12 18.12 6.45 20.9A1 1 0 0 1 5 20V4zm14 10a1 1 0 0 1 1 1v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2h-2a1 1 0 1 1 0-2h2v-2a1 1 0 0 1 1-1z"/></svg>
+        </button>
+        <button
+          v-if="convertible"
+          type="button"
+          class="action convert"
+          :title="t('book.convertToEpub')"
+          :aria-label="t('book.convertToEpub')"
+          :disabled="converting"
+          @click.stop="menuAction('convert')"
+          @keydown.stop
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h13l-3.5-3.5M20 15H7l3.5 3.5"/></svg>
+        </button>
+        <button
+          type="button"
+          class="action upload"
+          :title="t('library.uploadToCloud')"
+          :aria-label="t('library.uploadToCloud')"
+          @click.stop="menuAction('upload')"
+          @keydown.stop
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 18H5a4 4 0 0 1-.6-8 7 7 0 0 1 13.4-2 5 5 0 0 1 1.2 10h-2M12 20V10m-4 4 4-4 4 4"/></svg>
         </button>
         <button
           type="button"
@@ -377,8 +407,13 @@ function onKeydown(e: KeyboardEvent) {
 }
 .pin.pinned,
 .pin:hover,
-.booklist-action:hover {
+.booklist-action:hover,
+.convert:hover {
   background: var(--brand);
+}
+.action:disabled {
+  cursor: progress;
+  background: rgba(17, 20, 26, 0.35);
 }
 .remove:hover {
   background: var(--danger);
@@ -406,6 +441,15 @@ function onKeydown(e: KeyboardEvent) {
     width: 32px;
     height: 32px;
   }
+  /* 小封面放不下一整列按钮: 展开时每列最多 4 个, 向左折成多列 (「更多」仍在右上角) */
+  .actions.open {
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(4, auto);
+    direction: rtl;
+    justify-items: start;
+    align-content: start;
+  }
   /* 「更多」常驻但不抢封面: 小圆点按钮, 热区靠透明外扩补足 */
   .action.more {
     display: flex;
@@ -425,6 +469,10 @@ function onKeydown(e: KeyboardEvent) {
   .actions.open .action {
     opacity: 1;
     transform: none;
+  }
+  /* 展开的操作折成两列时会压住左上角的格式标签: 先隐去 */
+  .book-card.menu-open .format {
+    opacity: 0;
   }
   .actions.open .action.more {
     background: var(--brand);

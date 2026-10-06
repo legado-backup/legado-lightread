@@ -47,6 +47,7 @@ pub struct UploadSpec {
   pub method: String,
   pub headers: Vec<(String, String)>,
   pub proxy: Option<String>,
+  pub no_redirect: bool,
 }
 
 /// 整体超时: 60 秒 + 每 MB 10 秒, 上限 30 分钟
@@ -138,6 +139,9 @@ fn build_client(spec: &UploadSpec, timeout: Duration) -> Result<reqwest::Client,
   let mut builder = reqwest::Client::builder()
     .connect_timeout(CONNECT_TIMEOUT)
     .timeout(timeout);
+  if spec.no_redirect {
+    builder = builder.redirect(reqwest::redirect::Policy::none());
+  }
   if let Some(proxy) = spec.proxy.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
     let proxy = reqwest::Proxy::all(proxy).map_err(|e| format!("request: 代理地址无效: {e}"))?;
     builder = builder.proxy(proxy);
@@ -192,11 +196,12 @@ fn parse_spec(map: &tauri::http::HeaderMap) -> Result<(UploadSpec, Option<FileRe
     }
   };
   let proxy = header(map, "x-lr-proxy")?;
+  let no_redirect = header(map, "x-lr-no-redirect")?.as_deref() == Some("true");
   let file = match header(map, "x-lr-file")? {
     None => None,
     Some(json) => Some(serde_json::from_str::<FileRef>(&json).map_err(|e| format!("request: x-lr-file: {e}"))?),
   };
-  Ok((UploadSpec { url, method, headers, proxy }, file))
+  Ok((UploadSpec { url, method, headers, proxy, no_redirect }, file))
 }
 
 #[tauri::command]
@@ -276,6 +281,7 @@ mod tests {
         ("authorization".into(), "Basic dTpw".into()),
       ],
       proxy: None,
+      no_redirect: false,
     }
   }
 
@@ -294,6 +300,23 @@ mod tests {
     assert!(lower.contains("content-type: application/octet-stream"), "{head}");
     assert!(lower.contains("content-length: 300000"), "{head}");
     assert_eq!(got, body);
+  }
+
+  #[tokio::test]
+  async fn private_upload_does_not_follow_redirects() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+      let (mut stream, _) = listener.accept().unwrap();
+      let mut input = [0u8; 8192];
+      let _ = stream.read(&mut input);
+      stream.write_all(b"HTTP/1.1 307 Temporary Redirect\r\nLocation: /elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+    });
+    let mut request = spec(format!("http://{address}/api/upload"));
+    request.method = "POST".into();
+    request.no_redirect = true;
+    let result = send(request, b"private book".to_vec(), Duration::from_secs(2)).await.unwrap();
+    assert_eq!(result.status, 307);
   }
 
   #[tokio::test]
@@ -344,9 +367,12 @@ mod tests {
     assert_eq!(spec.method, "PUT");
     assert_eq!(spec.headers, vec![("content-type".to_string(), "image/jpeg".to_string())]);
     assert_eq!(spec.proxy.as_deref(), Some("socks5://127.0.0.1:1080"));
+    assert!(!spec.no_redirect);
     let file = file.unwrap();
     assert_eq!((file.root.as_str(), file.rel.as_str()), ("", "books/x.epub"));
     assert!(parse_spec(&tauri::http::HeaderMap::new()).is_err());
+    map.insert("x-lr-no-redirect", "true".parse().unwrap());
+    assert!(parse_spec(&map).unwrap().0.no_redirect);
   }
 
   #[test]

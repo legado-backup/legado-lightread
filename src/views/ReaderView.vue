@@ -1942,7 +1942,8 @@ const dj = useDianjing({
     author: meta.value.author,
     language: (meta.value as any).language,
     tags: (meta.value as any).tags,
-    subjects: (view?.book?.metadata?.subject ?? []).map((x: any) => (typeof x === 'string' ? x : x?.name ?? '')),
+    // EPUB 只有一个 dc:subject 时 foliate 给的是单个值而不是数组
+    subjects: ([] as any[]).concat(view?.book?.metadata?.subject ?? []).map((x: any) => (typeof x === 'string' ? x : x?.name ?? '')),
   },
   getThemeName: () => djThemeName(resolveReaderTheme(settings.reader.theme, appDark.value), !!lateModes.value?.einkActive.value),
   isEink: () => !!lateModes.value?.einkActive.value,
@@ -2098,7 +2099,8 @@ onMounted(async () => {
     if (isTextLike(meta.value.format) && meta.value.location) {
       try { staleTextLocation = localStorage.getItem(layoutKey) !== TEXT_EPUB_LAYOUT } catch { /* 存储不可用时按新版式处理 */ }
     }
-    if (staleTextLocation) {
+    // 只有进度比例、没有位置的书 (如由 MOBI 等转换来的 EPUB): 按比例定位
+    if (staleTextLocation || (!meta.value.location && meta.value.progress)) {
       await view.init({})
       if (meta.value.progress) await view.goToFraction(meta.value.progress)
     } else {

@@ -256,12 +256,11 @@ export async function searchGutenberg(query: string, limit = 20): Promise<OpdsPu
       bookLinks = next.navigation.filter(n => bookNode(n.href))
     }
   }
-  const pubs: OpdsPublication[] = []
-  await Promise.all(bookLinks.slice(0, limit).map(async n => {
+  // 并发取详情, 但按搜索结果原顺序返回 (完成顺序会打乱相关度排序)
+  const details = await Promise.all(bookLinks.slice(0, limit).map(async n => {
     try {
-      const detail = await loadOpdsPage(n.href)
-      if (detail.publications[0]) pubs.push(detail.publications[0])
-    } catch { /* 单本失败忽略 */ }
+      return (await loadOpdsPage(n.href)).publications[0]
+    } catch { return undefined /* 单本失败忽略 */ }
   }))
-  return pubs
+  return details.filter((pub): pub is OpdsPublication => !!pub)
 }

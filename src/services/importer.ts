@@ -153,7 +153,12 @@ export async function importFiles(
   let done = 0
   for (const file of list) {
     onProgress?.(done, list.length, file.name)
-    results.push(await importFile(file, source, overrides))
+    try {
+      results.push(await importFile(file, source, overrides))
+    } catch (error: any) {
+      // 单本存储失败也要继续其余文件，并让界面能正常退出进度状态。
+      results.push({ ok: false, fileName: file.name, error: error?.message ?? '文件保存失败' })
+    }
     done++
   }
   onProgress?.(done, list.length, '')

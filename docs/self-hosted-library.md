@@ -84,7 +84,7 @@ calibre-server --enable-auth --port 8080 "/path/to/Calibre Library"
 6. **下载**：轻阅请求 `/download/<SHA256>.epub` 时，服务端按 `fs_id` 实时获取临时下载链接 dlink，带上 access_token 下载，**核对大小和 SHA256 后**再返回给轻阅。dlink 和令牌都不写进索引、不发给客户端。
 7. **OPDS 接口**：`GET /opds?q=关键词&page=1` 返回 Atom 订阅，每页固定条数，带 `rel="search"`（`/opds?q={searchTerms}`）和 `rel="next"`；所有接口要求同一组 HTTP Basic 账号。
 
-> 这套方案的开源参考实现（只导入你自己的 EPUB，不含任何第三方采集）正在整理，完成后会放到本仓库。在那之前，可以按上面的接口约定自己实现，或先用方案一。
+> 完整的独立服务端参考实现仍在整理。目前仓库提供了[多格式上传模块与现有服务适配器](../library-server/README.md)，支持 EPUB、PDF、AZW、AZW3、MOBI；它依赖已有索引和网盘存储服务，不能单独启动。首次自建可以先用方案一，或按接口约定实现服务端。
 
 ## 对外访问：只用 HTTPS
 
@@ -108,6 +108,27 @@ calibre-server --enable-auth --port 8080 "/path/to/Calibre Library"
 3. 点「下载并阅读 EPUB」：轻阅下载、导入藏书并直接打开。之后在藏书里离线阅读。
 
 也可以点开书源卡片，像浏览目录一样逐页翻看。
+
+### 添加本地书籍和收藏
+
+- **本地藏书**：点「添加书籍」，可以多选或拖入 EPUB、AZW、AZW3、MOBI、PDF 等文件。在某个书单中添加，新书会同时加入该书单。
+- **私人云端**：点「我的书库」卡片或书源目录内的「添加书籍」，选择设备上的文件，或切换到「已有藏书」，按书单、置顶、书名筛选后加入上传队列。确认目标书库后点「开始上传」。
+- **已收藏的书**：藏书卡片的云端按钮、管理模式的批量操作和「将此书单加入云端」都能把已有原文件加入私人书库，不必重新下载。整份书单上传不受搜索或标签筛选影响。
+
+MOBI、AZW、AZW3、FB2、TXT 等可转换的格式默认先在本机转成 EPUB 再上传（上传对话框里可关闭「上传前转换为 EPUB」），PDF 等固定版式保留原文件。藏书里也可以随时用书卡上的「转换为 EPUB」把书转成更好的格式，原书保留。相同内容只保存一份；某本失败不会打断其余书籍，可单独重试。当前适配器每本上限 90 MiB；客户端会显示服务端支持的格式和大小。AZW／AZW3 在本地阅读需要文件没有 DRM 加密。
+
+### 服务端如何启用上传
+
+普通 OPDS 只提供浏览和下载，**并不自动支持上传**。轻阅先检查服务声明的上传能力；只读书源会显示说明，不会接收文件。Calibre 的现有上传接口不会被当成这个协议调用。
+
+自建服务在 OPDS feed 中增加以下链接（地址须与书源同源），并沿用书源的认证：
+
+```xml
+<link rel="https://lightread.app/rel/library" href="/api/library" type="application/json" />
+<link rel="https://lightread.app/rel/upload" href="/api/upload" type="application/json" />
+```
+
+`GET /api/library` 返回版本、上传地址、格式和大小限制；`POST /api/upload` 接收原始文件体。完整请求头、返回值和安装验证步骤见[上传协议说明](../library-server/README.md)。网页版还需允许 CORS 的 `POST` 方法以及 `Content-Type`、`X-File-Name`、`X-Book-Title`、`X-Book-Author` 请求头。私人文件上传直连自己的书库，不通过公共书源代理。
 
 ## 常见问题
 

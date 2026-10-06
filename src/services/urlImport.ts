@@ -6,7 +6,7 @@
  */
 import { fetchRemote } from './net'
 import { detectFormat } from './format'
-import { importFile, type ImportResult } from './importer'
+import { importFile, type ImportResult, type MetaOverrides } from './importer'
 import { t } from '../i18n'
 
 /** GitHub 网页版文件链接 → raw 直链 */
@@ -45,6 +45,7 @@ export interface UrlImportProgress {
 export async function importFromUrl(
   rawUrl: string,
   onProgress: (p: UrlImportProgress) => void,
+  overrides?: MetaOverrides,
 ): Promise<ImportResult> {
   const url = normalizeBookUrl(rawUrl)
   const res = await fetchRemote(url, undefined, { headers: { accept: '*/*' } })
@@ -81,5 +82,5 @@ export async function importFromUrl(
     throw new Error(t('library.urlUnsupported', { name: fileName }))
   }
   const file = new File([data as BlobPart], fileName)
-  return importFile(file, t('library.urlSource'))
+  return importFile(file, t('library.urlSource'), overrides)
 }

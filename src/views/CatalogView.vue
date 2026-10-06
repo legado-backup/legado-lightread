@@ -26,6 +26,7 @@ import { searchWikisource, type WikisourceBook } from '../services/wikisource'
 import { searchOpenLibrary, type OpenLibraryBook } from '../services/openLibrary'
 import { searchInternetArchive, loadArchivePublication, type ArchiveBook } from '../services/internetArchive'
 import { WEB_BOOK_SOURCES, webBookSourceUrl } from '../services/webBookSources'
+import { normalizeBookQuery, titleRelevance } from '../services/bookQuery'
 import { arxivSearchUrl as arxivSearchUrlOf, loadArxivPage as loadArxivPageOf } from '../services/arxiv'
 import { importFromUrl } from '../services/urlImport'
 import { useSettings } from '../stores/settings'
@@ -33,10 +34,20 @@ import { useLibrary } from '../stores/library'
 import { useRouter } from 'vue-router'
 import { toast } from '../services/toast'
 import { t } from '../i18n'
+import LibraryUploadDialog from '../components/LibraryUploadDialog.vue'
 
 const library = useLibrary()
 const settings = useSettings()
 const router = useRouter()
+const uploadTarget = ref<CatalogSourceRec | null>(null)
+
+async function refreshAfterUpload() {
+  if (activeSource.value) {
+    const current = breadcrumbs.value[breadcrumbs.value.length - 1]
+    await openUrl(current?.url ?? activeSource.value.url, current?.title ?? activeSource.value.title, false)
+  }
+  if (uniSearched.value && !uniSearching.value) await uniSearch()
+}
 
 // ---- GitHub 书库: 社区清单 + 用户自加 ----
 const communityRepos = ref<CommunityRepo[]>(BUNDLED_COMMUNITY.repos)
@@ -132,11 +143,79 @@ const uniGithub = ref<GithubBookHit[]>([])
 const uniGutenberg = ref<OpdsPublication[]>([])
 const uniArxiv = ref<OpdsPublication[]>([])
 let uniSession = 0
+/** 本次搜索实际发出的 (归一后的) 关键词, 用于结果分组排序 */
+const uniActiveQuery = ref('')
+
+// ---- 各公开书源的状态: 搜索中 / 有结果 / 未找到 / 出错, 分组按结果相关度排序 ----
+type UniSource = 'wikisource' | 'archive' | 'github' | 'gutenberg' | 'openlibrary' | 'arxiv'
+/** 同等相关度时的默认顺序 */
+const UNI_SOURCES: UniSource[] = ['wikisource', 'archive', 'github', 'gutenberg', 'openlibrary', 'arxiv']
+const uniStatus = reactive<Record<UniSource, 'idle' | 'loading' | 'done' | 'error'>>({
+  wikisource: 'idle', archive: 'idle', github: 'idle', gutenberg: 'idle', openlibrary: 'idle', arxiv: 'idle',
+})
+const uniSourceName = (key: UniSource) => ({
+  wikisource: t('catalog.wikisource'), archive: 'Internet Archive', github: 'GitHub',
+  gutenberg: t('catalog.gutenberg'), openlibrary: 'Open Library', arxiv: 'arXiv',
+})[key]
+
+function uniTitles(key: UniSource): string[] {
+  switch (key) {
+    case 'wikisource': return uniWikisource.value.map(b => b.title)
+    case 'archive': return uniArchive.value.map(b => b.title)
+    case 'github': return uniGithub.value.map(h => h.name)
+    case 'gutenberg': return uniGutenberg.value.map(p => p.title)
+    case 'openlibrary': return uniOpenLibrary.value.map(b => b.title)
+    case 'arxiv': return uniArxiv.value.map(p => p.title)
+  }
+}
+
+/** 该来源最贴切的一条结果的相关度 (维基文库的繁体书名由站点判定, 其余按书名比对) */
+function uniBestRelevance(key: UniSource): number {
+  if (key === 'wikisource') return Math.max(0, ...uniWikisource.value.map(b => b.relevance))
+  // Open Library 只是书目: 只有能公开阅读/借阅的记录才算数, 免得「暂无电子版」排到可下载的来源前面
+  const titles = key === 'openlibrary'
+    ? uniOpenLibrary.value.filter(b => b.access === 'public' || b.access === 'borrowable').map(b => b.title)
+    : uniTitles(key)
+  return Math.max(0, ...titles.slice(0, 10).map(title => titleRelevance(title, uniActiveQuery.value)))
+}
+
+/** 有结果的来源按「最贴切结果」排序, 搜索中的排在后面; 未找到的折叠成一行 */
+const uniVisibleGroups = computed(() => UNI_SOURCES
+  .filter(key => uniScopes[key] && (uniStatus[key] === 'loading' || (uniStatus[key] === 'done' && uniTitles(key).length)))
+  .map((key, index) => ({ key, rank: uniStatus[key] === 'loading' ? -1 : uniBestRelevance(key), index }))
+  .sort((a, b) => b.rank - a.rank || a.index - b.index)
+  .map(entry => entry.key))
+const uniEmptySources = computed(() => UNI_SOURCES
+  .filter(key => uniScopes[key] && uniStatus[key] === 'done' && !uniTitles(key).length)
+  .map(uniSourceName))
+
+/** 「Failed to fetch」对用户没有意义: 说明是连不上, 网页版提示书源代理 */
+function sourceErrorText(e: any): string {
+  const message = String(e?.message ?? e)
+  if (e instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed/i.test(message)) {
+    return t(isTauri() || settings.corsProxy.trim() ? 'catalog.sourceUnreachable' : 'catalog.sourceUnreachableWeb')
+  }
+  return message
+}
+
+/** 十几个书库各报一遍同样的错 (多为 GitHub 匿名接口限流) 没有意义: 合并成一句 */
+function githubErrorText(errors: Array<{ repo: string; message: string }>): string {
+  if (errors.some(x => /\b(403|429)\b|rate limit/i.test(x.message))) return `GitHub: ${t('catalog.githubRateLimited')}`
+  const messages = [...new Set(errors.map(x => sourceErrorText({ message: x.message })))]
+  return errors.length === 1
+    ? `${errors[0]!.repo}: ${messages[0]}`
+    : `GitHub: ${t('catalog.githubReposFailed', { n: errors.length })} ${messages.slice(0, 2).join('; ')}`
+}
 
 async function uniSearch() {
-  const query = uniQuery.value.trim()
-  if (!query || uniSearching.value || !hasSearchScope.value) return
+  const raw = uniQuery.value.trim()
+  // 书名号、全角标点等统一成空格: 「《思考，快与慢》」与「思考 快与慢」等价
+  const query = normalizeBookQuery(raw)
+  if (!query || !hasSearchScope.value) return
+  // 同一关键词正在搜索时不重复发起; 换了关键词可以直接重搜, 旧结果按会话丢弃
+  if (uniSearching.value && query === uniActiveQuery.value) return
   const session = ++uniSession
+  uniActiveQuery.value = query
   uniSearching.value = true
   uniSearched.value = true
   uniWikisource.value = []
@@ -146,45 +225,41 @@ async function uniSearch() {
   uniGithub.value = []
   uniGutenberg.value = []
   uniArxiv.value = []
+  for (const key of UNI_SOURCES) uniStatus[key] = uniScopes[key] ? 'loading' : 'idle'
   const jobs: Promise<void>[] = []
-  // 我的书库 (用户添加的 OPDS 书源) 各自独立搜索: 一个慢/失败不影响其它
+  // 我的书库 (用户添加的 OPDS 书源) 各自独立搜索: 一个慢/失败不影响其它; 用原始关键词, 交给书库自己的搜索
   myResults.value = myLibraries.value.filter(s => myScopeOn(s.id)).map(source => ({
     source, status: 'loading', error: '', publications: [], loadingMore: false,
   }))
-  for (const entry of myResults.value) jobs.push(searchMyLibrary(session, entry, query))
+  for (const entry of myResults.value) jobs.push(searchMyLibrary(session, entry, raw))
+  /** 每个来源独立: 先到先显示, 失败只影响自己 */
+  const run = <T>(key: UniSource, request: () => Promise<T>, apply: (result: T) => void) => {
+    jobs.push(request().then(result => {
+      if (session !== uniSession) return
+      apply(result)
+      uniStatus[key] = 'done'
+    }).catch(e => {
+      if (session !== uniSession) return
+      uniStatus[key] = 'error'
+      if (e?.message !== '') uniErrors.value.push(`${uniSourceName(key)}: ${sourceErrorText(e)}`)
+    }))
+  }
   if (uniScopes.github) {
-    jobs.push(searchGithubBooks(allGhRepos(), query).then(r => {
-      if (session !== uniSession) return
+    const repos = allGhRepos()
+    run('github', () => searchGithubBooks(repos, query), r => {
       uniGithub.value = r.hits
-      if (r.errors.length) uniErrors.value.push(...r.errors.map(x => `${x.repo}: ${x.message}`))
-    }).catch(e => { uniErrors.value.push(`GitHub: ${e?.message ?? e}`) }))
+      if (!r.errors.length) return
+      uniErrors.value.push(githubErrorText(r.errors))
+      // 全部书库都没取到时是「出错」而不是「未找到」
+      if (!r.hits.length && r.errors.length >= new Set(repos.map(repo => repo.toLowerCase())).size) throw new Error('')
+    })
   }
-  if (uniScopes.gutenberg) {
-    jobs.push(searchGutenberg(query, 24).then(pubs => {
-      if (session !== uniSession) return
-      uniGutenberg.value = pubs
-    }).catch(e => { uniErrors.value.push(`Gutenberg: ${e?.message ?? e}`) }))
-  }
-  if (uniScopes.wikisource) {
-    jobs.push(searchWikisource(query).then(books => {
-      if (session === uniSession) uniWikisource.value = books
-    }).catch(e => { uniErrors.value.push(`${t('catalog.wikisource')}: ${e?.message ?? e}`) }))
-  }
-  if (uniScopes.archive) {
-    jobs.push(searchInternetArchive(query).then(books => {
-      if (session === uniSession) uniArchive.value = books
-    }).catch(e => { uniErrors.value.push(`Internet Archive: ${e?.message ?? e}`) }))
-  }
-  if (uniScopes.openlibrary) {
-    jobs.push(searchOpenLibrary(query).then(books => {
-      if (session === uniSession) uniOpenLibrary.value = books
-    }).catch(e => { uniErrors.value.push(`Open Library: ${e?.message ?? e}`) }))
-  }
+  if (uniScopes.gutenberg) run('gutenberg', () => searchGutenberg(query, 24), pubs => { uniGutenberg.value = pubs })
+  if (uniScopes.wikisource) run('wikisource', () => searchWikisource(query), books => { uniWikisource.value = books })
+  if (uniScopes.archive) run('archive', () => searchInternetArchive(query), books => { uniArchive.value = books })
+  if (uniScopes.openlibrary) run('openlibrary', () => searchOpenLibrary(query), books => { uniOpenLibrary.value = books })
   if (uniScopes.arxiv) {
-    jobs.push(loadArxivPageOf(arxivSearchUrlOf(query)).then(p => {
-      if (session !== uniSession) return
-      uniArxiv.value = (p.publications ?? []).slice(0, 20)
-    }).catch(e => { uniErrors.value.push(`arXiv: ${e?.message ?? e}`) }))
+    run('arxiv', () => loadArxivPageOf(arxivSearchUrlOf(query)), p => { uniArxiv.value = (p.publications ?? []).slice(0, 20) })
   }
   await Promise.allSettled(jobs)
   if (session === uniSession) {
@@ -299,9 +374,10 @@ async function loadMoreMine(entry: MyLibraryResult) {
 const primaryAcq = (pub: OpdsPublication) => pickPrimaryAcquisition(pub.acquisitions).primary
 const otherAcqs = (pub: OpdsPublication) => pickPrimaryAcquisition(pub.acquisitions).others
 
-/** 已从该书库入库的同名书 (直接继续阅读, 不重复下载) */
+/** 同书库、同名且同格式才复用本地书，保留其他格式的下载入口。 */
 const importedFromSource = (source: CatalogSourceRec, pub: OpdsPublication) =>
-  library.books.find(b => b.source === source.title && b.title === pub.title)
+  library.books.find(b => b.source === source.title && b.title === pub.title &&
+    b.format.toUpperCase() === primaryAcq(pub)?.label.toUpperCase())
 
 function openLibraryBook(book: { id: string; format: any }) {
   router.push(readerPath(book))
@@ -691,7 +767,7 @@ async function removeSource(s: CatalogSourceRec) {
         <div v-if="fetchingNotice" class="gh-progress" role="status">{{ fetchingNotice }}</div>
 
         <template v-if="uniSearched">
-          <p v-if="!uniSearching && !uniErrors.length && !myResults.some(r => r.publications.length || r.status === 'error') && !uniWikisource.length && !uniGithub.length && !uniGutenberg.length && !uniArchive.length && !uniOpenLibrary.length && !uniArxiv.length" class="intro" role="status">{{ t('catalog.noSearchResults') }}</p>
+          <p v-if="!uniSearching && (UNI_SOURCES.some(key => uniStatus[key] === 'done') || myResults.some(r => r.status === 'done')) && !myResults.some(r => r.publications.length) && !uniWikisource.length && !uniGithub.length && !uniGutenberg.length && !uniArchive.length && !uniOpenLibrary.length && !uniArxiv.length" class="intro" role="status">{{ t('catalog.noSearchResults') }} {{ t('catalog.copyrightHint') }}</p>
           <!-- 我的书库排在最前 -->
           <div v-for="entry in myResults" :key="entry.source.id" class="uni-group mine-group" :aria-busy="entry.status === 'loading'">
             <div class="uni-group-head">
@@ -735,81 +811,87 @@ async function removeSource(s: CatalogSourceRec) {
               </button>
             </div>
           </div>
-          <div v-if="uniScopes.wikisource" class="uni-group">
-            <div class="uni-group-head">{{ t('catalog.wikisource') }} · {{ t('reader.resultCount', { n: uniWikisource.length }) }}</div>
-            <div v-for="book in uniWikisource" :key="book.id" class="gh-item uni-pub">
-              <span class="gh-name">{{ book.title }}</span>
-              <span v-if="book.summary" class="gh-meta">{{ book.summary }}</span>
-              <span class="uni-acts">
-                <button v-for="acq in book.publication.acquisitions" :key="acq.href" class="btn btn-sm" :disabled="downloading.has(acq.href)" @click="downloadPublicBook(book.publication, acq, t('catalog.wikisource'))">{{ downloading.has(acq.href) ? t('catalog.downloading') : t(publicDownloadInBrowser ? 'catalog.browserDownload' : 'catalog.download', { label: acq.label }) }}</button>
-                <button v-if="!publicDownloadInBrowser" class="btn btn-sm" @click="openBookWebsite(book.publication.acquisitions[0]!.href)">{{ t('catalog.browserDownload', { label: 'EPUB' }) }}</button>
-                <button class="btn btn-sm" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button>
-              </span>
+          <!-- 公开书源: 有结果的按最贴切结果排序, 搜索中的在后, 未找到的折叠成一行 -->
+          <template v-for="key in uniVisibleGroups" :key="key">
+            <div v-if="key === 'wikisource'" class="uni-group" :aria-busy="uniStatus.wikisource === 'loading'">
+              <div class="uni-group-head">{{ t('catalog.wikisource') }} · {{ uniStatus.wikisource === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniWikisource.length }) }}</div>
+              <div v-for="book in uniWikisource" :key="book.id" class="gh-item uni-pub">
+                <span class="gh-name">{{ book.title }}</span>
+                <span v-if="book.disambiguation" class="gh-meta">{{ t('catalog.wikisourceVersions') }}</span>
+                <span v-else-if="book.summary" class="gh-meta">{{ book.summary }}</span>
+                <span class="uni-acts">
+                  <button v-for="acq in book.publication.acquisitions" :key="acq.href" class="btn btn-sm" :disabled="downloading.has(acq.href)" @click="downloadPublicBook(book.publication, acq, t('catalog.wikisource'))">{{ downloading.has(acq.href) ? t('catalog.downloading') : t(publicDownloadInBrowser ? 'catalog.browserDownload' : 'catalog.download', { label: acq.label }) }}</button>
+                  <button v-if="!publicDownloadInBrowser && book.publication.acquisitions[0]" class="btn btn-sm" @click="openBookWebsite(book.publication.acquisitions[0].href)">{{ t('catalog.browserDownload', { label: 'EPUB' }) }}</button>
+                  <button class="btn btn-sm" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button>
+                </span>
+              </div>
             </div>
-          </div>
-          <div v-if="uniScopes.archive" class="uni-group">
-            <div class="uni-group-head">Internet Archive · {{ t('reader.resultCount', { n: uniArchive.length }) }}</div>
-            <div v-for="book in uniArchive" :key="book.identifier" class="gh-item uni-pub">
-              <span class="gh-name">{{ book.title }}</span>
-              <span class="gh-meta">{{ book.author || t('common.anonymous') }}<template v-if="book.year"> · {{ book.year }}</template></span>
-              <span class="uni-acts">
-                <template v-if="archivePublications[book.identifier]">
-                  <button v-for="acq in archivePublications[book.identifier].acquisitions" :key="acq.href" class="btn btn-sm" :disabled="downloading.has(acq.href)" @click="downloadPublicBook(archivePublications[book.identifier], acq, 'Internet Archive')">{{ downloading.has(acq.href) ? t('catalog.downloading') : t(publicDownloadInBrowser ? 'catalog.browserDownload' : 'catalog.download', { label: acq.label }) }}</button>
-                  <span v-if="!archivePublications[book.identifier].acquisitions.length" class="gh-meta">{{ t('catalog.noDownloadFormat') }}</span>
-                </template>
-                <button v-else class="btn btn-sm" :disabled="archiveLoading.has(book.identifier)" @click="showArchiveDownloads(book)">{{ archiveLoading.has(book.identifier) ? t('catalog.readingLibrary') : t('catalog.showDownloads') }}</button>
-                <button class="btn btn-sm" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button>
-              </span>
+            <div v-if="key === 'archive'" class="uni-group" :aria-busy="uniStatus.archive === 'loading'">
+              <div class="uni-group-head">Internet Archive · {{ uniStatus.archive === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniArchive.length }) }}</div>
+              <div v-for="book in uniArchive" :key="book.identifier" class="gh-item uni-pub">
+                <span class="gh-name">{{ book.title }}</span>
+                <span class="gh-meta">{{ book.author || t('common.anonymous') }}<template v-if="book.year"> · {{ book.year }}</template></span>
+                <span class="uni-acts">
+                  <template v-if="archivePublications[book.identifier]">
+                    <button v-for="acq in archivePublications[book.identifier].acquisitions" :key="acq.href" class="btn btn-sm" :disabled="downloading.has(acq.href)" @click="downloadPublicBook(archivePublications[book.identifier], acq, 'Internet Archive')">{{ downloading.has(acq.href) ? t('catalog.downloading') : t(publicDownloadInBrowser ? 'catalog.browserDownload' : 'catalog.download', { label: acq.label }) }}</button>
+                    <span v-if="!archivePublications[book.identifier].acquisitions.length" class="gh-meta">{{ t('catalog.noDownloadFormat') }}</span>
+                  </template>
+                  <button v-else class="btn btn-sm" :disabled="archiveLoading.has(book.identifier)" @click="showArchiveDownloads(book)">{{ archiveLoading.has(book.identifier) ? t('catalog.readingLibrary') : t('catalog.showDownloads') }}</button>
+                  <button class="btn btn-sm" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button>
+                </span>
+              </div>
             </div>
-          </div>
-          <div v-if="uniScopes.openlibrary" class="uni-group">
-            <div class="uni-group-head">Open Library · {{ t('reader.resultCount', { n: uniOpenLibrary.length }) }}</div>
-            <p class="intro">{{ t('catalog.openlibraryHint') }}</p>
-            <div v-for="book in uniOpenLibrary" :key="book.key" class="gh-item uni-pub">
-              <span class="gh-name">{{ book.title }}</span>
-              <span class="gh-meta">{{ book.author || t('common.anonymous') }}<template v-if="book.year"> · {{ book.year }}</template> · {{ t('catalog.access.' + book.access) }}</span>
-              <span class="uni-acts"><button class="btn btn-sm" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button></span>
+            <div v-if="key === 'openlibrary'" class="uni-group" :aria-busy="uniStatus.openlibrary === 'loading'">
+              <div class="uni-group-head">Open Library · {{ uniStatus.openlibrary === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniOpenLibrary.length }) }}</div>
+              <p class="intro">{{ t('catalog.openlibraryHint') }}</p>
+              <div v-for="book in uniOpenLibrary" :key="book.key" class="gh-item uni-pub">
+                <span class="gh-name">{{ book.title }}</span>
+                <span class="gh-meta">{{ book.author || t('common.anonymous') }}<template v-if="book.year"> · {{ book.year }}</template> · {{ t('catalog.access.' + book.access) }}</span>
+                <span class="uni-acts"><button class="btn btn-sm" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button></span>
+              </div>
             </div>
-          </div>
-          <div v-if="uniScopes.github" class="uni-group">
-            <div class="uni-group-head">GitHub · {{ t('reader.resultCount', { n: uniGithub.length }) }}</div>
-            <div v-for="hit in uniGithub.slice(0, 60)" :key="hit.url" class="gh-item" :class="{ busy: ghImporting === hit.url }" role="button" tabindex="0" @click="importGhBook(hit)" @keydown.enter.prevent="importGhBook(hit)">
-              <span class="gh-name">{{ hit.name }}</span>
-              <span class="gh-meta">{{ hit.repo }}<template v-if="hit.size"> · {{ fmtBytes(hit.size) }}</template></span>
+            <div v-if="key === 'github'" class="uni-group" :aria-busy="uniStatus.github === 'loading'">
+              <div class="uni-group-head">GitHub · {{ uniStatus.github === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniGithub.length }) }}</div>
+              <div v-for="hit in uniGithub.slice(0, 60)" :key="hit.url" class="gh-item" :class="{ busy: ghImporting === hit.url }" role="button" tabindex="0" @click="importGhBook(hit)" @keydown.enter.prevent="importGhBook(hit)">
+                <span class="gh-name">{{ hit.name }}</span>
+                <span class="gh-meta">{{ hit.repo }}<template v-if="hit.size"> · {{ fmtBytes(hit.size) }}</template></span>
+              </div>
             </div>
-          </div>
-          <div v-if="uniScopes.gutenberg" class="uni-group">
-            <div class="uni-group-head">{{ t('catalog.gutenberg') }} · {{ t('reader.resultCount', { n: uniGutenberg.length }) }}</div>
-            <div v-for="(pub, i) in uniGutenberg" :key="i" class="gh-item uni-pub">
-              <span class="gh-name">{{ pub.title }}</span>
-              <span class="gh-meta">{{ pub.author || t('common.anonymous') }}</span>
-              <span class="uni-acts">
-                <button
-                  v-for="acq in pub.acquisitions.slice(0, 2)"
-                  :key="acq.href"
-                  class="btn btn-sm"
-                  :disabled="downloading.has(acq.href)"
-                  @click.stop="uniDownloadPub(pub, acq, t('catalog.gutenberg'))"
-                >{{ downloading.has(acq.href) ? t('catalog.downloading') : acq.label }}</button>
-              </span>
+            <div v-if="key === 'gutenberg'" class="uni-group" :aria-busy="uniStatus.gutenberg === 'loading'">
+              <div class="uni-group-head">{{ t('catalog.gutenberg') }} · {{ uniStatus.gutenberg === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniGutenberg.length }) }}</div>
+              <div v-for="(pub, i) in uniGutenberg" :key="i" class="gh-item uni-pub">
+                <span class="gh-name">{{ pub.title }}</span>
+                <span class="gh-meta">{{ pub.author || t('common.anonymous') }}</span>
+                <span class="uni-acts">
+                  <button
+                    v-for="acq in pub.acquisitions.slice(0, 2)"
+                    :key="acq.href"
+                    class="btn btn-sm"
+                    :disabled="downloading.has(acq.href)"
+                    @click.stop="uniDownloadPub(pub, acq, t('catalog.gutenberg'))"
+                  >{{ downloading.has(acq.href) ? t('catalog.downloading') : acq.label }}</button>
+                  <span v-if="!pub.acquisitions.length" class="gh-meta">{{ t('catalog.noDownloadFormat') }}</span>
+                </span>
+              </div>
             </div>
-          </div>
-          <div v-if="uniScopes.arxiv" class="uni-group">
-            <div class="uni-group-head">arXiv · {{ t('reader.resultCount', { n: uniArxiv.length }) }}</div>
-            <div v-for="(pub, i) in uniArxiv" :key="i" class="gh-item uni-pub">
-              <span class="gh-name">{{ pub.title }}</span>
-              <span class="gh-meta">{{ pub.author || '' }}</span>
-              <span class="uni-acts">
-                <button
-                  v-for="acq in pub.acquisitions.slice(0, 1)"
-                  :key="acq.href"
-                  class="btn btn-sm"
-                  :disabled="downloading.has(acq.href)"
-                  @click.stop="uniDownloadPub(pub, acq, 'arXiv')"
-                >{{ downloading.has(acq.href) ? t('catalog.downloading') : acq.label }}</button>
-              </span>
+            <div v-if="key === 'arxiv'" class="uni-group" :aria-busy="uniStatus.arxiv === 'loading'">
+              <div class="uni-group-head">arXiv · {{ uniStatus.arxiv === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniArxiv.length }) }}</div>
+              <div v-for="(pub, i) in uniArxiv" :key="i" class="gh-item uni-pub">
+                <span class="gh-name">{{ pub.title }}</span>
+                <span class="gh-meta">{{ pub.author || '' }}</span>
+                <span class="uni-acts">
+                  <button
+                    v-for="acq in pub.acquisitions.slice(0, 1)"
+                    :key="acq.href"
+                    class="btn btn-sm"
+                    :disabled="downloading.has(acq.href)"
+                    @click.stop="uniDownloadPub(pub, acq, 'arXiv')"
+                  >{{ downloading.has(acq.href) ? t('catalog.downloading') : acq.label }}</button>
+                </span>
+              </div>
             </div>
-          </div>
+          </template>
+          <p v-if="uniEmptySources.length && uniVisibleGroups.length" class="intro uni-empty-sources" role="status">{{ t('catalog.notFoundIn', { sources: uniEmptySources.join(settings.language === 'en' ? ', ' : '、') }) }}</p>
         </template>
       </section>
 
@@ -835,7 +917,10 @@ async function removeSource(s: CatalogSourceRec) {
             <div class="source-url">{{ s.url }}</div>
             <div class="source-foot">
               <span v-if="s.builtin" class="tag">{{ t('catalog.builtin') }}</span>
-              <button v-else class="btn btn-sm btn-danger" @click.stop="removeSource(s)" @keydown.stop>{{ t('common.delete') }}</button>
+              <template v-else>
+                <button v-if="s.kind === 'opds'" class="btn btn-sm" @click.stop="uploadTarget = s" @keydown.stop>{{ t('library.addBooks') }}</button>
+                <button class="btn btn-sm btn-danger" @click.stop="removeSource(s)" @keydown.stop>{{ t('common.delete') }}</button>
+              </template>
             </div>
           </div>
           <svg class="source-chevron" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M9.3 6.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4L13.58 12 9.3 7.7a1 1 0 0 1 0-1.4z"/></svg>
@@ -953,6 +1038,7 @@ async function removeSource(s: CatalogSourceRec) {
           </template>
         </nav>
         <div class="spacer" />
+        <button v-if="!activeSource.builtin && activeSource.kind === 'opds'" class="btn btn-primary" @click="uploadTarget = activeSource">{{ t('library.addBooks') }}</button>
         <form v-if="page?.searchUrl" @submit.prevent="runSearch">
           <input v-model="searchQuery" class="input" type="search" :placeholder="t('catalog.searchThisSource')" :aria-label="t('catalog.searchThisSource')" />
         </form>
@@ -1074,6 +1160,7 @@ async function removeSource(s: CatalogSourceRec) {
         </div>
       </div>
     </div>
+    <LibraryUploadDialog v-if="uploadTarget" :source="uploadTarget" @close="uploadTarget = null" @uploaded="refreshAfterUpload" />
   </div>
 </template>
 

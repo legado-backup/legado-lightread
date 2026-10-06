@@ -648,6 +648,27 @@ input[type='range'] {
   height: 18px;
   color: var(--brand);
 }
+.toast-action {
+  flex-shrink: 0;
+  margin-left: 4px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand-light);
+  color: var(--brand);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toast-action:hover {
+  background: var(--brand);
+  color: var(--on-brand);
+}
+.toast-action:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
 .toast.error .toast-icon {
   color: var(--danger);
 }

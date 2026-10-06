@@ -201,7 +201,7 @@ export interface Acquisition {
 
 const TYPE_LABELS: Array<[RegExp, string]> = [
   [/epub\+zip/i, 'EPUB'],
-  [/x-mobi8-ebook|vnd\.amazon\.ebook|azw3/i, 'AZW3'],
+  [/x-mobi8-ebook|vnd\.amazon\.(?:ebook|mobi8-ebook)|azw3/i, 'AZW3'],
   [/x-mobipocket/i, 'MOBI'],
   [/fb2/i, 'FB2'],
   [/pdf/i, 'PDF'],
@@ -209,7 +209,7 @@ const TYPE_LABELS: Array<[RegExp, string]> = [
 ]
 
 const EXT_LABELS: Record<string, string> = {
-  epub: 'EPUB', azw3: 'AZW3', mobi: 'MOBI', fb2: 'FB2', pdf: 'PDF', txt: 'TXT',
+  epub: 'EPUB', azw: 'AZW', azw3: 'AZW3', mobi: 'MOBI', fb2: 'FB2', pdf: 'PDF', txt: 'TXT',
 }
 
 /**
@@ -218,19 +218,21 @@ const EXT_LABELS: Record<string, string> = {
  */
 export function acquisitionLabel(type: string | null | undefined, href = ''): string | null {
   const mime = (type ?? '').trim()
-  const byType = TYPE_LABELS.find(([re]) => re.test(mime))?.[1]
-  if (byType) return byType
-  if (mime && !/octet-stream|binary|zip$|download/i.test(mime)) return null
   let path = href
   try {
     path = new URL(href, 'http://x/').pathname
   } catch { /* 用原文 */ }
   const ext = /\.([a-z0-9]+)$/i.exec(path)?.[1]?.toLowerCase()
+  // Amazon's generic MIME covers both AZW and AZW3. Preserve an explicit filename.
+  if (/vnd\.amazon\.ebook/i.test(mime) && (ext === 'azw' || ext === 'azw3')) return EXT_LABELS[ext]!
+  const byType = TYPE_LABELS.find(([re]) => re.test(mime))?.[1]
+  if (byType) return byType
+  if (mime && !/octet-stream|binary|zip$|download/i.test(mime)) return null
   return (ext && EXT_LABELS[ext]) || null
 }
 
 /** 重排友好的格式优先: EPUB 最好, PDF/TXT 兜底 */
-const FORMAT_RANK = ['EPUB', 'AZW3', 'MOBI', 'FB2', 'PDF', 'TXT']
+const FORMAT_RANK = ['EPUB', 'AZW3', 'AZW', 'MOBI', 'FB2', 'PDF', 'TXT']
 export const acquisitionRank = (label: string) => {
   const i = FORMAT_RANK.indexOf(label.toUpperCase())
   return i < 0 ? FORMAT_RANK.length : i

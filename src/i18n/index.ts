@@ -7,8 +7,11 @@
 import { useSettings } from '../stores/settings.ts'
 import zh from './zh.ts'
 import en from './en.ts'
+import { zhUpload, enUpload } from './libraryUpload.ts'
 
-const dicts: Record<'zh' | 'en', Record<string, string>> = { zh, en }
+const dicts: Record<'zh' | 'en', Record<string, string>> = {
+  zh: { ...zh, ...zhUpload }, en: { ...en, ...enUpload },
+}
 
 let settings: ReturnType<typeof useSettings> | null = null
 

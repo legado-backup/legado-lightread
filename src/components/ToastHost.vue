@@ -13,6 +13,12 @@ const ICONS: Record<string, string> = {
     <div v-for="item in toasts" :key="item.id" class="toast" :class="item.type" :role="item.type === 'error' ? 'alert' : 'status'">
       <svg class="toast-icon" viewBox="0 0 24 24" aria-hidden="true"><path :d="ICONS[item.type] ?? ICONS.info" fill="currentColor" /></svg>
       <span>{{ item.message }}</span>
+      <button
+        v-if="item.action"
+        type="button"
+        class="toast-action"
+        @click="item.action.run(); item.dismiss()"
+      >{{ item.action.label }}</button>
     </div>
   </div>
 </template>

@@ -4,12 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { useLibrary } from '../stores/library'
 import { importFiles } from '../services/importer'
 import { importFromUrl } from '../services/urlImport'
-import { ACCEPT, SUPPORTED_EXTS } from '../services/format'
+import { ACCEPT, SUPPORTED_EXTS, canConvertToEpub } from '../services/format'
 import { toast } from '../services/toast'
 import { formatReadingTime } from '../composables/useReadingTimer'
 import { readerPath } from '../services/readerRoute'
 import { loadDaily, localDay, onReadingLogChange } from '../services/readingLog'
 import BookCard from '../components/BookCard.vue'
+import LibraryUploadDialog from '../components/LibraryUploadDialog.vue'
 import type { BookMeta } from '../storage'
 import { t } from '../i18n'
 import { useSettings } from '../stores/settings'
@@ -37,6 +38,67 @@ const fileInput = ref<HTMLInputElement>()
 const dragging = ref(false)
 const importing = ref(false)
 const importState = ref({ done: 0, total: 0, current: '' })
+const showCloudUpload = ref(false)
+const cloudBookIds = ref<string[]>([])
+
+function uploadBooks(ids: string[] = []) {
+  cloudBookIds.value = ids
+  importMenu.value = false
+  showCloudUpload.value = true
+}
+
+// 格式转换: MOBI / AZW3 / FB2 / TXT 等 → EPUB, 作为新书加入, 原书保留
+const converting = ref<{ done: number; total: number; current: string; pct: number } | null>(null)
+const convertPercent = computed(() => {
+  const c = converting.value
+  return c ? Math.round(((c.done + c.pct / 100) / Math.max(c.total, 1)) * 100) : 0
+})
+
+async function convertBooks(ids: string[]) {
+  if (converting.value) {
+    toast(t('convert.busy'))
+    return
+  }
+  const books = ids
+    .map(id => library.books.find(book => book.id === id))
+    .filter((book): book is BookMeta => !!book)
+  const targets = books.filter(book => canConvertToEpub(book.format))
+  const skipped = books.length - targets.length
+  if (!targets.length) {
+    toast(t('convert.noneConvertible'), 'info', 5000)
+    return
+  }
+  converting.value = { done: 0, total: targets.length, current: targets[0].title, pct: 0 }
+  const created: Array<{ bookId: string; annotations: number }> = []
+  try {
+    const { convertLibraryBook, convertErrorText } = await import('../services/convertLibraryBook')
+    for (const [index, book] of targets.entries()) {
+      converting.value = { done: index, total: targets.length, current: book.title, pct: 0 }
+      try {
+        created.push(await convertLibraryBook(book.id, p => {
+          if (converting.value) converting.value.pct = Math.floor(p.fraction * 100)
+        }))
+      } catch (error) {
+        toast(t('convert.failed', { name: book.title, msg: convertErrorText(error) }), 'error', 8000)
+      }
+    }
+  } catch (error: any) {
+    toast(error?.message ?? t('common.unknownError'), 'error', 6000)
+  } finally {
+    converting.value = null
+    await library.refresh()
+  }
+  if (created.length === 1 && targets.length === 1) {
+    const { bookId, annotations } = created[0]
+    toast(t(annotations ? 'convert.successNotes' : 'convert.success'), 'success', 8000, {
+      label: t('convert.open'),
+      run: () => router.push(readerPath({ id: bookId, format: 'epub' })),
+    })
+  } else if (created.length) {
+    toast(t('convert.successBatch', { count: created.length }), 'success', 5000)
+  }
+  if (skipped) toast(t('convert.skipped', { count: skipped }), 'info', 5000)
+}
 
 // 批量管理
 const manageMode = ref(false)
@@ -86,6 +148,7 @@ onBeforeUnmount(() => {
 /** Esc 逐层关闭: 弹窗 → 导入菜单 → 管理模式 */
 function onGlobalKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
+  if (showCloudUpload.value) return // 上传对话框自己处理关闭及忙碌状态
   if (showTagManage.value) showTagManage.value = false
   else if (showUrlModal.value) { if (!urlImporting.value) showUrlModal.value = false }
   else if (showTagModal.value) showTagModal.value = false
@@ -109,6 +172,7 @@ const allTags = computed(() => {
   return [...tags].sort((a, b) => a.localeCompare(b, 'zh'))
 })
 
+const anyConvertible = computed(() => kindBooks.value.some(book => canConvertToEpub(book.format)))
 const kindBooks = computed(() =>
   library.books.filter(b => (b.kind ?? 'book') === pageKind.value))
 
@@ -152,17 +216,24 @@ const filtered = computed(() => {
 })
 
 async function handleFiles(files: FileList | File[]) {
-  if (!files.length) return
+  if (!files.length || importing.value) return
+  const kind = pageKind.value
+  const booklistId = kind === 'book' ? activeBooklistId.value : ''
   importing.value = true
-  const results = await importFiles(files, '本地导入', (done, total, current) => {
-    importState.value = { done, total, current }
-  }, { kind: pageKind.value })
-  importing.value = false
-  await library.refresh()
-  const okCount = results.filter(r => r.ok).length
-  const failed = results.filter(r => !r.ok)
-  if (okCount) toast(t(paperMode.value ? 'library.importPapersSuccess' : 'library.importSuccess', { count: okCount }), 'success')
-  for (const f of failed) toast(`${f.fileName}: ${f.error}`, 'error', 5000)
+  try {
+    const results = await importFiles(files, '本地导入', (done, total, current) => {
+      importState.value = { done, total, current }
+    }, { kind })
+    await library.refresh()
+    const ids = results.filter(r => r.ok && r.bookId).map(r => r.bookId!)
+    if (booklistId && ids.length) await library.addBooksToBooklist(booklistId, ids)
+    if (ids.length) toast(t(kind === 'paper' ? 'library.importPapersSuccess' : 'library.importSuccess', { count: ids.length }), 'success')
+    for (const f of results.filter(r => !r.ok)) toast(`${f.fileName}: ${f.error}`, 'error', 5000)
+  } catch (e: any) {
+    toast(e?.message ?? t('common.unknownError'), 'error', 6000)
+  } finally {
+    importing.value = false
+  }
 }
 
 function onPick(e: Event) {
@@ -209,14 +280,17 @@ async function doUrlImport() {
     return
   }
   urlImporting.value = t('common.connecting')
+  const kind = pageKind.value
+  const booklistId = kind === 'book' ? activeBooklistId.value : ''
   try {
     const result = await importFromUrl(url, p => {
       urlImporting.value = p.fraction != null
         ? t('library.urlDownloading', { pct: (p.fraction * 100).toFixed(0), mb: p.receivedMB })
         : t('library.urlDownloadingMB', { mb: p.receivedMB })
-    })
+    }, { kind })
     if (!result.ok) throw new Error(result.error)
     await library.refresh()
+    if (booklistId && result.bookId) await library.addBooksToBooklist(booklistId, [result.bookId])
     showUrlModal.value = false
     urlDraft.value = ''
     toast(t('library.importSuccess', { count: 1 }), 'success')
@@ -548,7 +622,7 @@ async function batchClearTags() {
         {{ manageMode ? t('common.done') : t('library.manage') }}
       </button>
       <div class="import-group">
-        <button class="btn btn-primary import-main" @click="fileInput?.click()">
+        <button class="btn btn-primary import-main" :disabled="importing" @click="fileInput?.click()">
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M11 13H5a1 1 0 1 1 0-2h6V5a1 1 0 1 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6z"/></svg>
           {{ t(paperMode ? 'library.importPapers' : 'library.import') }}
         </button>
@@ -571,12 +645,17 @@ async function batchClearTags() {
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M10.6 13.4a1 1 0 0 1 0-1.4l2.8-2.8a1 1 0 0 1 1.4 1.4l-2.8 2.8a1 1 0 0 1-1.4 0zM7 17a3 3 0 0 1 0-4.24l2.12-2.12a1 1 0 1 1 1.42 1.42L8.4 14.17a1 1 0 0 0 1.42 1.42l2.12-2.12a1 1 0 1 1 1.41 1.41L11.24 17A3 3 0 0 1 7 17zm10-10a3 3 0 0 1 0 4.24l-2.12 2.12a1 1 0 1 1-1.42-1.42l2.12-2.11a1 1 0 0 0-1.42-1.42l-2.12 2.12a1 1 0 0 1-1.41-1.41L12.76 7A3 3 0 0 1 17 7z"/></svg>
             {{ t('library.urlImportTitle') }}
           </button>
+          <button role="menuitem" @click="uploadBooks()">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 18H5a4 4 0 0 1-.6-8 7 7 0 0 1 13.4-2 5 5 0 0 1 1.2 10h-2M12 20V10m-4 4 4-4 4 4"/></svg>
+            {{ t('library.uploadToCloud') }}
+          </button>
         </div>
       </div>
       <!-- 手机端换行点: 标题+导入 一行, 搜索+排序+管理 一行 -->
       <span class="row-break" aria-hidden="true" />
       <input ref="fileInput" type="file" multiple :accept="ACCEPT" hidden @change="onPick" />
     </header>
+    <p class="add-books-hint">{{ t('library.addFormatsHint') }}<span v-if="activeBooklist"> · {{ t('library.addIntoBooklist', { name: activeBooklist.name }) }}</span></p>
 
     <!-- 书单: 一级内容分组，可与标签和搜索组合筛选 -->
     <section v-if="!paperMode" class="booklist-section">
@@ -591,6 +670,7 @@ async function batchClearTags() {
           class="booklist-text-action"
           @click="openBooklistManage"
         >{{ t('library.manageBooklists') }}</button>
+        <button v-if="activeBooklist && booklistCount(activeBooklist.id)" class="booklist-text-action" @click="uploadBooks(library.booklistBookIds[activeBooklist.id] ?? [])">{{ t('library.uploadBooklist') }}</button>
       </div>
       <div class="booklist-row">
         <button
@@ -633,9 +713,20 @@ async function batchClearTags() {
       </button>
     </div>
 
+    <div v-if="converting" class="import-bar card convert-bar" role="status">
+      <div class="import-text">
+        {{ converting.total > 1
+          ? t('convert.progressBatch', { done: converting.done + 1, total: converting.total, name: converting.current, pct: converting.pct })
+          : t('convert.progress', { name: converting.current, pct: converting.pct }) }}
+      </div>
+      <div class="import-track" role="progressbar" :aria-valuenow="convertPercent" aria-valuemin="0" aria-valuemax="100" :aria-label="t('book.convertToEpub')">
+        <div class="import-fill" :style="{ width: `${convertPercent}%` }" />
+      </div>
+    </div>
+
     <div v-if="importing" class="import-bar card" role="status" aria-live="polite">
       <div class="import-text">
-        {{ t('library.importing', { name: importState.current, done: importState.done + 1, total: importState.total }) }}
+        {{ t('library.importing', { name: importState.current, done: Math.min(importState.done + 1, importState.total), total: importState.total }) }}
       </div>
       <div class="import-track">
         <div class="import-fill" :style="{ width: `${(importState.done / Math.max(importState.total, 1)) * 100}%` }" />
@@ -704,11 +795,15 @@ async function batchClearTags() {
         :selectable="manageMode"
         :selected="selectedIds.has(book.id)"
         :show-booklists="!paperMode"
+        :convertible="canConvertToEpub(book.format)"
+        :converting="!!converting"
         @open="openBook(book)"
         @remove="removeBook(book)"
         @toggle-select="toggleSelect(book.id)"
         @toggle-pin="togglePin(book)"
         @add-to-booklist="openBooklistPicker([book.id])"
+        @upload="uploadBooks([book.id])"
+        @convert="convertBooks([book.id])"
       />
     </div>
 
@@ -718,6 +813,8 @@ async function batchClearTags() {
       <button class="btn btn-sm" @click="selectAll">
         {{ selectedIds.size === filtered.length && filtered.length ? t('library.deselectAll') : t('library.selectAll') }}
       </button>
+      <button class="btn btn-sm" :disabled="!selectedIds.size" @click="uploadBooks([...selectedIds])">{{ t('library.uploadToCloud') }}</button>
+      <button v-if="anyConvertible" class="btn btn-sm" :disabled="!selectedIds.size || !!converting" @click="convertBooks([...selectedIds])">{{ t('book.convertToEpub') }}</button>
       <button class="btn btn-sm" :disabled="!selectedIds.size" @click="batchMoveKind">
         {{ paperMode ? t('library.moveToBooks') : t('library.moveToPapers') }}
       </button>
@@ -739,6 +836,8 @@ async function batchClearTags() {
       <button class="btn btn-sm btn-danger" :disabled="!selectedIds.size" @click="batchDelete">{{ t('common.delete') }}</button>
       <button class="btn btn-sm" @click="toggleManage">{{ t('common.done') }}</button>
     </div>
+
+    <LibraryUploadDialog v-if="showCloudUpload" :book-ids="cloudBookIds" @close="showCloudUpload = false" />
 
     <!-- 新建书单 -->
     <div v-if="showBooklistCreate" class="modal-mask" @click.self="showBooklistCreate = false">
@@ -920,6 +1019,7 @@ async function batchClearTags() {
 </template>
 
 <style scoped>
+.add-books-hint { margin: -4px 0 16px; color: var(--text-3); font-size: 12px; line-height: 1.6; }
 .library {
   min-height: 100%;
   padding: 0 28px calc(40px + var(--lr-safe-bottom));

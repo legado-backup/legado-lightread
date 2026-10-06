@@ -25,6 +25,8 @@ export interface NativeUploadInit {
   method: string
   headers: Record<string, string>
   body: Blob | string | LocalFileRef
+  /** 私人书库上传禁止跟随重定向，避免把文件发送到其它地址。 */
+  redirect?: 'error'
 }
 
 export interface NativeUploadResult {
@@ -55,6 +57,7 @@ async function invokeUpload(
     'x-lr-headers': encodeURIComponent(JSON.stringify(init.headers)),
   }
   if (proxy) headers['x-lr-proxy'] = encodeURIComponent(proxy)
+  if (init.redirect === 'error') headers['x-lr-no-redirect'] = 'true'
   if (file) headers['x-lr-file'] = encodeURIComponent(JSON.stringify({ root: file.root, rel: file.rel }))
   try {
     return await invoke<NativeUploadResult>('http_upload', bytes, { headers })
