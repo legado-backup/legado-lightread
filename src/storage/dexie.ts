@@ -212,6 +212,18 @@ export class DexieStorage implements LibraryStorage {
     return id
   }
 
+  async updateSource(id: string, s: Omit<CatalogSourceRec, 'id' | 'builtin'>) {
+    const cur = await this.db.sources.get(id)
+    if (!cur) return
+    const next: CatalogSourceRec = {
+      id, builtin: cur.builtin, title: s.title, url: s.url, kind: s.kind, addedAt: s.addedAt,
+    }
+    if (s.updatedAt !== undefined) next.updatedAt = s.updatedAt
+    if (s.username) next.username = s.username
+    if (s.password) next.password = s.password
+    await this.db.sources.put(next)
+  }
+
   async deleteSource(id: string) {
     await this.db.sources.delete(id)
   }

@@ -48,7 +48,7 @@ InfiniCLOUD 每个账号的 WebDAV 节点不同（`https://<节点>.teracloud.jp
 | annotations | 标注 id | 完整标注，`bookId` 换成 `bookHash` | LWW |
 | booklists | 书单 id | `{ name, createdAt }` | LWW |
 | booklistItems | `${booklistId}\|${bookHash}` | `{ booklistId, bookHash, addedAt }` | LWW |
-| sources | 书源 url | 自定义 OPDS 书源（含鉴权，内置书源不同步） | LWW |
+| sources | 书源地址的规范化形式 `sourceKey(url)` | 自定义书源 / 私人书库 `{ title, url, kind, addedAt, username?, password? }`（含鉴权，内置书源不同步） | LWW，stamp.t 为该书源**最后一次被修改的时间**（`updatedAt`），见下文「私人书库（自定义书源）」 |
 | readingLog（可选） | `设备 id → 日期 YYYY-MM-DD → 书的 hash` | 该设备当天在该书上贡献的秒数 | G-Counter：逐叶取较大值 |
 | settings（可选） | 设置路径，如 `reader.fontSize`、`webdavUrl` | 该项的值 | LWW，stamp.t 为该项**最后一次被修改的时间**，见下文「设置同步」 |
 
@@ -77,7 +77,22 @@ InfiniCLOUD 每个账号的 WebDAV 节点不同（`https://<节点>.teracloud.jp
 | 密钥（仅 `syncSecrets`） | `webdavPass`、`aiApiKey` |
 | 只属于本机 | `version`；`customFonts`（字体文件在本机）；`libraryRoot`、`calibrePath`（本机路径）；`httpProxy`、`corsProxy`（网络环境）；`paperAgentEngine`、`paperAgentExecutables`（本机安装的引擎）；`ttsEngine`（本地离线音色要下载模型，网页没有）、`ttsVoice`（系统音色因系统而异）；`usageStats`（关掉的设备不会被别处打开）；`syncSettings`、`syncSecrets`；`webdavSyncAuto`、`webdavSyncFiles`（自动同步、是否传书籍文件按设备）；`dianjing.perBook`、`dianjing.fiction`（键是本机书 id）；`readingMode.presets`、`readingMode.largeText`、`readingMode.eink`（预设开关与快照） |
 
-书源（含 OPDS 账号密码）是书库记录，不属于设置，一直随 `sources` 同步。
+书源（含 OPDS 账号密码）是书库记录，不属于设置，一直随 `sources` 同步，不受 `syncSecrets` 控制（理由见下一节）。
+
+## 私人书库（自定义书源）
+
+用户在「书源」页添加的自建 / 需登录的 OPDS 目录（calibre-web、自建书库等，`CatalogSourceRec`，`builtin: false`）随账号与 WebDAV 同步：在一台设备上添加、编辑、删除，其他设备同步后跟着变。内置书源（古登堡、arXiv）各设备自带，不同步。GitHub 书库（`githubBookRepos`）是设置项，随「设置同步」走（整体 LWW）。
+
+- **身份 = 规范化地址** `sourceKey(url)`（`merge.ts`）：去掉地址里内嵌的 `user:pass@`、`#片段`、路径末尾的斜杠，协议与主机名小写、默认端口省略，查询串保留；不是 http(s) 地址时原样。两台设备各自添加同一个书库（大小写、末尾斜杠不同）合并后只剩一条。落地到本地的仍是用户填写的原地址（`value.url`）。同一地址不同账号视为同一个书库（较新的修改胜出），不支持在同一台设备上用多个账号挂同一个书库。
+- **修改时间**：`CatalogSourceRec.updatedAt`（添加、编辑时记 `Date.now()`；老数据缺省按 `addedAt`）。它**不在值里**，只用作寄存器的 stamp.t，所以旧客户端看到的值不变、不会来回打架。
+  - 有基线：值与基线相同沿用基线寄存器；变了的 `t = max(updatedAt, 基线 t + 1)`（时钟偏慢也能盖过它所基于的值）。
+  - 首次同步（无基线）：远端有寄存器（含墓碑）时，本地值相同或 `updatedAt` 不比它晚就沿用远端；否则本地胜出（删掉之后又重新添加的会回来，旧副本不会盖掉别处更新的修改）。没有修改时间时退回「远端优先」。
+  - 落地（`addSource` / `updateSource`）时把寄存器的 stamp.t 写成本地的 `updatedAt`。`updateSource` 原地改写规范的那一条（同一地址多条时取 `addedAt` 最早的），本地 id 不变（搜索范围、上传目标等按 id 记的状态保留）。
+- **删除**：有基线、基线里存活、本地没有了 → 墓碑，stamp 为同步时间（不记录删除时刻）。墓碑会盖过删除之前的编辑；之后再添加（修改时间更晚）会复活。
+- **与内置书源同地址**：别的设备同步来的、与本机内置书源同一地址的自定义书源不落地，也不因「本地没有」被当成删除（`LocalState.builtinSourceKeys`），原样转写。
+- **账号密码**：书源的 `username` / `password` **始终**在记录里，不受 `syncSecrets` 控制。用户要的就是「换台设备书库直接能用」，没有密码的书源配置几乎没有用；`syncSecrets` 默认关，若也管书源就等于默认不同步私人书库。代价同密钥项：同步端是明文（WebDAV 文件 / 账号服务的 R2，只有本人能读）。密码不进日志与使用统计：同步只在出错时记书的 hash、请求方法与路径和错误，从不打印文档内容；整库备份（`.okf.zip`）仍不导出书源密码。
+- **兼容旧客户端**：`SYNC_FORMAT` 仍为 1，服务端无需改动。旧客户端按原样 url 记键：新客户端合并时用 `sourceKey` 归一（撞键 LWW，仍满足交换律 / 结合律 / 幂等），读旧版基线时同样归一。地址本来就是规范形式（最常见）时两边的键完全一致；不是时，新客户端照常收敛，旧客户端可能收不到新客户端发出的删除，升级后自动收敛。
+- **界面**：书源卡片上「编辑」打开同一个表单（带出已保存的账号密码），保存改写原记录；添加一个已存在地址的书源时改写那一条而不是重复添加，编辑成另一条书源的地址时提示已存在。书源页在每次同步结束后（`syncState.running` 变回 false）重读书源列表。
 
 ## 本地文档的生成（`buildLocalDoc`）
 
@@ -89,7 +104,7 @@ InfiniCLOUD 每个账号的 WebDAV 节点不同（`https://<节点>.teracloud.jp
 | 新落地的书（有基线，但上次不在本地，如刚导入了一本仅元数据的书） | **沿用已同步的寄存器**（基线，没有则远端），同步过的元数据胜过刚导入的新元数据；都没有才 stamp `now` | 本地 `lastReadAt ?? 0` 大于已同步进度的 t 才用本地值（stamp t 取 `lastReadAt`），否则沿用 | 同上 |
 | 首次同步（没有基线） | 远端有寄存器就原样沿用（远端优先），没有才 stamp `now` | 同上一行（仍按阅读时间，读得更晚的本地进度胜出） | 远端是 alive 沿用，否则 `{ true, now }`：本地有文件的书总是存活，**会复活远端已删的书** |
 
-标注、书单、书单条目、书源：
+标注、书单、书单条目、书源（书源的 stamp 用修改时间，见「私人书库（自定义书源）」）：
 
 - 有基线：与基线 diff，变了的打 stamp `now`。
 - 首次同步：远端有寄存器（**包括墓碑**）就原样沿用，远端删掉的不会被旧备份加回来；远端没有的才 stamp `now`。
@@ -104,9 +119,9 @@ InfiniCLOUD 每个账号的 WebDAV 节点不同（`https://<节点>.teracloud.jp
 
 ## 落地到本地（`planApply`）
 
-操作按可执行顺序排列：`addBook → updateBook → addBooklist/renameBooklist → addAnnotation/updateAnnotation → addBooklistItem → addSource →` 各类删除（`removeBooklistItem, deleteAnnotation, deleteBooklist, deleteSource, deleteBook`）。
+操作按可执行顺序排列：`addBook → updateBook → addBooklist/renameBooklist → addAnnotation/updateAnnotation → addBooklistItem → addSource/updateSource →` 各类删除（`removeBooklistItem, deleteAnnotation, deleteBooklist, deleteSource, deleteBook`）。
 
-- **例外**：标注的 cfi/text/kind 等不可原地修改的字段变了、书源内容变了时，产出紧挨着的 `deleteX + addX`（同一 id / url），放在对应的添加阶段，保证先删后加。
+- **例外**：标注的 cfi/text/kind 等不可原地修改的字段变了时，产出紧挨着的 `deleteAnnotation + addAnnotation`（同一 id），放在添加阶段，保证先删后加。书源内容变了时产出 `updateSource`（原地改写，本地 id 不变），与 `addSource` 同一阶段。
 - 书在合并结果里已删时，其标注 / 书单条目不再单独产出操作，由 `deleteBook` 级联；书单删除同理由 `deleteBooklist` 级联其条目。新增标注 / 条目要求所属的书（和书单）在合并结果里存活。
 - `updateBook` 只带有差异的字段；合并结果里去掉的可选字符串（简介、语言、来源）写成 `''`，标注清空笔记写 `note: ''`；取消置顶写 `pinnedAt: 0`。
 - 只有元数据、本地没有的书也会产出 `addBook`，由 engine 决定能否下载文件；引用本地不存在的书的标注 / 条目照样产出，engine 找不到 hash 时跳过（下次书落地后会再次产出）。

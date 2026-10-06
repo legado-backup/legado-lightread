@@ -9,7 +9,9 @@ import {
   mergeDocs,
   planApply,
   progressFrom,
+  rekeySources,
   sourceFrom,
+  sourceKey,
 } from '../src/services/sync/merge.ts'
 
 // ---- 模拟设备 ----
@@ -37,6 +39,8 @@ class Device {
   constructor(id) {
     this.id = id
     this.local = emptyLocal()
+    /** 书源修改时间 (engine 由 updatedAt ?? addedAt 填); 没有记录的键退回按同步时间 */
+    this.local.sourceTimes = {}
     this.base = null
     this.present = new Set()
     /** 远端有文件可下载的书 (模拟 engine 下载成功) */
@@ -110,11 +114,20 @@ function apply(dev, ops) {
         delete L.booklistItems[`${o.booklistId}|${o.hash}`]
         break
       case 'addSource':
-        assert.ok(!L.sources[o.value.url], 'addSource over existing url')
-        L.sources[o.value.url] = structuredClone(o.value)
+        assert.ok(!L.sources[o.key], 'addSource over existing key')
+        assert.ok(!(L.builtinSourceKeys ?? []).includes(o.key), 'addSource over a builtin source')
+        L.sources[o.key] = structuredClone(o.value)
+        if (L.sourceTimes) L.sourceTimes[o.key] = o.updatedAt
+        break
+      case 'updateSource':
+        assert.ok(L.sources[o.key], 'updateSource on missing key')
+        L.sources[o.key] = structuredClone(o.value)
+        if (L.sourceTimes) L.sourceTimes[o.key] = o.updatedAt
         break
       case 'deleteSource':
-        delete L.sources[o.url]
+        assert.ok(L.sources[o.key], 'deleteSource on missing key')
+        delete L.sources[o.key]
+        if (L.sourceTimes) delete L.sourceTimes[o.key]
         break
       default:
         throw new Error(`unknown op ${o.op}`)
@@ -137,11 +150,14 @@ function sync(dev, remote, now) {
   return ops
 }
 
-/** 本地库去掉设备本地的 book id, 便于跨设备比较 */
-const view = (local) => ({
-  ...local,
-  books: Object.fromEntries(Object.entries(local.books).map(([h, { id, ...rest }]) => [h, rest])),
-})
+/** 本地库去掉设备本地的 book id 与书源修改时间 (本机改的保留编辑时间, 收到的记 stamp.t), 便于跨设备比较 */
+const view = (local) => {
+  const { sourceTimes, ...rest } = local
+  return {
+    ...rest,
+    books: Object.fromEntries(Object.entries(local.books).map(([h, { id, ...b }]) => [h, b])),
+  }
+}
 
 const strip = (doc) => {
   const { writtenAt, deviceId, deviceName, app, ...rest } = doc
@@ -375,7 +391,7 @@ test('deleting an annotation / booklist item / source propagates', () => {
   assert.deepEqual(ops, [
     { op: 'removeBooklistItem', booklistId: 'l1', hash: 'h1' },
     { op: 'deleteAnnotation', id: 'a1' },
-    { op: 'deleteSource', url: 'u1' },
+    { op: 'deleteSource', key: 'u1' },
   ])
   assert.deepEqual(Object.keys(A.local.annotations), ['a2'])
 })
@@ -622,7 +638,7 @@ test('meta patch covers changed fields only, optional removals become empty stri
   assert.deepEqual(sync(A, remote, 800), [{ op: 'updateBook', hash: 'h1', patch: { pinnedAt: 0 } }])
 })
 
-test('source content change is applied as delete + add on the same url', () => {
+test('source content change is applied in place (updateSource) on the same key', () => {
   const remote = new Map()
   const A = new Device('A')
   const B = new Device('B')
@@ -630,11 +646,189 @@ test('source content change is applied as delete + add on the same url', () => {
   sync(A, remote, 100)
   sync(B, remote, 200)
   B.local.sources.u1 = { ...B.local.sources.u1, username: 'me', password: 'pw' }
+  B.local.sourceTimes.u1 = 250
   sync(B, remote, 300)
   assert.deepEqual(sync(A, remote, 400), [
-    { op: 'deleteSource', url: 'u1' },
-    { op: 'addSource', value: { title: 'S', url: 'u1', kind: 'opds', addedAt: 1, username: 'me', password: 'pw' } },
+    {
+      op: 'updateSource', key: 'u1', updatedAt: 250,
+      value: { title: 'S', url: 'u1', kind: 'opds', addedAt: 1, username: 'me', password: 'pw' },
+    },
   ])
+})
+
+// ---- 私人书库 / 自定义书源 ----
+
+const LIB = 'https://lib.example.com/opds'
+const lib = (extra = {}) => ({ title: '我的书库', url: LIB, kind: 'opds', addedAt: 10, ...extra })
+/** 在设备上添加 / 编辑书源 (同 CatalogView.saveSource: 记下修改时间) */
+function putSource(dev, value, at) {
+  const key = sourceKey(value.url)
+  dev.local.sources[key] = value
+  dev.local.sourceTimes[key] = at
+  return key
+}
+
+test('sourceKey normalizes spelling variants of the same library address, idempotently', () => {
+  for (const v of [
+    'https://lib.example.com/opds', 'https://lib.example.com/opds/', 'HTTPS://LIB.Example.com/opds',
+    ' https://lib.example.com/opds// ', 'https://me:secret@lib.example.com/opds', 'https://lib.example.com:443/opds#x',
+  ]) assert.equal(sourceKey(v), LIB, v)
+  assert.equal(sourceKey('https://lib.example.com/'), 'https://lib.example.com')
+  assert.equal(sourceKey('http://lib.example.com:8083/opds?lang=zh'), 'http://lib.example.com:8083/opds?lang=zh')
+  assert.notEqual(sourceKey('http://lib.example.com/opds'), sourceKey(LIB), 'scheme is part of the identity')
+  assert.notEqual(sourceKey('https://lib.example.com/OPDS'), sourceKey(LIB), 'path case is kept')
+  assert.equal(sourceKey('u1'), 'u1', 'non-URL keys pass through')
+  for (const v of ['https://A.b/x/', 'u1', 'http://h:80/p?q#f']) assert.equal(sourceKey(sourceKey(v)), sourceKey(v))
+})
+
+test('private library: credentials ride along in the synced record', () => {
+  const remote = new Map()
+  const A = new Device('A')
+  const B = new Device('B')
+  putSource(A, lib({ username: 'me', password: 's3cret' }), 50)
+  sync(A, remote, 100)
+  assert.deepEqual(remote.get('A').sources[LIB].value, lib({ username: 'me', password: 's3cret' }))
+  assert.deepEqual(remote.get('A').sources[LIB].stamp, { t: 50, d: 'A' }, 'stamp.t is the edit time, not the sync time')
+  const ops = sync(B, remote, 200)
+  assert.deepEqual(ops, [{ op: 'addSource', key: LIB, value: lib({ username: 'me', password: 's3cret' }), updatedAt: 50 }])
+  assert.equal(B.local.sourceTimes[LIB], 50)
+})
+
+test('private library added independently on two devices (different spelling) dedupes to one, newer edit wins', () => {
+  const remote = new Map()
+  const A = new Device('A')
+  const B = new Device('B')
+  putSource(A, lib({ password: 'old' }), 50)
+  putSource(B, lib({ url: 'https://LIB.example.com/opds/', title: '书库', password: 'new' }), 60)
+  sync(A, remote, 100)
+  // B 首次同步: 远端已有同一书库, 但 B 的修改更晚 → B 胜出 (按修改时间, 不是一律远端优先)
+  assert.deepEqual(sync(B, remote, 200), [])
+  sync(A, remote, 300)
+  for (const d of [A, B]) {
+    assert.deepEqual(Object.keys(d.local.sources), [LIB])
+    assert.equal(d.local.sources[LIB].password, 'new')
+    assert.equal(d.local.sources[LIB].url, 'https://LIB.example.com/opds/', 'the address as typed is kept')
+  }
+
+  // 反过来: 后同步的设备改得更早 → 远端的胜出
+  const remote2 = new Map()
+  const C = new Device('C')
+  const D = new Device('D')
+  putSource(C, lib({ password: 'newer' }), 80)
+  putSource(D, lib({ password: 'older' }), 70)
+  sync(C, remote2, 100)
+  sync(D, remote2, 200)
+  assert.equal(D.local.sources[LIB].password, 'newer')
+})
+
+test('private library edits are LWW by edit time, not by sync order', () => {
+  const remote = new Map()
+  const A = new Device('A')
+  const B = new Device('B')
+  putSource(A, lib(), 50)
+  sync(A, remote, 100)
+  sync(B, remote, 110)
+  putSource(A, lib({ password: 'from-A' }), 150) // A 先改
+  putSource(B, lib({ password: 'from-B' }), 200) // B 后改
+  sync(B, remote, 300) // B 先同步
+  sync(A, remote, 400) // A 后同步, 但它的修改更早
+  sync(B, remote, 500)
+  for (const d of [A, B]) assert.equal(d.local.sources[LIB].password, 'from-B')
+  assert.equal(A.local.sourceTimes[LIB], 200, 'landed edit keeps the winner edit time')
+  assert.deepEqual(sync(A, remote, 600), [])
+  assert.deepEqual(sync(B, remote, 700), [])
+
+  // 本机时钟偏慢: 改动仍盖过它所基于的值
+  putSource(A, lib({ password: 'slow-clock' }), 10)
+  sync(A, remote, 800)
+  sync(B, remote, 900)
+  assert.equal(B.local.sources[LIB].password, 'slow-clock')
+})
+
+test('deleted private library does not resurrect (stale device, lost baseline), but a later re-add does', () => {
+  const remote = new Map()
+  const A = new Device('A')
+  const B = new Device('B')
+  putSource(A, lib({ username: 'me', password: 'pw' }), 50)
+  sync(A, remote, 100)
+  sync(B, remote, 200)
+  delete A.local.sources[LIB]
+  delete A.local.sourceTimes[LIB]
+  sync(A, remote, 300)
+  assert.equal(remote.get('A').sources[LIB].value, null, 'tombstone')
+  assert.deepEqual(sync(B, remote, 400), [{ op: 'deleteSource', key: LIB }])
+  assert.deepEqual(B.local.sources, {})
+
+  // 第三台设备带着旧副本 (从没同步过 / 基线丢失) 首次同步: 修改时间早于删除 → 采纳墓碑, 不复活
+  const C = new Device('C')
+  putSource(C, lib({ username: 'me', password: 'pw' }), 50)
+  assert.deepEqual(sync(C, remote, 500), [{ op: 'deleteSource', key: LIB }])
+  sync(A, remote, 600)
+  sync(B, remote, 700)
+  for (const d of [A, B, C]) assert.deepEqual(d.local.sources, {})
+
+  // 删除之后重新添加 (修改时间更晚) → 各设备都回来
+  putSource(B, lib({ password: 'again' }), 800)
+  sync(B, remote, 810)
+  sync(A, remote, 820)
+  sync(C, remote, 830)
+  for (const d of [A, B, C]) assert.equal(d.local.sources[LIB]?.password, 'again')
+})
+
+test('editing a private library address: old key tombstoned, new key added', () => {
+  const remote = new Map()
+  const A = new Device('A')
+  const B = new Device('B')
+  putSource(A, lib(), 50)
+  sync(A, remote, 100)
+  sync(B, remote, 200)
+  delete A.local.sources[LIB]
+  delete A.local.sourceTimes[LIB]
+  const k2 = putSource(A, lib({ url: 'https://lib2.example.com/opds' }), 250)
+  sync(A, remote, 300)
+  const ops = sync(B, remote, 400)
+  assert.deepEqual(ops.map(o => [o.op, o.key]), [['addSource', k2], ['deleteSource', LIB]])
+  assert.deepEqual(Object.keys(B.local.sources), [k2])
+})
+
+test('documents from older clients (raw url keys) merge into the normalized key', () => {
+  const old = {
+    ...emptyDoc('old', 1),
+    sources: {
+      'https://LIB.example.com/opds/': { value: lib({ url: 'https://LIB.example.com/opds/', password: 'x' }), stamp: { t: 5, d: 'old' } },
+      'https://gone.example.com/opds/': { value: null, stamp: { t: 9, d: 'old' } },
+    },
+  }
+  const merged = mergeDocs([old], { deviceId: 'n', now: 10 })
+  assert.deepEqual(Object.keys(merged.sources).sort(), ['https://gone.example.com/opds', LIB])
+  assert.equal(merged.sources[LIB].value.password, 'x')
+  // 旧客户端的墓碑 (按原样 url 记键) 也能删掉新客户端按规范键记的书源
+  const remote = new Map()
+  const A = new Device('A')
+  putSource(A, lib({ url: 'https://gone.example.com/opds' }), 1)
+  remote.set('old', old)
+  sync(A, remote, 100)
+  assert.deepEqual(Object.keys(A.local.sources), [LIB], 'old tombstone (t=9) beats an add edited at t=1')
+  // 撞键 (两种拼写) 时按 LWW 取一个, 与输入顺序无关
+  const a = { [LIB]: { value: lib({ password: 'a' }), stamp: { t: 3, d: 'a' } } }
+  const b = { [`${LIB}/`]: { value: lib({ password: 'b' }), stamp: { t: 4, d: 'b' } } }
+  assert.deepEqual(rekeySources({ ...a, ...b }), rekeySources({ ...b, ...a }))
+  assert.equal(rekeySources({ ...a, ...b })[LIB].value.password, 'b')
+})
+
+test('a synced custom source that duplicates a builtin is neither landed nor tombstoned', () => {
+  const remote = new Map()
+  const A = new Device('A')
+  const B = new Device('B')
+  const G = 'https://www.gutenberg.org/ebooks.opds'
+  B.local.builtinSourceKeys = [G]
+  putSource(A, { title: 'Gutenberg 副本', url: `${G}/`, kind: 'opds', addedAt: 1 }, 40)
+  sync(A, remote, 100)
+  assert.deepEqual(sync(B, remote, 200), [])
+  sync(B, remote, 300)
+  assert.ok(remote.get('B').sources[G].value, 'B passes it through instead of deleting it')
+  sync(A, remote, 400)
+  assert.ok(A.local.sources[G], 'still alive on A')
 })
 
 // ---- planApply 顺序 ----
@@ -755,6 +949,34 @@ test('mergeDocs is commutative, associative and idempotent (randomized)', () => 
   }
 })
 
+test('source key normalization keeps mergeDocs commutative / associative / idempotent (randomized)', () => {
+  const rand = rng(20261006)
+  const pick = (arr) => arr[Math.floor(rand() * arr.length)]
+  const spellings = [LIB, `${LIB}/`, 'https://LIB.example.com/opds', 'https://u:p@lib.example.com/opds', 'https://lib2.example.com/opds']
+  const doc = (id) => {
+    const d = emptyDoc(id, 1)
+    for (let i = 0; i < 3; i++) {
+      if (rand() < 0.6) {
+        d.sources[pick(spellings)] = {
+          value: rand() < 0.2 ? null : lib({ password: pick(['a', 'b']) }),
+          stamp: { t: Math.floor(rand() * 3), d: pick(['a', 'b']) },
+        }
+      }
+    }
+    return d
+  }
+  const ctx = { deviceId: 'm', now: 1 }
+  const m = (...docs) => strip(mergeDocs(docs, ctx))
+  const M = (...docs) => mergeDocs(docs, ctx)
+  for (let i = 0; i < 300; i++) {
+    const [a, b, c] = [doc('a'), doc('b'), doc('c')]
+    assert.deepEqual(m(a, b), m(b, a), `commutative #${i}`)
+    assert.deepEqual(m(M(a, b), c), m(a, M(b, c)), `associative #${i}`)
+    assert.deepEqual(m(a, a), m(a), `idempotent #${i}`)
+    assert.deepEqual(m(M(a)), m(a), `normalization is stable #${i}`)
+  }
+})
+
 test('mergeDocs output does not alias its inputs', () => {
   const rand = rng(7)
   const a = randomDoc(rand, 'a')
@@ -777,7 +999,8 @@ test('randomized multi-device sessions converge to identical local libraries', (
       const hash = pick(['h1', 'h2', 'h3'])
       d.canDownload = () => rand() < 0.7 // 文件时有时无: 产生仅元数据的书
       if (rand() < 0.05) { d.base = null; d.present = new Set() } // 基线丢失
-      switch (Math.floor(rand() * 8)) {
+      const lk = pick([LIB, 'https://lib2.example.com/opds'])
+      switch (Math.floor(rand() * 10)) {
         case 0: if (!L.books[hash]) L.books[hash] = book(hash); break
         case 1: if (L.books[hash]) apply(d, [{ op: 'deleteBook', hash }]); break
         case 2: if (L.books[hash]) patchBook(L.books[hash], { tags: [pick(['x', 'y'])] }); break
@@ -786,6 +1009,8 @@ test('randomized multi-device sessions converge to identical local libraries', (
         case 5: delete L.annotations[`a-${hash}`]; break
         case 6: L.booklists.l1 = { name: pick(['X', 'Y']), createdAt: 1 }; if (L.books[hash]) L.booklistItems[`l1|${hash}`] = { booklistId: 'l1', bookHash: hash, addedAt: 1 }; break
         case 7: apply(d, [{ op: 'deleteBooklist', id: 'l1' }]); break
+        case 8: putSource(d, lib({ url: pick([lk, `${lk}/`]), password: pick(['p', 'q']) }), now - Math.floor(rand() * 30)); break
+        case 9: delete L.sources[lk]; delete L.sourceTimes[lk]; break
       }
       now += 10
       if (rand() < 0.5) sync(d, remote, now)

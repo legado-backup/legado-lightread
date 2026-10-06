@@ -315,6 +315,36 @@ test('换账号: 基线对新账号作废, 旧账号里只有元数据的书不�
 
 // ---- account.ts (登录状态 + 接口封装) ----
 
+test('私人书库随账号同步: 账号文档里带账号密码, 另一台设备收到; 经账号与 WebDAV 两个远端收敛', async () => {
+  const srv = createFakeAccountServer()
+  const dav = createFakeDav()
+  const sessA = srv.login('me@x.com')
+  const sessB = srv.login('me@x.com')
+  const accA = srv.remote(sessA)
+  const accB = srv.remote(sessB)
+  const A = await device('A')
+  const B = await device('B')
+  const custom = async dev => (await dev.storage.listSources()).filter(s => !s.builtin)
+  const LIB = 'https://books.example.org/opds'
+
+  await A.storage.addSource({ title: '家里的 calibre-web', url: LIB, kind: 'opds', builtin: false, addedAt: clock, updatedAt: clock, username: 'me', password: 'pw' })
+  await syncAll(A, accA, dav.remote())
+  assert.equal(srv.readDoc(sessA.account.id, 'dev-A').sources[LIB].value.password, 'pw')
+  await syncAll(B, accB)
+  assert.deepEqual((await custom(B)).map(s => [s.title, s.url, s.username, s.password]), [['家里的 calibre-web', LIB, 'me', 'pw']])
+
+  // B (只有账号) 改名 → A 经账号收到, 再经 WebDAV 转写, 不来回打架
+  tick()
+  const [srcB] = await custom(B)
+  await B.storage.updateSource(srcB.id, { ...srcB, title: '书房', updatedAt: clock })
+  await syncAll(B, accB)
+  await syncAll(A, accA, dav.remote())
+  assert.equal((await custom(A))[0].title, '书房')
+  const [r1, r2] = await syncAll(A, accA, dav.remote())
+  assert.equal(r1.applied + r2.applied, 0, '稳态')
+  assert.equal(dav.readJson('devices/dev-A.json').sources[LIB].value.title, '书房')
+})
+
 test('account.ts: 登录 / 错误文案 / 401 清除登录 / 注销 / 退出', async () => {
   const mem = new Map()
   globalThis.localStorage = {

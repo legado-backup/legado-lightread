@@ -101,6 +101,34 @@ export function annotationFrom(a: AnnotationRec, bookHash: string): AnnotationVa
   return v
 }
 
+/**
+ * 书源在同步层的身份: 地址的规范化形式. 同一个书库在两台设备上各自添加 (末尾多一个斜杠、主机名大小写不同、
+ * 地址里内嵌了账号) 时得到同一个键, 合并后只剩一条. 去掉内嵌账号、#片段、路径末尾的斜杠, 协议与主机小写,
+ * 默认端口省略; 查询串保留. 不是 http(s) 地址时原样 (去首尾空白) 返回. 幂等.
+ * 只用作键, 落地到本地的仍是用户填写的原地址 (SourceVal.url).
+ */
+export function sourceKey(url: string): string {
+  const raw = String(url ?? '').trim()
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    return raw
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return raw
+  return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, '')}${u.search}`
+}
+
+/** 把书源寄存器表的键归一成 sourceKey (旧客户端按原样 url 记键); 撞键时 LWW */
+export function rekeySources(regs: Record<string, Reg<SourceVal>> | undefined): Record<string, Reg<SourceVal>> {
+  const out: Record<string, Reg<SourceVal>> = {}
+  for (const [k, reg] of Object.entries(regs ?? {})) {
+    const key = sourceKey(k)
+    out[key] = lww(out[key], reg)!
+  }
+  return out
+}
+
 export function sourceFrom(s: CatalogSourceRec): SourceVal {
   const v: SourceVal = { title: s.title, url: s.url, kind: s.kind, addedAt: s.addedAt }
   setOpt(v, 'username', s.username)
@@ -138,7 +166,7 @@ export function buildLocalDoc(
         annotations: { ...base.annotations },
         booklists: { ...base.booklists },
         booklistItems: { ...base.booklistItems },
-        sources: { ...base.sources },
+        sources: rekeySources(base.sources),
       }
     : emptyDoc(me, now)
   if (ctx.deviceName !== undefined) doc.deviceName = ctx.deviceName
@@ -205,8 +233,26 @@ export function buildLocalDoc(
     doc.booklistItems[key] = pickReg(
       base?.booklistItems[key], remoteMerged?.booklistItems[key], local.booklistItems[key])
   }
-  for (const url of sortedKeys(local.sources)) {
-    doc.sources[url] = pickReg(base?.sources[url], remoteMerged?.sources[url], local.sources[url])
+  // 书源: stamp.t 取修改时间 (updatedAt), 改得最晚的赢, 而不是同步得最晚的.
+  // 有基线: 变了的 t = max(修改时间, 基线 t + 1) (时钟偏慢也能盖过它所基于的值);
+  // 首次同步: 远端有寄存器时, 本地值相同或改得不比它晚就沿用远端 (含墓碑), 否则本地胜出.
+  // 没有修改时间 (sourceTimes 缺省) 时退回与书单相同的规则: 按同步时间打 stamp、首次同步远端优先.
+  const baseSources = base ? { ...doc.sources } : {}
+  const remoteSources = !base && remoteMerged ? rekeySources(remoteMerged.sources) : {}
+  for (const key of sortedKeys(local.sources)) {
+    const value = local.sources[key]
+    const t = local.sourceTimes?.[key]
+    if (base) {
+      const prev = baseSources[key]
+      doc.sources[key] = prev && same(prev.value, value)
+        ? prev
+        : { value, stamp: stamp(t === undefined ? now : Math.max(t, (prev ? prev.stamp.t : -1) + 1)) }
+    } else {
+      const prev = remoteSources[key]
+      doc.sources[key] = prev && (same(prev.value, value) || t === undefined || t <= prev.stamp.t)
+        ? prev
+        : { value, stamp: stamp(t ?? now) }
+    }
   }
 
   // 墓碑: 只在有基线时生成.
@@ -238,8 +284,9 @@ export function buildLocalDoc(
     for (const [id, reg] of Object.entries(base.booklists)) {
       if (reg.value && !(id in local.booklists)) doc.booklists[id] = tomb()
     }
-    for (const [url, reg] of Object.entries(base.sources)) {
-      if (reg.value && !(url in local.sources)) doc.sources[url] = tomb()
+    const builtin = new Set(local.builtinSourceKeys ?? [])
+    for (const [key, reg] of Object.entries(baseSources)) {
+      if (reg.value && !(key in local.sources) && !builtin.has(key)) doc.sources[key] = tomb()
     }
   }
 
@@ -332,7 +379,7 @@ export function mergeDocs(docs: SyncDoc[], ctx: { deviceId: string; now: number 
     mergeRegs(out.annotations, doc.annotations)
     mergeRegs(out.booklists, doc.booklists)
     mergeRegs(out.booklistItems, doc.booklistItems)
-    mergeRegs(out.sources, doc.sources)
+    mergeRegs(out.sources, rekeySources(doc.sources))
     if (doc.deviceId === ctx.deviceId && (!self || doc.writtenAt > self.writtenAt)) self = doc
   }
   if (self?.deviceName !== undefined) out.deviceName = self.deviceName
@@ -359,10 +406,11 @@ type BookPatch = Extract<ApplyOp, { op: 'updateBook' }>['patch']
 /**
  * 计算把合并结果落到本地所需的操作, 按可执行顺序排列:
  * addBook → updateBook → addBooklist/renameBooklist → addAnnotation/updateAnnotation
- * → addBooklistItem → addSource → 各类删除 (removeBooklistItem, deleteAnnotation,
+ * → addBooklistItem → addSource/updateSource → 各类删除 (removeBooklistItem, deleteAnnotation,
  * deleteBooklist, deleteSource, deleteBook).
- * 例外: 标注的 cfi/text 等不可原地修改的字段变了、书源内容变了时, 产出紧挨着的
- * deleteX + addX (同一 id/url), 放在对应的添加阶段, 保证先删后加.
+ * 例外: 标注的 cfi/text 等不可原地修改的字段变了时, 产出紧挨着的
+ * deleteAnnotation + addAnnotation (同一 id), 放在添加阶段, 保证先删后加.
+ * 书源内容变了时产出 updateSource (原地改写, 本地 id 不变), 与 addSource 同一阶段.
  * 书被删 (alive=false) 时其标注/书单条目不再单独产出删除, 由 deleteBook 级联;
  * 书单被删时其条目同理由 deleteBooklist 级联.
  * 只有元数据、本地没有的书也会产出 addBook, 由 engine 决定能否下载文件;
@@ -477,17 +525,20 @@ export function planApply(merged: SyncDoc, local: LocalState): ApplyOp[] {
     }
   }
 
-  // 书源
-  for (const url of sortedKeys(merged.sources)) {
-    const v = merged.sources[url].value
-    const ls = local.sources[url]
+  // 书源 (键为 sourceKey; 落地时的修改时间沿用寄存器的 stamp.t). 与本机内置书源同地址的不落地
+  const builtinSources = new Set(local.builtinSourceKeys ?? [])
+  for (const key of sortedKeys(merged.sources)) {
+    const reg = merged.sources[key]
+    const v = reg.value
+    const ls = local.sources[key]
+    if (!ls && builtinSources.has(key)) continue
     if (v) {
-      if (!ls) addSources.push({ op: 'addSource', value: structuredClone(v) })
+      if (!ls) addSources.push({ op: 'addSource', key, value: structuredClone(v), updatedAt: reg.stamp.t })
       else if (!same(v, ls)) {
-        addSources.push({ op: 'deleteSource', url }, { op: 'addSource', value: structuredClone(v) })
+        addSources.push({ op: 'updateSource', key, value: structuredClone(v), updatedAt: reg.stamp.t })
       }
     } else if (ls) {
-      delSources.push({ op: 'deleteSource', url })
+      delSources.push({ op: 'deleteSource', key })
     }
   }
 

@@ -54,6 +54,8 @@ export interface CatalogSourceRec {
   kind: 'opds' | 'arxiv'
   builtin: boolean
   addedAt: number
+  /** 最后一次被用户修改 (添加 / 编辑) 的时间; 缺省视为 addedAt. 多端同步按它做 LWW */
+  updatedAt?: number
   /** HTTP Basic 鉴权 (可选, 用于需要登录的书源如 calibre-web) */
   username?: string
   password?: string
@@ -123,6 +125,8 @@ export interface LibraryStorage {
 
   listSources(): Promise<CatalogSourceRec[]>
   addSource(s: Omit<CatalogSourceRec, 'id'>): Promise<string>
+  /** 整体改写自定义书源的可编辑字段 (builtin 不变); username / password 缺省或为空串时清除 */
+  updateSource(id: string, s: Omit<CatalogSourceRec, 'id' | 'builtin'>): Promise<void>
   deleteSource(id: string): Promise<void>
 }
 

@@ -1,14 +1,15 @@
 // 多端同步端到端: 内嵌最小 WebDAV 服务, 两个浏览器上下文模拟两台设备.
 // 前置: npm run build && npx vite preview --port 4173 --strictPort &
-// 覆盖: 导入 → 同步上传 → 另一端下载入库 → 进度/时长回传 → 书单 → 删除传播
+//   (换端口: E2E_BASE=http://localhost:4180/ ; 内嵌 WebDAV 端口: E2E_DAV_PORT, 默认 8089)
+// 覆盖: 导入 → 同步上传 → 另一端下载入库 → 进度/时长回传 → 书单 → 删除传播 → 私人书库 (添加/编辑/删除)
 import http from 'node:http'
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, existsSync, statSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { chromium } from 'playwright'
 
-const APP = 'http://localhost:4173/'
-const DAV_PORT = 8089
+const APP = (process.env.E2E_BASE ?? 'http://localhost:4173/').replace(/\/?$/, '/')
+const DAV_PORT = Number(process.env.E2E_DAV_PORT ?? 8089)
 const root = mkdtempSync(join(tmpdir(), 'lightread-dav-'))
 
 // ---- 最小 WebDAV 服务 (Basic u:p, 带 CORS) ----
@@ -222,6 +223,51 @@ try {
   await B.goto(APP + '#/library', { waitUntil: 'networkidle' })
   await B.waitForSelector('text=书架还是空的', { timeout: 10000 })
   ok('A 删除的书在 B 上同步删除')
+
+  // 6. 私人书库: A 在书源页添加 (带账号密码) → B 同步后出现; B 编辑 → A 收到; A 删除 → B 删除
+  const LIB_URL = 'https://lib.example.invalid/opds'
+  const customSources = page => idb(page, run => run('sources', 'readonly', s => s.getAll()))
+    .then(rows => rows.filter(r => !r.builtin))
+  await A.goto(APP + '#/catalogs', { waitUntil: 'networkidle' })
+  await A.getByRole('button', { name: '添加书源' }).click()
+  await A.locator('#src-name').fill('同步私人书库')
+  await A.locator('#src-url').fill(LIB_URL)
+  await A.locator('#src-user').fill('reader')
+  await A.locator('#src-pass').fill('s3cret')
+  await A.locator('.modal .btn-primary').click()
+  await A.locator('.source-card', { hasText: '同步私人书库' }).waitFor({ timeout: 5000 })
+  await syncVia(A)
+  await syncVia(B)
+  const srcB = await customSources(B)
+  assert(srcB.length === 1 && srcB[0].url === LIB_URL && srcB[0].username === 'reader' && srcB[0].password === 's3cret',
+    `B 未收到私人书库 (含账号密码): ${JSON.stringify(srcB.map(({ password, ...r }) => r))}`)
+  await B.goto(APP + '#/catalogs', { waitUntil: 'networkidle' })
+  const cardB = B.locator('.source-card', { hasText: '同步私人书库' })
+  await cardB.waitFor({ timeout: 5000 })
+  ok('A 添加的私人书库 (含账号密码) 同步到 B 的书源页')
+
+  await cardB.getByRole('button', { name: '编辑书源「同步私人书库」' }).click()
+  assert(await B.locator('#src-pass').inputValue() === 's3cret', '编辑弹窗应带出已保存的密码')
+  await B.locator('#src-name').fill('书房书库')
+  await B.locator('.modal .btn-primary').click()
+  await B.locator('.source-card', { hasText: '书房书库' }).waitFor({ timeout: 5000 })
+  assert((await customSources(B)).length === 1, '编辑不应新增书源')
+  await syncVia(B)
+  await syncVia(A)
+  await A.goto(APP + '#/catalogs', { waitUntil: 'networkidle' })
+  await A.locator('.source-card', { hasText: '书房书库' }).waitFor({ timeout: 5000 })
+  const srcA = await customSources(A)
+  assert(srcA.length === 1 && srcA[0].password === 's3cret', `A 的书源应只改名: ${srcA.length}`)
+  ok('B 编辑书源名称 → A 收到 (原地改写, 不重复)')
+
+  A.once('dialog', d => d.accept())
+  await A.locator('.source-card', { hasText: '书房书库' }).locator('.btn-danger').click()
+  await A.locator('.source-card', { hasText: '书房书库' }).waitFor({ state: 'detached', timeout: 5000 })
+  await syncVia(A)
+  await syncVia(B)
+  await syncVia(B)
+  assert((await customSources(B)).length === 0, 'B 未删除私人书库 (或再次同步后复活)')
+  ok('A 删除私人书库 → B 删除, 再同步不复活')
 
   if (errors.length) throw new Error('页面错误:\n' + errors.join('\n'))
   console.log(`\n全部 ${step} 步通过`)
