@@ -5,6 +5,7 @@ import ts from 'typescript'
 
 const source = await readFile(new URL('../src/services/githubBooks.ts', import.meta.url), 'utf8')
 const formatSource = await readFile(new URL('../src/services/format.ts', import.meta.url), 'utf8')
+const bookQuerySource = await readFile(new URL('../src/services/bookQuery.ts', import.meta.url), 'utf8')
 const bundled = JSON.parse(await readFile(new URL('../booksources.json', import.meta.url), 'utf8'))
 const compile = text => ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
 const dataModule = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
@@ -21,6 +22,7 @@ async function harness(fetchRemote, cache = new Map()) {
   const code = compile(source)
     .replace("'./net'", JSON.stringify(dataModule(`export const fetchRemote = (...args) => globalThis[${JSON.stringify(hook)}](...args)`)))
     .replace("'./format'", JSON.stringify(dataModule(compile(formatSource))))
+    .replace("'./bookQuery'", JSON.stringify(dataModule(compile(bookQuerySource))))
     .replace("'../../booksources.json'", JSON.stringify(dataModule(`export default ${JSON.stringify(bundled)}`)))
   return { service: await import(dataModule(code)), cache }
 }
@@ -135,4 +137,18 @@ test('file trees are cached for 24 hours and duplicate repo names are searched o
   cache.set(key, JSON.stringify({ ...JSON.parse(value), at: Date.now() - 25 * 60 * 60 * 1000 }))
   await service.searchGithubBooks(['OWNER/BOOKS'], '')
   assert.equal(calls, 2)
+})
+
+test('punctuation in the query is ignored and exact titles rank first', async () => {
+  const { service } = await harness(async () => json({ tree: [
+    blob('a/活着活着就老了.epub'), blob('b/活着-余华.mobi'), blob('c/活着.epub'), blob('d/人生/活着之后.pdf'),
+    blob('e/思考快与慢.epub'), blob('f/思考，快与慢（丹尼尔·卡尼曼）.pdf'), blob('g/思考的乐趣.epub'),
+  ] }))
+  const alive = await service.searchGithubBooks(['owner/books'], '活着')
+  assert.equal(alive.hits[0].name, '活着.epub')
+  assert.deepEqual(alive.hits.map(hit => hit.name).sort(), ['活着.epub', '活着-余华.mobi', '活着之后.pdf', '活着活着就老了.epub'].sort())
+  for (const query of ['思考，快与慢', '《思考 快与慢》', '思考快与慢']) {
+    const thinking = await service.searchGithubBooks(['owner/books'], query)
+    assert.deepEqual(thinking.hits.map(hit => hit.name).sort(), ['思考快与慢.epub', '思考，快与慢（丹尼尔·卡尼曼）.pdf'].sort(), query)
+  }
 })

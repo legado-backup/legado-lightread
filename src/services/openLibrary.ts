@@ -1,4 +1,6 @@
 /** Open Library 搜索目录；链接指向官方书目页，由站点提供阅读或借阅入口。 */
+import { compactKey, titleRelevance } from './bookQuery.ts'
+
 export interface OpenLibraryBook {
   key: string
   title: string
@@ -60,6 +62,21 @@ export function parseOpenLibraryResults(payload: unknown, limit = 24): OpenLibra
   return books
 }
 
+const ACCESS_ORDER: Record<OpenLibraryBook['access'], number> = {
+  public: 0, borrowable: 1, unknown: 2, printdisabled: 3, no_ebook: 4,
+}
+
+/**
+ * 书名对得上的排前面, 其次能读的排前面 (公开阅读 > 可借阅 > 其余);
+ * 同级保持站点的相关度顺序。
+ */
+export function sortByAccess(books: OpenLibraryBook[], query = ''): OpenLibraryBook[] {
+  const offTopic = (book: OpenLibraryBook) => query && titleRelevance(book.title, query) === 0 ? 1 : 0
+  return books.map((book, index) => ({ book, index, offTopic: offTopic(book) }))
+    .sort((a, b) => a.offTopic - b.offTopic || ACCESS_ORDER[a.book.access] - ACCESS_ORDER[b.book.access] || a.index - b.index)
+    .map(entry => entry.book)
+}
+
 export async function searchOpenLibrary(
   query: string,
   limit = 24,
@@ -69,7 +86,9 @@ export async function searchOpenLibrary(
   if (!trimmed) return []
   const boundedLimit = resultLimit(limit)
   const url = new URL('https://openlibrary.org/search.json')
-  url.search = new URLSearchParams({ q: trimmed, fields: SEARCH_FIELDS, limit: String(boundedLimit) }).toString()
+  // q 少于 3 个字符会被拒绝 (422)，「活着」「三体」这类短书名改按书名字段搜索
+  const field = compactKey(trimmed).length < 3 ? 'title' : 'q'
+  url.search = new URLSearchParams({ [field]: trimmed, fields: SEARCH_FIELDS, limit: String(boundedLimit) }).toString()
   const remoteFetch = fetcher ?? (await import('./net')).fetchRemote
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30_000)
@@ -78,7 +97,7 @@ export async function searchOpenLibrary(
       headers: { accept: 'application/json' },
       signal: controller.signal,
     })
-    return parseOpenLibraryResults(await response.json(), boundedLimit)
+    return sortByAccess(parseOpenLibraryResults(await response.json(), boundedLimit), trimmed)
   } finally {
     clearTimeout(timeout)
   }

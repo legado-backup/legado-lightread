@@ -11,15 +11,24 @@ import {
 const book = { identifier: 'example_book', title: 'Example', author: 'Author', url: 'https://archive.org/details/example_book' }
 
 test('search terms cannot escape public text and supported format filters', () => {
-  const url = new URL(buildArchiveSearchUrl('books OR (*:*) " AND 中文', 1000))
+  const url = new URL(buildArchiveSearchUrl('books OR (*:*) " AND 中文 title:x\\', 1000))
   assert.equal(url.origin, 'https://archive.org')
   const query = url.searchParams.get('q')
-  assert.ok(query.startsWith('("books" AND "OR" AND "\\(\\*\\:\\*\\)" AND "\\"" AND "AND" AND "中文") AND '))
+  // 每个词都被引号包住并转义, 只能匹配书名或作者
+  assert.ok(query.startsWith('((title:"books" OR creator:"books") AND (title:"OR" OR creator:"OR") AND (title:"\\*" OR creator:"\\*") AND '))
+  assert.match(query, /\(title:"中文" OR creator:"中文"\) AND \(title:"title" OR creator:"title"\) AND \(title:"x" OR creator:"x"\)/)
+  assert.doesNotMatch(query, /[^\\]\(\*:/)
   assert.match(query, /AND mediatype:texts AND NOT access-restricted-item:true/)
   assert.match(query, /AND NOT collection:printdisabled/)
   assert.match(query, /format:EPUB OR format:"Text PDF"/)
   assert.equal(url.searchParams.get('rows'), '100')
+  assert.deepEqual(url.searchParams.getAll('sort[]'), ['downloads desc'])
   assert.equal(new URL(buildArchiveSearchUrl('book', NaN)).searchParams.get('rows'), '24')
+})
+
+test('full-width punctuation and book-title marks are search separators, not terms', () => {
+  const query = new URL(buildArchiveSearchUrl('《思考，快与慢》')).searchParams.get('q')
+  assert.ok(query.startsWith('((title:"思考" OR creator:"思考") AND (title:"快与慢" OR creator:"快与慢")) AND '))
 })
 
 test('search normalizes metadata, ignores restricted/malformed records and deduplicates', () => {

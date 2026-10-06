@@ -5,6 +5,7 @@
  */
 import { fetchRemote } from './net'
 import { detectFormat } from './format'
+import { compactKey, queryTerms, titleRelevance } from './bookQuery'
 import bundledSources from '../../booksources.json'
 
 export interface GithubBookHit {
@@ -115,9 +116,9 @@ export interface GithubSearchResult {
   truncated: boolean
 }
 
-/** 多仓库搜索; 关键词空格分隔, 匹配路径和书库说明 (不区分大小写) */
+/** 多仓库搜索; 关键词空格分隔 (标点视同空格), 匹配路径和书库说明 (不区分大小写) */
 export async function searchGithubBooks(repos: string[], keyword: string): Promise<GithubSearchResult> {
-  const terms = keyword.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const terms = queryTerms(keyword)
   const result: GithubSearchResult = { hits: [], errors: [], truncated: false }
   const uniqueRepos = [...new Map(repos.map(repo => [repo.trim().toLowerCase(), repo.trim()])).values()]
   await Promise.all(uniqueRepos.map(async repo => {
@@ -127,8 +128,10 @@ export async function searchGithubBooks(repos: string[], keyword: string): Promi
       if (tree.truncated) result.truncated = true
       for (const file of tree.files) {
         if (!includedPath(repo, file.path)) continue
-        const lower = `${file.path} ${activeSources.get(repo.toLowerCase())?.note ?? ''}`.toLowerCase()
-        if (terms.length && !terms.every(term => lower.includes(term))) continue
+        const lower = `${file.path} ${activeSources.get(repo.toLowerCase())?.note ?? ''}`.normalize('NFKC').toLowerCase()
+        // 文件名常把「思考，快与慢」写成「思考快与慢」: 去掉标点空格后再比一次
+        const compact = compactKey(lower)
+        if (terms.length && !terms.every(term => lower.includes(term) || compact.includes(compactKey(term)))) continue
         result.hits.push({
           repo,
           path: file.path,
@@ -141,7 +144,12 @@ export async function searchGithubBooks(repos: string[], keyword: string): Promi
       result.errors.push({ repo, message: e?.message ?? String(e) })
     }
   }))
-  result.hits.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+  // 书名一致的排最前 (「活着.epub」先于「活着活着就老了.epub」), 只在路径/说明里命中的排后面
+  const score = (hit: GithubBookHit) => terms.length ? titleRelevance(hit.name, keyword) : 0
+  result.hits = result.hits
+    .map(hit => ({ hit, score: score(hit) }))
+    .sort((a, b) => b.score - a.score || a.hit.name.localeCompare(b.hit.name, 'zh'))
+    .map(entry => entry.hit)
   return result
 }
 

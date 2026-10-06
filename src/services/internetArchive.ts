@@ -1,5 +1,6 @@
 /** Public Internet Archive books; file links are resolved only when a reader opens a result. */
 import type { OpdsPublication } from './opds'
+import { normalizeBookQuery, rankByTitle } from './bookQuery.ts'
 
 export interface ArchiveBook {
   identifier: string
@@ -35,15 +36,25 @@ function requireIdentifier(identifier: string): string {
   return encodeURIComponent(identifier)
 }
 
+function searchRows(limit: number): number {
+  return Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 24
+}
+
+/**
+ * 每个关键词都要出现在书名或作者里: 全字段检索会命中正文/简介里顺带提到的报纸、论文和网文,
+ * 「思考 快与慢」一类查询前排全是无关条目。按下载量排序, 让常见的正式版本靠前。
+ */
 export function buildArchiveSearchUrl(query: string, limit = 24): string {
   // Quote each word to keep OR/AND and escaped Lucene syntax inside the user clause.
-  const terms = query.trim().split(/\s+/).filter(Boolean)
+  const terms = normalizeBookQuery(query).split(' ').filter(Boolean)
     .map(term => `"${term.replace(/[+\-!(){}\[\]^"~*?:\\/&|]/g, '\\$&')}"`)
+  const clause = terms.map(term => `(title:${term} OR creator:${term})`).join(' AND ') || '""'
   const params = new URLSearchParams({
-    q: `(${terms.join(' AND ') || '""'}) AND mediatype:texts AND NOT access-restricted-item:true AND NOT collection:printdisabled AND (format:EPUB OR format:"Text PDF" OR format:PDF OR format:Text OR format:DjVuTXT)`,
+    q: `(${clause}) AND mediatype:texts AND NOT access-restricted-item:true AND NOT collection:printdisabled AND (format:EPUB OR format:"Text PDF" OR format:PDF OR format:Text OR format:DjVuTXT)`,
     output: 'json',
-    rows: String(Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 24),
+    rows: String(searchRows(limit)),
   })
+  params.append('sort[]', 'downloads desc')
   for (const field of ['identifier', 'title', 'creator', 'year', 'access-restricted-item']) {
     params.append('fl[]', field)
   }
@@ -121,8 +132,10 @@ async function fetchArchiveJson(url: string): Promise<unknown> {
 }
 
 export async function searchInternetArchive(query: string, limit = 24): Promise<ArchiveBook[]> {
-  if (!query.trim()) return []
-  return parseArchiveSearch(await fetchArchiveJson(buildArchiveSearchUrl(query, limit)))
+  if (!normalizeBookQuery(query)) return []
+  // 多取一些按下载量排好的候选, 再把书名一致的版本提到前面
+  const books = parseArchiveSearch(await fetchArchiveJson(buildArchiveSearchUrl(query, Math.max(limit, 50))))
+  return rankByTitle(books, query, book => book.title, book => book.author).slice(0, searchRows(limit))
 }
 
 export async function loadArchivePublication(book: ArchiveBook): Promise<OpdsPublication> {

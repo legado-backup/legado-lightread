@@ -4,6 +4,7 @@ import {
   openLibraryBookUrl,
   parseOpenLibraryResults,
   searchOpenLibrary,
+  sortByAccess,
 } from '../src/services/openLibrary.ts'
 
 test('accept only official work/edition identifiers', () => {
@@ -82,4 +83,27 @@ test('abort requests after 30 seconds', async t => {
   t.mock.timers.tick(1)
   await assert.rejects(request, /aborted/)
   assert.equal(signal.aborted, true)
+})
+
+test('short titles use the title field (q under 3 characters is rejected upstream)', async () => {
+  for (const [query, field] of [['活着', 'title'], ['《三体》', 'title'], ['红楼梦', 'q'], ['Dune', 'q']]) {
+    await searchOpenLibrary(query, 24, async input => {
+      const url = new URL(input)
+      assert.ok(url.searchParams.get(field), `${query} → ${field}`)
+      assert.equal(url.searchParams.has(field === 'q' ? 'title' : 'q'), false)
+      return Response.json({ docs: [] })
+    })
+  }
+})
+
+test('readable, on-topic records come first while keeping relevance order inside a tier', async () => {
+  const docs = [
+    { key: 'OL1W', title: 'Pride and Prejudice and Zombies', ebook_access: 'borrowable' },
+    { key: 'OL2W', title: 'Eligible', ebook_access: 'public' },
+    { key: 'OL3W', title: 'Pride and Prejudice', ebook_access: 'no_ebook' },
+    { key: 'OL4W', title: 'Pride and Prejudice', ebook_access: 'public' },
+  ]
+  const books = await searchOpenLibrary('Pride and Prejudice', 24, async () => Response.json({ docs }))
+  assert.deepEqual(books.map(book => book.key), ['/works/OL4W', '/works/OL1W', '/works/OL3W', '/works/OL2W'])
+  assert.deepEqual(sortByAccess(books.slice().reverse()).map(book => book.access), ['public', 'public', 'borrowable', 'no_ebook'])
 })

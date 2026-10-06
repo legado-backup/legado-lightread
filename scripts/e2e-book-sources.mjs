@@ -23,7 +23,7 @@ await page.route('**/*', async route => {
     githubTreeCalls++
     return json({ tree: [{ type: 'blob', path: '陋室 /?&铭.txt', size: 2048 }], truncated: false })
   }
-  if (url.includes('zh.wikisource.org/w/api.php')) return json({ query: { search: [{ pageid: 123, ns: 0, title: '陋室銘', snippet: '山不在高，有仙则名。' }] } })
+  if (url.includes('zh.wikisource.org/w/api.php')) return json({ query: { search: [{ pageid: 123, ns: 0, title: '陋室銘', titlesnippet: '<span class="searchmatch">陋室</span><span class="searchmatch">銘</span>', snippet: '山不在高，有仙则名。' }] } })
   if (url.includes('archive.org/advancedsearch.php')) {
     if (failArchive) return route.fulfill({ status: 503, body: 'Unavailable' })
     return json({ response: { docs: [{ identifier: 'public-book', title: 'Public Archive Book', creator: 'Author' }] } })
