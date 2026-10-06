@@ -172,15 +172,23 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
       </nav>
       <div class="sidebar-bottom">
         <router-link :to="settingsNav.path" class="nav-item sidebar-settings" :title="t(settingsNav.labelKey)">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-            <path :d="settingsNav.icon" fill="currentColor" />
-          </svg>
+          <span class="sidebar-settings-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+              <path :d="settingsNav.icon" fill="currentColor" />
+            </svg>
+            <!-- 手机底部标签栏没有更新按钮: 在「设置」图标上挂一个小圆点提示 -->
+            <span v-if="showSidebarUpdate" class="sidebar-settings-badge" aria-hidden="true" />
+          </span>
           <span class="nav-label">{{ t(settingsNav.labelKey) }}</span>
         </router-link>
         <button
           v-if="showSidebarUpdate"
           class="sidebar-update"
-          :class="{ downloading: updateBusy }"
+          :class="{
+            downloading: updateBusy,
+            determinate: updateBusy && updateProgress != null,
+            ready: !updateBusy && !!downloadedInstaller,
+          }"
           type="button"
           :title="sidebarUpdateTitle"
           :aria-label="sidebarUpdateTitle"
@@ -188,11 +196,25 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
           @click="handleSidebarUpdate"
         >
           <span class="sidebar-update-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="21" height="21">
-              <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" />
+            <svg class="sidebar-update-ring" viewBox="0 0 24 24" width="30" height="30">
+              <circle class="ring-track" cx="12" cy="12" r="10.5" pathLength="100" />
+              <circle
+                class="ring-bar"
+                cx="12"
+                cy="12"
+                r="10.5"
+                pathLength="100"
+                :stroke-dashoffset="updateProgress == null ? 72 : 100 - Math.round(updateProgress * 100)"
+              />
             </svg>
+            <svg class="sidebar-update-glyph" viewBox="0 0 24 24" width="18" height="18">
+              <path d="M12 4.5v10m0 0 4-4m-4 4-4-4M5.5 19.5h13" />
+            </svg>
+            <span class="sidebar-update-dot" />
           </span>
-          <span class="sidebar-update-label" aria-hidden="true">{{ sidebarUpdateLabel }}</span>
+          <span class="sidebar-update-label" aria-hidden="true">
+            {{ sidebarUpdateLabel }}<span v-if="!updateBusy && !downloadedInstaller && updateInfo?.version" class="sidebar-update-version">v{{ updateInfo.version }}</span>
+          </span>
         </button>
       </div>
     </aside>
@@ -314,59 +336,187 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
   padding-right: 56px;
   overflow: hidden;
 }
+.sidebar-settings-icon {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+/* 更新胶囊向左展开时会盖住「设置」文字的一半: 先把文字淡出 (不支持 :has 的旧内核只是被盖住) */
+.sidebar-settings .nav-label {
+  transition: opacity var(--dur) var(--ease);
+}
+.sidebar-bottom:has(.sidebar-update:hover, .sidebar-update:focus-visible, .sidebar-update.downloading) .sidebar-settings .nav-label {
+  opacity: 0;
+}
+.sidebar-settings-badge {
+  display: none;
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 0 2px var(--card);
+}
+
+/* ---- 侧栏更新按钮: 平时是一枚 40px 的淡品牌色圆钮 (带呼吸小圆点), 悬停向左展开成胶囊;
+   下载中保持展开, 图标外圈显示进度环 ---- */
 .sidebar-update {
   position: absolute;
   top: 0;
-  left: calc(100% - 40px);
-  width: 40px;
+  right: 0;
+  width: auto;
+  max-width: 40px;
   height: 40px;
   padding: 0;
   display: flex;
   align-items: center;
   overflow: hidden;
-  border: 0;
-  border-radius: 999px;
-  background: var(--brand);
-  color: var(--on-brand);
-  box-shadow: 0 5px 16px color-mix(in srgb, var(--brand) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: linear-gradient(135deg, var(--brand-light), color-mix(in srgb, var(--brand) 14%, var(--card)));
+  color: var(--brand);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--brand) 12%, transparent);
   cursor: pointer;
   font: inherit;
   white-space: nowrap;
-  transition: width 180ms cubic-bezier(.2, .75, .25, 1), box-shadow 180ms ease;
+  transition:
+    max-width var(--dur-slow) var(--ease),
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 .sidebar-update:hover,
-.sidebar-update:focus-visible {
-  width: 112px;
-  box-shadow: 0 7px 20px color-mix(in srgb, var(--brand) 38%, transparent);
+.sidebar-update:focus-visible,
+.sidebar-update.downloading {
+  max-width: 168px;
+  border-color: color-mix(in srgb, var(--brand) 36%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--brand) 22%, transparent);
+}
+.sidebar-update:active {
+  background: color-mix(in srgb, var(--brand) 20%, var(--card));
 }
 .sidebar-update:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--brand) 24%, transparent);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--ring), 0 6px 18px color-mix(in srgb, var(--brand) 22%, transparent);
 }
 .sidebar-update-icon {
-  width: 40px;
-  height: 40px;
-  flex: 0 0 40px;
+  position: relative;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
   display: grid;
   place-items: center;
 }
-.sidebar-update-icon svg {
+.sidebar-update-icon > svg {
+  grid-area: 1 / 1;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.9;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+.sidebar-update-glyph {
+  stroke-width: 2;
+  transition: transform var(--dur) var(--ease);
+}
+.sidebar-update:hover .sidebar-update-glyph {
+  animation: sidebar-update-nudge 900ms var(--ease) 1;
+}
+/* 进度环: 平时隐藏, 下载中出现; 不确定进度时一段弧线转圈 */
+.sidebar-update-ring {
+  opacity: 0;
+  transform: rotate(-90deg);
+  stroke-width: 2.2;
+  transition: opacity var(--dur) var(--ease);
+}
+.ring-track {
+  stroke: color-mix(in srgb, var(--brand) 20%, transparent);
+}
+.ring-bar {
+  stroke-dasharray: 100 100;
+  transition: stroke-dashoffset var(--dur) linear;
+}
+.sidebar-update.downloading .sidebar-update-ring {
+  opacity: 1;
+}
+.sidebar-update.downloading .sidebar-update-glyph {
+  transform: scale(0.78);
+}
+.sidebar-update.downloading:not(.determinate) .sidebar-update-ring {
+  animation: sidebar-update-spin 900ms linear infinite;
+}
+/* 「有新版」呼吸小圆点 */
+.sidebar-update-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 0 2px var(--brand-light);
+}
+.sidebar-update-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--brand);
+  animation: sidebar-update-pulse 2.4s var(--ease) infinite;
+}
+.sidebar-update.downloading .sidebar-update-dot,
+.sidebar-update.ready .sidebar-update-dot {
+  display: none;
+}
 .sidebar-update-label {
-  min-width: 58px;
-  padding: 0 14px 0 6px;
+  /* 悬停展开后总宽 ≥ 110px (e2e 要求 ≥108px) */
+  min-width: 72px;
+  padding: 0 16px 0 2px;
   text-align: left;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
-  line-height: 40px;
+  letter-spacing: 0.01em;
+  line-height: 38px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.sidebar-update-version {
+  margin-left: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  opacity: 0.72;
+}
+.sidebar-update:hover .sidebar-update-label,
+.sidebar-update:focus-visible .sidebar-update-label,
+.sidebar-update.downloading .sidebar-update-label {
+  opacity: 1;
 }
 .sidebar-update.downloading {
   cursor: progress;
+}
+:root[data-theme='dark'] .sidebar-update {
+  border-color: color-mix(in srgb, var(--brand) 32%, transparent);
+  background: linear-gradient(135deg, var(--brand-light), color-mix(in srgb, var(--brand) 22%, var(--card)));
+  box-shadow: none;
+}
+:root[data-theme='dark'] .sidebar-update:hover,
+:root[data-theme='dark'] .sidebar-update.downloading {
+  border-color: color-mix(in srgb, var(--brand) 50%, transparent);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+@keyframes sidebar-update-pulse {
+  0% { transform: scale(1); opacity: 0.55; }
+  70%, 100% { transform: scale(2.6); opacity: 0; }
+}
+@keyframes sidebar-update-spin {
+  to { transform: rotate(270deg); }
+}
+@keyframes sidebar-update-nudge {
+  0%, 100% { transform: translateY(0); }
+  35% { transform: translateY(2px); }
+  65% { transform: translateY(-1px); }
 }
 .main {
   flex: 1;
@@ -410,16 +560,19 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
     flex-direction: column;
     gap: 8px;
   }
+  /* 图标栏: 更新按钮放在设置图标下方, 居中的方圆钮, 不展开 */
   .sidebar-update {
-    position: static;
-    width: 100%;
-    height: 40px;
+    position: relative;
+    align-self: center;
+    max-width: 40px;
+    width: 40px;
     justify-content: center;
-    border-radius: var(--radius);
+    border-radius: var(--radius-lg);
   }
   .sidebar-update:hover,
-  .sidebar-update:focus-visible {
-    width: 100%;
+  .sidebar-update:focus-visible,
+  .sidebar-update.downloading {
+    max-width: 40px;
   }
   .sidebar-update-label {
     display: none;
@@ -490,12 +643,30 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
   .sidebar-update {
     display: none;
   }
+  .sidebar-settings-badge {
+    display: block;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .sidebar,
-  .sidebar-update {
+  .sidebar-settings .nav-label,
+  .sidebar-update,
+  .sidebar-update-label,
+  .sidebar-update-glyph,
+  .ring-bar {
     transition: none;
+  }
+  .sidebar-update-dot::after,
+  .sidebar-update:hover .sidebar-update-glyph {
+    animation: none;
+  }
+  .sidebar-update-dot::after {
+    display: none;
+  }
+  /* 不确定进度时不转圈, 停成一段静止弧线 */
+  .sidebar-update.downloading:not(.determinate) .sidebar-update-ring {
+    animation: none;
   }
 }
 </style>

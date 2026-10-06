@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { getStorage, isTauri } from '../storage'
 import { useSettings } from '../stores/settings'
 import { useLibrary } from '../stores/library'
@@ -416,6 +417,8 @@ function onSettingsScroll() {
 function jumpTo(id: string) {
   const el = document.getElementById(`settings-${id}`)
   if (!el) return
+  // 默认收起的分区: 跳过去时先展开
+  if (id === 'agents') setAgentsOpen(true)
   const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
   spyLockUntil = Date.now() + (reduce ? 50 : 700)
   setActiveSection(id)
@@ -424,9 +427,14 @@ function jumpTo(id: string) {
   el.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true })
 }
 
+const route = useRoute()
+
 onMounted(() => {
   scroller = rootEl.value?.closest<HTMLElement>('.main') ?? null
   scroller?.addEventListener('scroll', onSettingsScroll, { passive: true })
+  // 深链: /settings?section=agents 直接定位 (并展开) 对应分区
+  const section = typeof route.query.section === 'string' ? route.query.section : ''
+  if (section && navSections.value.some(s => s.id === section)) nextTick(() => jumpTo(section))
 })
 onBeforeUnmount(() => {
   scroller?.removeEventListener('scroll', onSettingsScroll)
@@ -526,6 +534,48 @@ const paperAgentStatuses = ref<Record<PaperAgentEngine, PaperAgentEngineStatus |
   codex: null, claude: null, pi: null,
 })
 const checkingPaperAgents = ref(false)
+
+/** 论文 Agent 分区默认收起 (多数人用默认引擎即可); 展开状态记在本机, 读写失败就当收起 */
+const AGENTS_OPEN_KEY = 'lightread-settings-agents-open'
+function readAgentsOpen(): boolean {
+  try {
+    return localStorage.getItem(AGENTS_OPEN_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+const agentsOpen = ref(readAgentsOpen())
+function setAgentsOpen(open: boolean) {
+  agentsOpen.value = open
+  try {
+    if (open) localStorage.setItem(AGENTS_OPEN_KEY, '1')
+    else localStorage.removeItem(AGENTS_OPEN_KEY)
+  } catch { /* 隐私模式等: 只在本次会话里生效 */ }
+}
+
+type AgentState = 'ready' | 'unavailable' | 'checking' | 'unknown'
+function paperAgentState(engine: PaperAgentEngine): AgentState {
+  const status = paperAgentStatuses.value[engine]
+  if (status) return status.compatible && status.authenticated ? 'ready' : 'unavailable'
+  return checkingPaperAgents.value ? 'checking' : 'unknown'
+}
+const AGENT_STATE_KEYS: Record<AgentState, string> = {
+  ready: 'settings.paperAgentsReady',
+  unavailable: 'settings.paperAgentsUnavailable',
+  checking: 'settings.testing',
+  unknown: 'settings.paperAgentsUnchecked',
+}
+/** 收起时标题行右侧的摘要: 当前引擎 + 状态 */
+const agentsSummary = computed(() => {
+  const id = settings.paperAgentEngine
+  const state = paperAgentState(id)
+  return {
+    label: paperAgentEngines.find(e => e.id === id)?.label ?? id,
+    state,
+    text: t(AGENT_STATE_KEYS[state]),
+    reason: state === 'unavailable' ? paperAgentStatuses.value[id]?.reason ?? '' : '',
+  }
+})
 
 async function refreshPaperAgentStatuses() {
   if (!paperAgentRuntimeAvailable() || checkingPaperAgents.value) return
@@ -1040,50 +1090,106 @@ const APPEARANCE_OPTIONS = [
       <div v-if="aiTestResult" class="dav-info ai-result" role="status">{{ aiTestResult }}</div>
     </section>
 
-    <section v-if="paperAgentRuntimeAvailable()" id="settings-agents" class="card section" aria-labelledby="settings-agents-heading">
-      <h2 id="settings-agents-heading" tabindex="-1">{{ t('settings.paperAgentsTitle') }}</h2>
-      <div class="row row-inline">
-        <div class="row-text">
-          <div class="row-title">{{ t('settings.paperAgentsEngine') }}</div>
-          <div class="row-desc">{{ t('settings.paperAgentsDesc') }}</div>
-        </div>
-        <button class="btn btn-sm" :disabled="checkingPaperAgents" @click="refreshPaperAgentStatuses">
-          {{ checkingPaperAgents ? t('settings.testing') : t('settings.paperAgentsCheck') }}
-        </button>
-      </div>
-      <div class="agent-default-row">
-        <span>{{ t('settings.paperAgentsDefault') }}</span>
-        <select v-model="settings.paperAgentEngine" class="input" :aria-label="t('settings.paperAgentsDefault')">
-          <option v-for="engine in paperAgentEngines" :key="engine.id" :value="engine.id">{{ engine.label }}</option>
-        </select>
-      </div>
-      <div v-for="engine in paperAgentEngines" :key="engine.id" class="agent-engine-setting">
-        <div class="agent-engine-title">
-          <strong>{{ engine.label }}</strong>
+    <section
+      v-if="paperAgentRuntimeAvailable()"
+      id="settings-agents"
+      class="card section agents-section"
+      :class="{ open: agentsOpen }"
+      aria-labelledby="settings-agents-heading"
+    >
+      <!-- 默认收起: 标题行即开关, 收起时右侧显示当前引擎与状态; 被程序聚焦 (分区导航 / 深链) 时自动展开 -->
+      <h2 id="settings-agents-heading" class="agents-heading" tabindex="-1" @focus="setAgentsOpen(true)">
+        <button
+          type="button"
+          class="agents-toggle"
+          :aria-expanded="agentsOpen"
+          aria-controls="settings-agents-body"
+          @click="setAgentsOpen(!agentsOpen)"
+        >
+          <span class="agents-toggle-title">{{ t('settings.paperAgentsTitle') }}</span>
           <span
-            v-if="paperAgentStatuses[engine.id]"
-            :class="paperAgentStatuses[engine.id]?.compatible && paperAgentStatuses[engine.id]?.authenticated ? 'agent-ok' : 'agent-bad'"
+            class="agents-summary"
+            :class="`is-${agentsSummary.state}`"
+            :title="agentsSummary.reason || undefined"
           >
-            {{ paperAgentStatuses[engine.id]?.compatible && paperAgentStatuses[engine.id]?.authenticated ? t('settings.paperAgentsReady') : paperAgentStatuses[engine.id]?.reason }}
+            <span class="agent-dot" aria-hidden="true" />
+            <span class="agents-summary-engine">{{ agentsSummary.label }}</span>
+            <span class="agents-summary-sep" aria-hidden="true">·</span>
+            <span>{{ agentsSummary.text }}</span>
           </span>
-        </div>
-        <div class="agent-path-row">
-          <input
-            v-model="settings.paperAgentExecutables[engine.id]"
-            class="input"
-            :placeholder="t('settings.paperAgentsPathPlaceholder')"
-            :aria-label="`${engine.label} · ${t('settings.paperAgentsPathPlaceholder')}`"
-            @change="refreshPaperAgentStatuses"
-          />
-          <button type="button" class="btn btn-sm" @click="choosePaperAgentExecutable(engine.id)">
-            {{ t('settings.paperAgentsBrowse') }}
-          </button>
-        </div>
-        <div v-if="paperAgentStatuses[engine.id]?.path" class="agent-engine-meta">
-          {{ paperAgentStatuses[engine.id]?.version }} · {{ paperAgentStatuses[engine.id]?.path }}
+          <svg class="agents-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+        </button>
+      </h2>
+      <div id="settings-agents-body" class="agents-body">
+        <div class="agents-body-inner">
+          <div class="row row-inline agents-intro">
+            <div class="row-text">
+              <div class="row-title">{{ t('settings.paperAgentsEngine') }}</div>
+              <div class="row-desc">{{ t('settings.paperAgentsDesc') }}</div>
+            </div>
+            <button type="button" class="btn btn-sm" :disabled="checkingPaperAgents" @click="refreshPaperAgentStatuses">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" :class="{ spinning: checkingPaperAgents }"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" /></svg>
+              {{ checkingPaperAgents ? t('settings.testing') : t('settings.paperAgentsCheck') }}
+            </button>
+          </div>
+
+          <div class="agent-engines" role="radiogroup" :aria-label="t('settings.paperAgentsDefault')">
+            <div
+              v-for="engine in paperAgentEngines"
+              :key="engine.id"
+              class="agent-engine"
+              :class="{ selected: settings.paperAgentEngine === engine.id }"
+            >
+              <label class="agent-engine-head">
+                <input
+                  v-model="settings.paperAgentEngine"
+                  class="agent-radio"
+                  type="radio"
+                  name="paper-agent-engine"
+                  :value="engine.id"
+                />
+                <span class="agent-engine-name">{{ engine.label }}</span>
+                <span v-if="settings.paperAgentEngine === engine.id" class="agent-current">{{ t('settings.paperAgentsCurrent') }}</span>
+                <span class="agent-status" :class="`is-${paperAgentState(engine.id)}`">
+                  <span class="agent-dot" aria-hidden="true" />
+                  {{ t(AGENT_STATE_KEYS[paperAgentState(engine.id)]) }}
+                </span>
+              </label>
+              <div class="agent-path-row">
+                <input
+                  v-model="settings.paperAgentExecutables[engine.id]"
+                  class="input"
+                  spellcheck="false"
+                  autocapitalize="off"
+                  :placeholder="t('settings.paperAgentsPathPlaceholder')"
+                  :aria-label="`${engine.label} · ${t('settings.paperAgentsPathPlaceholder')}`"
+                  @change="refreshPaperAgentStatuses"
+                />
+                <button type="button" class="btn btn-sm" @click="choosePaperAgentExecutable(engine.id)">
+                  {{ t('settings.paperAgentsBrowse') }}
+                </button>
+              </div>
+              <div
+                v-if="paperAgentStatuses[engine.id]?.path || paperAgentState(engine.id) === 'unavailable'"
+                class="agent-engine-meta"
+              >
+                <template v-if="paperAgentStatuses[engine.id]?.path">
+                  <span v-if="paperAgentStatuses[engine.id]?.version" class="agent-version">{{ paperAgentStatuses[engine.id]?.version }}</span>
+                  <code>{{ paperAgentStatuses[engine.id]?.path }}</code>
+                </template>
+                <span v-if="paperAgentState(engine.id) === 'unavailable' && paperAgentStatuses[engine.id]?.reason" class="agent-reason">
+                  {{ paperAgentStatuses[engine.id]?.reason }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <p class="agent-settings-note">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
+            <span>{{ t('settings.paperAgentsNote') }}</span>
+          </p>
         </div>
       </div>
-      <p class="agent-settings-note">{{ t('settings.paperAgentsNote') }}</p>
     </section>
 
     <!-- 数据 -->
@@ -1918,17 +2024,261 @@ h2:focus {
   flex-shrink: 0;
   gap: 8px;
 }
-.agent-default-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 13px; }
-.agent-default-row .input { width: 180px; }
-.agent-engine-setting { margin-top: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
-.agent-engine-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 7px; font-size: 12px; }
-.agent-engine-title span { color: var(--text-3); font-size: 11px; text-align: right; }
-.agent-engine-title .agent-ok { color: var(--success, #238b50); }
-.agent-engine-title .agent-bad { color: var(--danger, #c94545); }
-.agent-path-row { display: flex; gap: 7px; }
-.agent-path-row .input { flex: 1; min-width: 0; }
-.agent-engine-meta { margin-top: 5px; color: var(--text-3); font-size: 10.5px; overflow-wrap: anywhere; }
-.agent-settings-note { margin: 10px 0 0; color: var(--text-3); font-size: 11px; line-height: 1.55; }
+/* ================= 论文 Agent: 默认收起的分区 ================= */
+.agents-heading {
+  padding: 0;
+}
+.agents-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.agents-toggle-title {
+  flex-shrink: 0;
+  transition: color var(--dur-fast) var(--ease);
+}
+.agents-toggle:hover .agents-toggle-title {
+  color: var(--text-2);
+}
+.agents-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+.agents-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-left: auto;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-2);
+  white-space: nowrap;
+  transition: opacity var(--dur) var(--ease);
+}
+.agents-summary-engine {
+  color: var(--text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agents-summary-sep {
+  color: var(--text-3);
+}
+.agents-section.open .agents-summary {
+  opacity: 0;
+  visibility: hidden;
+}
+.agents-chevron {
+  flex-shrink: 0;
+  margin-right: -2px;
+  color: var(--text-3);
+  transition: transform var(--dur) var(--ease), color var(--dur-fast) var(--ease);
+}
+.agents-toggle:hover .agents-chevron {
+  color: var(--text-2);
+}
+.agents-section.open .agents-chevron {
+  transform: rotate(180deg);
+}
+.agents-section.open .agents-summary + .agents-chevron {
+  margin-left: 0;
+}
+/* 展开动画: grid 行高 0fr → 1fr; 收起时 visibility:hidden 让内容离开 Tab 顺序与读屏 */
+.agents-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--dur-slow) var(--ease),
+    visibility 0s linear var(--dur-slow);
+}
+.agents-section.open .agents-body {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition:
+    grid-template-rows var(--dur-slow) var(--ease),
+    visibility 0s linear 0s;
+}
+.agents-body-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+.agents-intro {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.agents-intro .btn {
+  flex-shrink: 0;
+}
+
+/* 统一状态点: 可用 / 不可用 / 检测中 / 未检测 */
+.agent-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.is-ready .agent-dot { background: var(--success); }
+.is-unavailable .agent-dot { background: var(--warning); }
+.is-checking .agent-dot { background: var(--brand); }
+.is-unknown .agent-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-3);
+}
+
+/* 引擎卡片: 单选, 选中的卡片用品牌色描边 */
+.agent-engines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 0 4px;
+}
+.agent-engine {
+  padding: 4px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.agent-engine:hover {
+  border-color: var(--border-strong);
+}
+.agent-engine.selected {
+  border-color: color-mix(in srgb, var(--brand) 55%, var(--border));
+  background: color-mix(in srgb, var(--brand) 4%, var(--card));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+.agent-engine-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  cursor: pointer;
+}
+.agent-radio {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+.agent-radio:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: 50%;
+}
+.agent-engine-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.agent-current {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+.agent-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 2px 9px 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.agent-status.is-ready {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.agent-engine.selected .agent-status.is-unavailable {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.agent-path-row {
+  display: flex;
+  gap: 8px;
+}
+.agent-path-row .input {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-h-sm);
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+.agent-path-row .input::placeholder {
+  font-family: var(--font);
+}
+.agent-path-row .btn {
+  flex-shrink: 0;
+  height: var(--control-h-sm);
+}
+.agent-engine-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.agent-engine-meta code {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.agent-version {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.agent-reason {
+  flex-basis: 100%;
+}
+.agent-settings-note {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.agent-settings-note svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-3);
+}
 .proxy-input {
   width: 100%;
   margin-top: 8px;
@@ -2180,6 +2530,7 @@ h2:focus {
 @media (prefers-reduced-motion: reduce) {
   .spinning { animation: none; }
   .switch-track, .switch-track::after, .more-chevron { transition: none; }
+  .agents-body, .agents-section.open .agents-body, .agents-chevron, .agents-summary { transition: none; }
 }
 
 /* ================= 平板 / 窄窗口 ================= */
@@ -2331,15 +2682,16 @@ h2:focus {
   .proxy-grid .btn,
   .proxy-grid .input:first-child,
   .proxy-grid select,
-  .proxy-grid .port,
-  .agent-default-row .input {
+  .proxy-grid .port {
     flex: none;
     width: 100%;
   }
-  .agent-default-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
+  .agent-path-row .input,
+  .agent-path-row .btn {
+    height: 40px;
+  }
+  .agent-path-row .input {
+    font-size: 14px;
   }
 
   /* 关于: 按钮另起一行铺满, 不挤压应用名与简介 */
