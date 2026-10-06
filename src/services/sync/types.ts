@@ -62,7 +62,8 @@ export interface BooklistItemVal {
   addedAt: number
 }
 
-export type SourceVal = Omit<CatalogSourceRec, 'id' | 'builtin'>
+/** 自定义书源 (私人书库 / 自建 OPDS) 的可同步内容; updatedAt 不在值里, 它是寄存器 stamp.t 的来源 */
+export type SourceVal = Omit<CatalogSourceRec, 'id' | 'builtin' | 'updatedAt'>
 
 export interface SyncDoc {
   format: typeof SYNC_FORMAT
@@ -79,7 +80,11 @@ export interface SyncDoc {
   booklists: Record<string, Reg<BooklistVal>>
   /** 键: `${booklistId}|${bookHash}` */
   booklistItems: Record<string, Reg<BooklistItemVal>>
-  /** 键: 书源 url (仅自定义书源) */
+  /**
+   * 键: 书源地址的规范化形式 (merge.sourceKey: 去掉内嵌账号、#片段、末尾斜杠, 协议/主机小写);
+   * 旧客户端写的是原样 url, 合并时按 sourceKey 归一. 仅自定义书源, 含账号密码.
+   * stamp.t 为该书源最后一次被修改的时间 (CatalogSourceRec.updatedAt), 删除为同步时间.
+   */
   sources: Record<string, Reg<SourceVal>>
   /**
    * 每日阅读记录. G-Counter: 设备 → 日期 (该设备本地时区的 YYYY-MM-DD) → 书的 hash →
@@ -117,8 +122,15 @@ export interface LocalState {
   booklists: Record<string, BooklistVal>
   /** 键: `${booklistId}|${bookHash}` */
   booklistItems: Record<string, BooklistItemVal>
-  /** 键: url; 不含内置书源 */
+  /** 键: sourceKey(url); 不含内置书源; 同一键多条时取 addedAt 最早的一条 */
   sources: Record<string, SourceVal>
+  /** 键同 sources: 该书源的修改时间 (updatedAt ?? addedAt). 缺省时按同步时间打 stamp、首次同步远端优先 */
+  sourceTimes?: Record<string, number>
+  /**
+   * 本机内置书源的 sourceKey. 别的设备同步来的、与内置书源同地址的自定义书源不落地 (内置的已经有了),
+   * 也不因「本地没有」被当成删除.
+   */
+  builtinSourceKeys?: string[]
 }
 
 /** 上次同步后保存的基线 */
@@ -144,8 +156,9 @@ export type ApplyOp =
   | { op: 'deleteBooklist'; id: string }
   | { op: 'addBooklistItem'; booklistId: string; hash: string }
   | { op: 'removeBooklistItem'; booklistId: string; hash: string }
-  | { op: 'addSource'; value: SourceVal }
-  | { op: 'deleteSource'; url: string }
+  | { op: 'addSource'; key: string; value: SourceVal; updatedAt: number }
+  | { op: 'updateSource'; key: string; value: SourceVal; updatedAt: number }
+  | { op: 'deleteSource'; key: string }
 
 /**
  * 同步后端. WebDAV 与 (第二步的) 轻阅账号各实现一份.

@@ -36,6 +36,8 @@ import { toast } from '../services/toast'
 import { t } from '../i18n'
 import LibraryUploadDialog from '../components/LibraryUploadDialog.vue'
 import { libraryUploadTask } from '../services/libraryUploadTask'
+import { syncState } from '../services/sync'
+import { sourceKey } from '../services/sync/merge'
 
 const library = useLibrary()
 const settings = useSettings()
@@ -315,8 +317,9 @@ const searchQuery = ref('')
 const downloading = ref<Set<string>>(new Set())
 const appendLoading = ref(false)
 
-// 添加书源
+// 添加 / 编辑书源 (editingSource 非空为编辑)
 const showAdd = ref(false)
+const editingSource = ref<CatalogSourceRec | null>(null)
 const newTitle = ref('')
 const newUrl = ref('')
 const newUsername = ref('')
@@ -465,7 +468,34 @@ function onConnectionPaste(e: ClipboardEvent, wholeBlockOnly: boolean) {
   applyConnection(info)
 }
 
+function openAdd() {
+  if (editingSource.value) clearSourceForm()
+  editingSource.value = null
+  showAdd.value = true
+}
+
+function openEdit(s: CatalogSourceRec) {
+  editingSource.value = s
+  newTitle.value = s.title
+  newUrl.value = s.url
+  newUsername.value = s.username ?? ''
+  newPassword.value = s.password ?? ''
+  connText.value = ''
+  connStatus.value = null
+  showAdd.value = true
+}
+
+function clearSourceForm() {
+  newTitle.value = ''
+  newUrl.value = ''
+  newUsername.value = ''
+  newPassword.value = ''
+}
+
 function closeAdd() {
+  // 取消编辑时不把那条书源的内容留给下一次「添加」
+  if (editingSource.value) clearSourceForm()
+  editingSource.value = null
   showAdd.value = false
   connText.value = ''
   connStatus.value = null
@@ -482,6 +512,11 @@ async function refreshSources() {
   const storage = await getStorage()
   sources.value = await storage.listSources()
 }
+
+// 同步可能带来别的设备添加 / 修改 / 删除的书源 (私人书库): 每次同步结束后重读
+watch(() => syncState.running, running => {
+  if (!running) refreshSources()
+})
 
 onMounted(() => {
   refreshSources()
@@ -689,28 +724,50 @@ async function download(pub: OpdsPublication, acq: OpdsPublication['acquisitions
   }
 }
 
-async function addSource() {
+/**
+ * 保存添加 / 编辑的书源. 多端同步按规范化地址认书源 (sync/merge.sourceKey), 所以:
+ * 添加一个地址已存在的自定义书源时改写那一条 (更新名称与账号), 不重复添加;
+ * 编辑成另一条自定义书源的地址时拒绝. 每次保存记下修改时间 updatedAt, 多端同步按它决定谁的改动胜出.
+ */
+async function saveSource() {
   // 地址里内嵌的 user:pass@ 拆到账号字段 (浏览器 fetch 不接受带凭据的 URL)
   const split = splitUrlCredentials(newUrl.value)
   const url = split.url
   if (!url) return
   const storage = await getStorage()
-  await storage.addSource({
+  const now = Date.now()
+  const fields = {
     title: newTitle.value.trim() || url,
     url,
-    kind: isArxivUrl(url) ? 'arxiv' : 'opds',
-    builtin: false,
-    addedAt: Date.now(),
+    kind: isArxivUrl(url) ? 'arxiv' as const : 'opds' as const,
     username: newUsername.value.trim() || split.username || undefined,
     password: newPassword.value || split.password || undefined,
-  })
+  }
+  const key = sourceKey(url)
+  const editing = editingSource.value
+  const sameAddress = sources.value.find(s => !s.builtin && s.id !== editing?.id && sourceKey(s.url) === key)
+  if (editing && sameAddress) {
+    toast(t('catalog.sourceDuplicate', { title: sameAddress.title }), 'error', 5000)
+    return
+  }
+  const target = editing ?? sameAddress
+  if (!editing && sameAddress) {
+    // 重复添加同一书库: 没填的名称 / 账号沿用已有的, 只覆盖新填的
+    if (!newTitle.value.trim()) fields.title = sameAddress.title
+    fields.username ??= sameAddress.username
+    fields.password ??= sameAddress.password
+  }
+  if (target) {
+    await storage.updateSource(target.id, { ...fields, addedAt: target.addedAt, updatedAt: now })
+    forgetSearchTemplate(target.id)
+  } else {
+    await storage.addSource({ ...fields, builtin: false, addedAt: now, updatedAt: now })
+  }
+  editingSource.value = null
+  clearSourceForm()
   closeAdd()
-  newTitle.value = ''
-  newUrl.value = ''
-  newUsername.value = ''
-  newPassword.value = ''
   await refreshSources()
-  toast(t('catalog.sourceAdded'), 'success')
+  toast(t(target ? 'catalog.sourceUpdated' : 'catalog.sourceAdded'), 'success')
 }
 
 async function removeSource(s: CatalogSourceRec) {
@@ -731,7 +788,7 @@ async function removeSource(s: CatalogSourceRec) {
       <header class="toolbar">
         <h1>{{ t('catalog.title') }}</h1>
         <div class="spacer" />
-        <button class="btn btn-primary" @click="showAdd = true">
+        <button class="btn btn-primary" @click="openAdd">
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M11 13H5a1 1 0 1 1 0-2h6V5a1 1 0 1 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6z"/></svg>
           {{ t('catalog.add') }}
         </button>
@@ -931,7 +988,10 @@ async function removeSource(s: CatalogSourceRec) {
               <span v-if="s.builtin" class="tag">{{ t('catalog.builtin') }}</span>
               <template v-else>
                 <button v-if="s.kind === 'opds'" class="btn btn-sm" @click.stop="uploadTarget = s" @keydown.stop>{{ t('library.addBooks') }}</button>
-                <button class="btn btn-sm btn-danger" @click.stop="removeSource(s)" @keydown.stop>{{ t('common.delete') }}</button>
+                <span class="source-actions">
+                  <button class="btn btn-sm" :aria-label="t('catalog.editSourceNamed', { title: s.title })" @click.stop="openEdit(s)" @keydown.stop>{{ t('common.edit') }}</button>
+                  <button class="btn btn-sm btn-danger" @click.stop="removeSource(s)" @keydown.stop>{{ t('common.delete') }}</button>
+                </span>
               </template>
             </div>
           </div>
@@ -1128,7 +1188,7 @@ async function removeSource(s: CatalogSourceRec) {
     <!-- 添加书源弹窗 -->
     <div v-if="showAdd" class="modal-mask" @click.self="closeAdd" @keydown.esc="closeAdd">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="add-source-title">
-        <h3 id="add-source-title">{{ t('catalog.addModalTitle') }}</h3>
+        <h3 id="add-source-title">{{ editingSource ? t('catalog.editModalTitle') : t('catalog.addModalTitle') }}</h3>
         <div class="form-row">
           <label for="src-conn">{{ t('catalog.pasteConnection') }}</label>
           <textarea
@@ -1168,7 +1228,7 @@ async function removeSource(s: CatalogSourceRec) {
         </p>
         <div class="form-actions">
           <button class="btn" @click="closeAdd">{{ t('common.cancel') }}</button>
-          <button class="btn btn-primary" :disabled="!newUrl.trim()" @click="addSource">{{ t('common.add') }}</button>
+          <button class="btn btn-primary" :disabled="!newUrl.trim()" @click="saveSource">{{ editingSource ? t('common.save') : t('common.add') }}</button>
         </div>
       </div>
     </div>
@@ -1278,7 +1338,14 @@ async function removeSource(s: CatalogSourceRec) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   min-height: 24px;
+}
+.source-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
 }
 .crumbs {
   display: flex;

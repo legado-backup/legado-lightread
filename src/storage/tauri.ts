@@ -159,6 +159,7 @@ export class TauriStorage implements LibraryStorage {
       "ALTER TABLE sources ADD COLUMN kind TEXT NOT NULL DEFAULT 'opds'",
       'ALTER TABLE sources ADD COLUMN username TEXT',
       'ALTER TABLE sources ADD COLUMN password TEXT',
+      'ALTER TABLE sources ADD COLUMN updated_at INTEGER',
       "ALTER TABLE annotations ADD COLUMN kind TEXT NOT NULL DEFAULT 'highlight'",
       'ALTER TABLE books ADD COLUMN reading_seconds INTEGER NOT NULL DEFAULT 0',
       'ALTER TABLE books ADD COLUMN pinned_at INTEGER',
@@ -429,7 +430,7 @@ export class TauriStorage implements LibraryStorage {
   async listSources() {
     const rows = await this.db.select<Array<{
       id: string; title: string; url: string; kind: string; builtin: number
-      added_at: number; username: string | null; password: string | null
+      added_at: number; updated_at: number | null; username: string | null; password: string | null
     }>>('SELECT * FROM sources ORDER BY added_at')
     return rows.map(r => ({
       id: r.id,
@@ -438,6 +439,7 @@ export class TauriStorage implements LibraryStorage {
       kind: (r.kind || 'opds') as CatalogSourceRec['kind'],
       builtin: !!r.builtin,
       addedAt: r.added_at,
+      updatedAt: r.updated_at ?? undefined,
       username: r.username ?? undefined,
       password: r.password ?? undefined,
     }))
@@ -446,11 +448,18 @@ export class TauriStorage implements LibraryStorage {
   async addSource(s: Omit<CatalogSourceRec, 'id'>) {
     const id = newId()
     await this.db.execute(
-      `INSERT INTO sources (id, title, url, kind, builtin, added_at, username, password)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      `INSERT INTO sources (id, title, url, kind, builtin, added_at, username, password, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [id, s.title, s.url, s.kind, s.builtin ? 1 : 0, s.addedAt,
-        s.username ?? null, s.password ?? null])
+        s.username ?? null, s.password ?? null, s.updatedAt ?? null])
     return id
+  }
+
+  async updateSource(id: string, s: Omit<CatalogSourceRec, 'id' | 'builtin'>) {
+    await this.db.execute(
+      `UPDATE sources SET title = $1, url = $2, kind = $3, added_at = $4, username = $5, password = $6,
+       updated_at = $7 WHERE id = $8`,
+      [s.title, s.url, s.kind, s.addedAt, s.username || null, s.password || null, s.updatedAt ?? null, id])
   }
 
   async deleteSource(id: string) {

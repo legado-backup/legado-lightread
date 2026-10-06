@@ -6,7 +6,7 @@ import type { BookMeta, CatalogSourceRec, LibraryStorage, NewBookMeta } from '..
 import { baselineUsableFor, nextBaselineRemotes, type SyncStore } from './baseline.ts'
 import {
   annotationFrom, bookMetaFrom, buildLocalDoc, mergeDocs, mergeReadingLog, mergeSettingRegs, planApply, progressFrom,
-  sourceFrom,
+  sourceFrom, sourceKey,
 } from './merge.ts'
 import { buildSettingsRegs, planSettingsApply } from './settingsSync.ts'
 import {
@@ -53,10 +53,10 @@ interface LocalScan {
   idsByHash: Map<string, string[]>
   /** 书单 id (本地已有) */
   booklistIds: Set<string>
-  /** 自定义书源 url → 本地 id 列表 */
-  sourceIdsByUrl: Map<string, string[]>
-  /** 所有书源 url (含内置) */
-  allSourceUrls: Set<string>
+  /** 自定义书源 sourceKey → 本地 id 列表 (首个为规范的那条, 即 addedAt 最早) */
+  sourceIdsByKey: Map<string, string[]>
+  /** 所有书源的 sourceKey (含内置: 与内置书源同地址的自定义书源不会落地) */
+  allSourceKeys: Set<string>
 }
 
 async function scanLocal(
@@ -97,7 +97,9 @@ async function scanLocal(
     list.push(b)
     byHash.set(h, list)
   }
-  const state: LocalState = { books: {}, annotations: {}, booklists: {}, booklistItems: {}, sources: {} }
+  const state: LocalState = {
+    books: {}, annotations: {}, booklists: {}, booklistItems: {}, sources: {}, sourceTimes: {},
+  }
   const idsByHash = new Map<string, string[]>()
   for (const [hash, list] of byHash) {
     list.sort((a, b) => a.addedAt - b.addedAt || a.id.localeCompare(b.id))
@@ -133,16 +135,33 @@ async function scanLocal(
     }
   }
 
-  const sourceIdsByUrl = new Map<string, string[]>()
-  const allSourceUrls = new Set<string>()
-  for (const s of await storage.listSources()) {
-    allSourceUrls.add(s.url)
-    if (s.builtin) continue
-    state.sources[s.url] ??= sourceFrom(s)
-    sourceIdsByUrl.set(s.url, [...(sourceIdsByUrl.get(s.url) ?? []), s.id])
+  // 自定义书源 (私人书库等) 按规范化地址归并; 同一地址多条时取 addedAt 最早的一条为规范, 内置书源不同步
+  const sourceIdsByKey = new Map<string, string[]>()
+  const allSourceKeys = new Set<string>()
+  const builtinSourceKeys = new Set<string>()
+  const customSources = (await storage.listSources())
+    .filter(s => {
+      allSourceKeys.add(sourceKey(s.url))
+      if (s.builtin) builtinSourceKeys.add(sourceKey(s.url))
+      return !s.builtin
+    })
+    .sort((a, b) => a.addedAt - b.addedAt || a.id.localeCompare(b.id))
+  state.builtinSourceKeys = [...builtinSourceKeys].sort()
+  for (const s of customSources) {
+    const key = sourceKey(s.url)
+    if (!key) continue
+    const ids = sourceIdsByKey.get(key)
+    if (ids) {
+      ids.push(s.id)
+      continue
+    }
+    sourceIdsByKey.set(key, [s.id])
+    state.sources[key] = sourceFrom(s)
+    const t = s.updatedAt ?? s.addedAt
+    if (Number.isFinite(t)) state.sourceTimes![key] = t
   }
 
-  return { state, idsByHash, booklistIds, sourceIdsByUrl, allSourceUrls }
+  return { state, idsByHash, booklistIds, sourceIdsByKey, allSourceKeys }
 }
 
 function newBookMeta(meta: BookMetaVal, progress: ProgressVal, readingSeconds: number): NewBookMeta {
@@ -332,19 +351,26 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
         return true
       }
       case 'addSource': {
-        if (scan.allSourceUrls.has(op.value.url)) return false
-        const rec: Omit<CatalogSourceRec, 'id'> = { ...op.value, builtin: false }
+        if (!op.key || scan.allSourceKeys.has(op.key)) return false
+        const rec: Omit<CatalogSourceRec, 'id'> = { ...op.value, builtin: false, updatedAt: op.updatedAt }
         const id = await storage.addSource(rec)
-        scan.allSourceUrls.add(op.value.url)
-        scan.sourceIdsByUrl.set(op.value.url, [id])
+        scan.allSourceKeys.add(op.key)
+        scan.sourceIdsByKey.set(op.key, [id])
+        return true
+      }
+      case 'updateSource': {
+        // 只改规范的那条, 本地 id 不变 (搜索范围、上传目标等按 id 记的状态保留)
+        const id = scan.sourceIdsByKey.get(op.key)?.[0]
+        if (!id) return false
+        await storage.updateSource(id, { ...op.value, updatedAt: op.updatedAt })
         return true
       }
       case 'deleteSource': {
-        const ids = scan.sourceIdsByUrl.get(op.url)
+        const ids = scan.sourceIdsByKey.get(op.key)
         if (!ids?.length) return false
         for (const id of ids) await storage.deleteSource(id)
-        scan.sourceIdsByUrl.delete(op.url)
-        scan.allSourceUrls.delete(op.url)
+        scan.sourceIdsByKey.delete(op.key)
+        scan.allSourceKeys.delete(op.key)
         return true
       }
     }

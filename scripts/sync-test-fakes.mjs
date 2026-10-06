@@ -102,6 +102,13 @@ export function createFakeStorage() {
       sources.set(sid, { ...clone(src), id: sid })
       return sid
     },
+    async updateSource(sid, src) {
+      const cur = sources.get(sid)
+      if (!cur) return
+      const next = { id: sid, builtin: cur.builtin, ...clone(src) }
+      for (const k of ['username', 'password', 'updatedAt']) if (next[k] === undefined || next[k] === '') delete next[k]
+      sources.set(sid, next)
+    },
     async deleteSource(sid) { sources.delete(sid) },
   }
   return s

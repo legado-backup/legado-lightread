@@ -210,6 +210,66 @@ test('基线属于别的远端时作废: 不产生删除, 只做并集', async (
   assert.equal(dav.readJson('devices/dev-A2.json').books[hash].alive.value, false)
 })
 
+test('私人书库: 两台设备各自添加同一书库只留一条; 编辑按修改时间胜出且本地 id 不变; 删除不复活; 内置书源不同步', async () => {
+  const dav = createFakeDav()
+  const A = await device('A')
+  const B = await device('B')
+  const custom = async dev => (await dev.storage.listSources()).filter(s => !s.builtin)
+  const LIB = 'https://lib.example.com/opds'
+
+  // B 先添加 (地址多一个斜杠、主机名大写), A 后添加 (带账号密码) → A 的修改更晚, 合并后两边都是 A 的版本
+  await B.storage.addSource({ title: '书库 B', url: 'https://LIB.example.com/opds/', kind: 'opds', builtin: false, addedAt: clock, updatedAt: clock })
+  tick()
+  await A.storage.addSource({ title: '我的私人书库', url: LIB, kind: 'opds', builtin: false, addedAt: clock, updatedAt: clock, username: 'me', password: 'pw' })
+  tick(); await sync(A, dav)
+  const docA = dav.readJson('devices/dev-A.json')
+  assert.deepEqual(Object.keys(docA.sources), [LIB], '键是规范化地址; 内置书源不进文档')
+  assert.equal(docA.sources[LIB].value.password, 'pw', '账号密码随记录同步')
+  assert.equal(docA.sources[LIB].stamp.t, clock - 1000, 'stamp.t 是修改时间')
+  const [bBefore] = await custom(B)
+  tick(); await sync(B, dav)
+  tick(); await sync(A, dav)
+  const [srcA] = await custom(A)
+  const [srcB] = await custom(B)
+  assert.equal((await custom(B)).length, 1, '不重复')
+  assert.equal(srcB.id, bBefore.id, '原地改写, 本地 id 不变')
+  for (const s of [srcA, srcB]) {
+    assert.deepEqual([s.title, s.url, s.username, s.password], ['我的私人书库', LIB, 'me', 'pw'])
+  }
+  assert.equal(srcB.updatedAt, docA.sources[LIB].stamp.t, '落地时记下胜出方的修改时间')
+
+  // B 改密码 → A 收到, A 的本地 id 不变
+  tick()
+  await B.storage.updateSource(srcB.id, { ...srcB, password: 'pw2', updatedAt: clock })
+  tick(); await sync(B, dav)
+  tick(); const rA = await sync(A, dav)
+  assert.equal(rA.applied, 1)
+  const [srcA2] = await custom(A)
+  assert.equal(srcA2.id, srcA.id)
+  assert.equal(srcA2.password, 'pw2')
+
+  // A 删除 → B 删除; 再同步不复活
+  await A.storage.deleteSource(srcA.id)
+  tick(); await sync(A, dav)
+  tick(); await sync(B, dav)
+  assert.deepEqual(await custom(B), [])
+  tick(); assert.equal((await sync(B, dav)).applied, 0)
+  tick(); assert.equal((await sync(A, dav)).applied, 0)
+  assert.deepEqual(await custom(A), [])
+  assert.equal((await A.storage.listSources()).filter(s => s.builtin).length, 1, '内置书源不受影响')
+  assert.equal(dav.readJson('devices/dev-B.json').sources[LIB].value, null)
+
+  // 与内置书源同地址的自定义书源: 在 A 上保留, B 不落地也不删
+  await A.storage.addSource({ title: 'Gutenberg 副本', url: 'https://www.gutenberg.org/ebooks.opds', kind: 'opds', builtin: false, addedAt: clock, updatedAt: clock })
+  tick(); await sync(A, dav)
+  tick(); await sync(B, dav)
+  tick(); await sync(B, dav)
+  tick(); await sync(A, dav)
+  assert.equal((await custom(A)).length, 1)
+  assert.equal((await custom(B)).length, 0)
+  assert.equal((await B.storage.listSources()).length, 1)
+})
+
 test('同内容多本只取 addedAt 最早的一本; hash 有缓存只算一次', async () => {
   const dav = createFakeDav()
   const A = await device('A')

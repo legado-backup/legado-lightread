@@ -107,4 +107,5 @@ ping_daily (day TEXT, platform TEXT, version TEXT, actives INTEGER, readers INTE
 - 同步时依次对「账号」和「WebDAV」各跑一次同步（两者都配置时），两边都是同一套 CRDT 文档，可同时使用。**基线全设备共用一份**（记录同步过的远端列表）：分远端存基线会把从 A 远端收到的改动当成本地新编辑推到 B 远端，导致阅读时长重复累计、较新的编辑被旧值覆盖；只有换到同类的另一个远端（另一个账号 / 另一个 WebDAV 地址）才按首次同步处理，见 `src/services/sync/baseline.ts`
 - 登录成功后自动打开「自动同步」
 - 设置随同步：文档里的可选字段 `settings`（见 `docs/sync.md`「设置同步」）。服务端不解析、原样存储；登录后先同步账号，账号带来的 WebDAV 配置在同一次同步里就能用上。开启「同步密码与密钥」时 WebDAV 密码、AI API Key 也在文档里，以明文存在 R2（只有本账号的 Bearer token 能读）
+- 私人书库 / 自定义书源随同步：文档的 `sources` 字段（见 `docs/sync.md`「私人书库（自定义书源）」），**始终**包含 OPDS 账号密码（不受「同步密码与密钥」开关控制），同样以明文存在 R2、只有本账号能读。服务端只校验 `sources` 是对象，不解析内容，键的规范化与修改时间都在客户端，后端与 D1 无需改动
 - API 地址默认 `https://sync.jiangshu.ai`，可用构建变量 `VITE_SYNC_API` 或 localStorage `lightread-sync-api` 覆盖（仅用于本地测试）
