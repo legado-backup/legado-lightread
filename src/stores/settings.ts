@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { watch } from 'vue'
 import { startSettingsTracking } from '../services/sync/settingsTracker.ts'
+import { isTauri } from '../storage/types.ts'
 
 export interface ReaderPrefs {
   fontSize: number
@@ -342,10 +343,26 @@ function mergeReadingMode(saved: unknown): ReadingModePrefs {
   }
 }
 
+/**
+ * 安装版首次启动按系统语言选界面语言 (中文系统中文, 其余英文); 已有设置的用户不变。
+ * macOS/iOS 的 WKWebView 在应用未声明本地化时 navigator.language 常报英文, 不可靠, 仍默认中文;
+ * 网页版保持中文默认。
+ */
+export function systemLanguage(language = globalThis.navigator?.language ?? '', userAgent = globalThis.navigator?.userAgent ?? ''): 'zh' | 'en' | undefined {
+  if (!language || /Mac OS X|Macintosh|iPhone|iPad/.test(userAgent)) return undefined
+  return /^zh\b/i.test(language) ? 'zh' : 'en'
+}
+
+function firstRunDefaults(): SettingsState {
+  const fresh = structuredClone(defaults)
+  if (isTauri()) fresh.language = systemLanguage() ?? fresh.language
+  return fresh
+}
+
 function load(): SettingsState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return structuredClone(defaults)
+    if (!raw) return firstRunDefaults()
     const saved = JSON.parse(raw)
     const savedAgentExecutables = saved.paperAgentExecutables != null
       && typeof saved.paperAgentExecutables === 'object'

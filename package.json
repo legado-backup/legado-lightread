@@ -29,7 +29,7 @@
     "e2e:epub-compat": "node scripts/e2e-epub-compat.mjs",
     "e2e:book-sources": "node scripts/e2e-book-sources.mjs",
     "test:epub-compat": "node --experimental-strip-types --test scripts/test-epub-compat.mjs",
-    "test:compat": "node --experimental-strip-types --test scripts/test-compat.mjs scripts/test-epub-compat.mjs",
+    "test:compat": "node --experimental-strip-types --test scripts/test-compat.mjs scripts/test-epub-compat.mjs scripts/test-system-language.mjs",
     "test:updater": "node --experimental-strip-types --test scripts/test-updater.mjs",
     "check:release": "node scripts/check-release.mjs",
     "test:listen-eta": "node --experimental-strip-types --test scripts/test-listen-eta.mjs",
