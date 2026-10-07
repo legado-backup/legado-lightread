@@ -2,7 +2,7 @@
  * 多端同步协议类型. 规则见 docs/sync.md.
  * 本文件是 merge (纯函数) / engine (编排) / remote (后端) 三者之间的契约.
  */
-import type { AnnotationRec, BookMeta, CatalogSourceRec, LocalFileRef } from '../../storage/types'
+import type { AnnotationRec, BooklistWantedRec, BookMeta, CatalogSourceRec, LocalFileRef } from '../../storage/types'
 
 export const SYNC_FORMAT = 1
 
@@ -62,6 +62,9 @@ export interface BooklistItemVal {
   addedAt: number
 }
 
+/** 书单的待找条目 (还不在藏书里的书), 见 docs/booklists.md */
+export type BooklistWantedVal = Omit<BooklistWantedRec, 'id'>
+
 /** 自定义书源 (私人书库 / 自建 OPDS) 的可同步内容; updatedAt 不在值里, 它是寄存器 stamp.t 的来源 */
 export type SourceVal = Omit<CatalogSourceRec, 'id' | 'builtin' | 'updatedAt'>
 
@@ -80,6 +83,8 @@ export interface SyncDoc {
   booklists: Record<string, Reg<BooklistVal>>
   /** 键: `${booklistId}|${bookHash}` */
   booklistItems: Record<string, Reg<BooklistItemVal>>
+  /** 键: 待找条目 id. 可选: 旧客户端写的文档没有此字段 */
+  booklistWanted?: Record<string, Reg<BooklistWantedVal>>
   /**
    * 键: 书源地址的规范化形式 (merge.sourceKey: 去掉内嵌账号、#片段、末尾斜杠, 协议/主机小写);
    * 旧客户端写的是原样 url, 合并时按 sourceKey 归一. 仅自定义书源, 含账号密码.
@@ -122,6 +127,8 @@ export interface LocalState {
   booklists: Record<string, BooklistVal>
   /** 键: `${booklistId}|${bookHash}` */
   booklistItems: Record<string, BooklistItemVal>
+  /** 键: 待找条目 id; 只含所属书单在 booklists 里的条目. 缺省视为空 */
+  booklistWanted?: Record<string, BooklistWantedVal>
   /** 键: sourceKey(url); 不含内置书源; 同一键多条时取 addedAt 最早的一条 */
   sources: Record<string, SourceVal>
   /** 键同 sources: 该书源的修改时间 (updatedAt ?? addedAt). 缺省时按同步时间打 stamp、首次同步远端优先 */
@@ -156,6 +163,8 @@ export type ApplyOp =
   | { op: 'deleteBooklist'; id: string }
   | { op: 'addBooklistItem'; booklistId: string; hash: string }
   | { op: 'removeBooklistItem'; booklistId: string; hash: string }
+  | { op: 'putWanted'; id: string; value: BooklistWantedVal }
+  | { op: 'deleteWanted'; id: string }
   | { op: 'addSource'; key: string; value: SourceVal; updatedAt: number }
   | { op: 'updateSource'; key: string; value: SourceVal; updatedAt: number }
   | { op: 'deleteSource'; key: string }

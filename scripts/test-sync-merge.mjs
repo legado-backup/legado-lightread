@@ -12,11 +12,12 @@ import {
   rekeySources,
   sourceFrom,
   sourceKey,
+  wantedFrom,
 } from '../src/services/sync/merge.ts'
 
 // ---- 模拟设备 ----
 
-const emptyLocal = () => ({ books: {}, annotations: {}, booklists: {}, booklistItems: {}, sources: {} })
+const emptyLocal = () => ({ books: {}, annotations: {}, booklists: {}, booklistItems: {}, booklistWanted: {}, sources: {} })
 
 const meta = (title, extra = {}) => ({
   title, author: 'A', format: 'epub', fileName: `${title}.epub`, tags: [], addedAt: 1, kind: 'book', pinnedAt: 0,
@@ -30,6 +31,8 @@ const book = (title, extra = {}) => ({
   readingSeconds: extra.readingSeconds ?? 0,
   hasCover: false,
 })
+
+const wanted = (booklistId, title, extra = {}) => ({ booklistId, title, author: 'W', addedAt: 1, ...extra })
 
 const anno = (bookHash, extra = {}) => ({
   bookHash, kind: 'highlight', cfi: 'epubcfi(/6/4)', text: 'hello', color: 'yellow', createdAt: 1, ...extra,
@@ -103,6 +106,15 @@ function apply(dev, ops) {
       case 'deleteBooklist':
         delete L.booklists[o.id]
         for (const [k, it] of Object.entries(L.booklistItems)) if (it.booklistId === o.id) delete L.booklistItems[k]
+        for (const [k, w] of Object.entries(L.booklistWanted)) if (w.booklistId === o.id) delete L.booklistWanted[k]
+        break
+      case 'putWanted':
+        assert.ok(L.booklists[o.value.booklistId], 'putWanted into a missing booklist')
+        L.booklistWanted[o.id] = structuredClone(o.value)
+        break
+      case 'deleteWanted':
+        assert.ok(L.booklistWanted[o.id], 'deleteWanted on missing entry')
+        delete L.booklistWanted[o.id]
         break
       case 'addBooklistItem':
         if (L.books[o.hash] && L.booklists[o.booklistId]) {
@@ -1000,7 +1012,7 @@ test('randomized multi-device sessions converge to identical local libraries', (
       d.canDownload = () => rand() < 0.7 // 文件时有时无: 产生仅元数据的书
       if (rand() < 0.05) { d.base = null; d.present = new Set() } // 基线丢失
       const lk = pick([LIB, 'https://lib2.example.com/opds'])
-      switch (Math.floor(rand() * 10)) {
+      switch (Math.floor(rand() * 12)) {
         case 0: if (!L.books[hash]) L.books[hash] = book(hash); break
         case 1: if (L.books[hash]) apply(d, [{ op: 'deleteBook', hash }]); break
         case 2: if (L.books[hash]) patchBook(L.books[hash], { tags: [pick(['x', 'y'])] }); break
@@ -1011,6 +1023,14 @@ test('randomized multi-device sessions converge to identical local libraries', (
         case 7: apply(d, [{ op: 'deleteBooklist', id: 'l1' }]); break
         case 8: putSource(d, lib({ url: pick([lk, `${lk}/`]), password: pick(['p', 'q']) }), now - Math.floor(rand() * 30)); break
         case 9: delete L.sources[lk]; delete L.sourceTimes[lk]; break
+        case 10: if (L.booklists.l1) L.booklistWanted[`w-${hash}`] = wanted('l1', hash, { note: pick(['n', 'm']) }); break
+        case 11:
+          // 待找条目被自动关联: 删掉条目、书单里加上这本书
+          if (L.booklistWanted[`w-${hash}`]) {
+            delete L.booklistWanted[`w-${hash}`]
+            if (L.books[hash] && L.booklists.l1) L.booklistItems[`l1|${hash}`] = { booklistId: 'l1', bookHash: hash, addedAt: 1 }
+          }
+          break
       }
       now += 10
       if (rand() < 0.5) sync(d, remote, now)
@@ -1021,4 +1041,116 @@ test('randomized multi-device sessions converge to identical local libraries', (
     for (const d of devs.slice(1)) assert.deepEqual(view(d.local), view(devs[0].local), `round ${round} device ${d.id}`)
     for (const d of devs) assert.deepEqual(sync(d, remote, (now += 10)), [], `round ${round} steady ${d.id}`)
   }
+})
+
+// ---- 书单的待找条目 (booklistWanted) ----
+
+test('wantedFrom drops empty optional fields', () => {
+  assert.deepEqual(
+    wantedFrom({ id: 'w', booklistId: 'l', title: 'T', author: 'A', addedAt: 3, note: '', isbn: undefined, year: 1859, originalTitle: 'O' }),
+    { booklistId: 'l', title: 'T', author: 'A', addedAt: 3, year: 1859, originalTitle: 'O' },
+  )
+})
+
+test('wanted entries propagate, edits are LWW, deletes become tombstones', () => {
+  const remote = new Map()
+  const A = new Device('A')
+  const B = new Device('B')
+  A.local.booklists.l1 = { name: 'L', createdAt: 1 }
+  A.local.booklistWanted.w1 = wanted('l1', 'Walden')
+  A.local.booklistWanted.w2 = wanted('l1', 'Moby-Dick')
+  sync(A, remote, 100)
+  assert.deepEqual(sync(B, remote, 200), [
+    { op: 'addBooklist', id: 'l1', value: { name: 'L', createdAt: 1 } },
+    { op: 'putWanted', id: 'w1', value: wanted('l1', 'Walden') },
+    { op: 'putWanted', id: 'w2', value: wanted('l1', 'Moby-Dick') },
+  ])
+  B.local.booklistWanted.w1.note = 'read in winter'
+  sync(B, remote, 300)
+  assert.deepEqual(sync(A, remote, 400), [{ op: 'putWanted', id: 'w1', value: wanted('l1', 'Walden', { note: 'read in winter' }) }])
+  delete A.local.booklistWanted.w2
+  sync(A, remote, 500)
+  assert.equal(remote.get('A').booklistWanted.w2.value, null)
+  assert.deepEqual(sync(B, remote, 600), [{ op: 'deleteWanted', id: 'w2' }])
+  assert.deepEqual(Object.keys(B.local.booklistWanted), ['w1'])
+  assert.deepEqual(sync(A, remote, 700), [])
+  assert.deepEqual(sync(B, remote, 800), [])
+})
+
+test('auto-link on one device: the entry becomes a booklist item on the other once it has the book', () => {
+  const remote = new Map()
+  const A = new Device('A')
+  const B = new Device('B')
+  A.local.booklists.l1 = { name: 'L', createdAt: 1 }
+  A.local.booklistWanted.w1 = wanted('l1', 'one')
+  sync(A, remote, 100)
+  B.canDownload = () => false
+  sync(B, remote, 200)
+  // A 导入了这本书, refresh 时自动关联: 删待找条目, 书单里加上书
+  A.local.books.h1 = book('one')
+  delete A.local.booklistWanted.w1
+  A.local.booklistItems['l1|h1'] = { booklistId: 'l1', bookHash: 'h1', addedAt: 1 }
+  sync(A, remote, 300)
+  // B 还没有书的文件: 条目先删掉, 书单条目等书落地
+  const ops = sync(B, remote, 400)
+  assert.ok(ops.some(o => o.op === 'deleteWanted' && o.id === 'w1'))
+  assert.deepEqual(B.local.booklistWanted, {})
+  assert.deepEqual(B.local.booklistItems, {})
+  B.canDownload = () => true
+  sync(B, remote, 500)
+  assert.deepEqual(B.local.booklistItems, { 'l1|h1': { booklistId: 'l1', bookHash: 'h1', addedAt: 1 } })
+})
+
+test('deleting a booklist cascades its wanted entries without separate tombstones', () => {
+  const remote = new Map()
+  const A = new Device('A')
+  const B = new Device('B')
+  A.local.booklists.l1 = { name: 'L', createdAt: 1 }
+  A.local.booklistWanted.w1 = wanted('l1', 'Walden')
+  sync(A, remote, 100)
+  sync(B, remote, 200)
+  apply(A, [{ op: 'deleteBooklist', id: 'l1' }])
+  sync(A, remote, 300)
+  assert.equal(remote.get('A').booklists.l1.value, null)
+  assert.notEqual(remote.get('A').booklistWanted.w1.value, null)
+  assert.deepEqual(sync(B, remote, 400), [{ op: 'deleteBooklist', id: 'l1' }])
+  assert.deepEqual(B.local.booklistWanted, {})
+})
+
+test('a booklist brought back by a newer rename keeps its wanted entries', () => {
+  const remote = new Map()
+  const A = new Device('A')
+  const B = new Device('B')
+  A.local.booklists.l1 = { name: 'L', createdAt: 1 }
+  A.local.booklistWanted.w1 = wanted('l1', 'Walden')
+  sync(A, remote, 100)
+  sync(B, remote, 200)
+  apply(B, [{ op: 'deleteBooklist', id: 'l1' }])
+  sync(B, remote, 300)
+  // A 并发改名 (stamp 更新): 书单连同待找条目回来
+  A.local.booklists.l1.name = 'Kept'
+  assert.deepEqual(sync(A, remote, 400), [])
+  assert.deepEqual(sync(B, remote, 500), [
+    { op: 'addBooklist', id: 'l1', value: { name: 'Kept', createdAt: 1 } },
+    { op: 'putWanted', id: 'w1', value: wanted('l1', 'Walden') },
+  ])
+})
+
+test('documents from older clients (no booklistWanted field) do not drop wanted entries', () => {
+  const remote = new Map()
+  const A = new Device('A')
+  A.local.booklists.l1 = { name: 'L', createdAt: 1 }
+  A.local.booklistWanted.w1 = wanted('l1', 'Walden')
+  sync(A, remote, 100)
+  // 旧客户端: 只认识旧集合, 写回自己的文档时没有 booklistWanted
+  const { booklistWanted: _drop, ...old } = mergeDocs([...remote.values()], { deviceId: 'OLD', now: 200 })
+  remote.set('OLD', old)
+  const B = new Device('B')
+  sync(B, remote, 300)
+  assert.deepEqual(B.local.booklistWanted, { w1: wanted('l1', 'Walden') })
+  assert.deepEqual(sync(A, remote, 400), [])
+  const merged = mergeDocs([...remote.values()], { deviceId: 'X', now: 500 })
+  assert.deepEqual(Object.keys(merged.booklistWanted), ['w1'])
+  // 没有任何待找条目时文档里不写这个字段
+  assert.equal(mergeDocs([old], { deviceId: 'X', now: 1 }).booklistWanted, undefined)
 })

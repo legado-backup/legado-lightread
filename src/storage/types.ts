@@ -75,6 +75,26 @@ export interface BooklistItemRec {
 }
 
 /**
+ * 书单里还不在藏书中的书 (「待找」). 匹配到藏书后由 library.refresh 自动转成书单条目并删除本条.
+ * 设计见 docs/booklists.md.
+ */
+export interface BooklistWantedRec {
+  /** 全局 UUID, 多端同步时沿用 */
+  id: string
+  booklistId: string
+  title: string
+  author: string
+  isbn?: string
+  /** 首次出版年, 负数为公元前 */
+  year?: number
+  note?: string
+  /** 外文原名 / 原作者 (如「理想国」↔ The Republic / Plato), 参与匹配与「搜原名」 */
+  originalTitle?: string
+  originalAuthor?: string
+  addedAt: number
+}
+
+/**
  * 书库里的本地文件 (桌面 / 安卓): 同步上传时由原生层直接从磁盘读取, 书的内容不经过 WebView.
  * root 为自定义书库根目录 (空 = 应用数据目录), rel 为 `books/<文件名>` 或 `covers/<文件名>`.
  */
@@ -116,6 +136,11 @@ export interface LibraryStorage {
   /** opts.addedAt: 同步时沿用其他设备的加入时间 (多本时依次 +1ms) */
   addBooksToBooklist(booklistId: string, bookIds: string[], opts?: { addedAt?: number }): Promise<void>
   removeBooksFromBooklist(booklistId: string, bookIds: string[]): Promise<void>
+  /** 所有书单的待找条目, 按加入时间升序 */
+  listBooklistWanted(): Promise<BooklistWantedRec[]>
+  /** 新增或整体改写 (同 id 覆盖); 所属书单的 updatedAt 一并更新 */
+  putBooklistWanted(recs: BooklistWantedRec[]): Promise<void>
+  deleteBooklistWanted(ids: string[]): Promise<void>
 
   listAnnotations(bookId: string): Promise<AnnotationRec[]>
   /** a.id: 同步时沿用其他设备的标注 id (已存在则覆盖) */

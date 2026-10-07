@@ -8,7 +8,9 @@ import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 import { parseDocument, stringify } from 'yaml'
 import {
   getStorage,
+  newId,
   type AnnotationRec,
+  type BooklistWantedRec,
   type BookFormat,
   type BookMeta,
   type CatalogSourceRec,
@@ -20,6 +22,9 @@ const LEGACY_JSON_FORMAT = 'org.lightread.library'
 const READING_LOG_PATH = 'reading-log.json'
 const READING_LOG_FORMAT = 'org.lightread.reading-log'
 const LEGACY_JSON_VERSION = 2
+/** 书单 (含待找条目), 放在包根目录; 旧包没有此文件. 见 docs/booklists.md */
+const BOOKLISTS_PATH = 'booklists.json'
+const BOOKLISTS_FORMAT = 'org.lightread.booklists'
 export const LIBRARY_ARCHIVE_EXTENSION = '.okf.zip'
 export const OKF_VERSION = '0.1'
 export const LIBRARY_OKF_PROFILE =
@@ -758,6 +763,25 @@ export async function exportBackup(onProgress?: (msg: string) => void): Promise<
     // 阅读记录是附加数据, 读不出不影响藏书包
     console.warn('[backup] reading log export failed', err)
   }
+  try {
+    const lists = await storage.listBooklists()
+    if (lists.length) {
+      const wanted = await storage.listBooklistWanted()
+      const exported = []
+      for (const list of lists) {
+        exported.push({
+          id: list.id,
+          name: list.name,
+          createdAt: list.createdAt,
+          items: await storage.listBooklistItems(list.id),
+          wanted: wanted.filter(entry => entry.booklistId === list.id),
+        })
+      }
+      entries[BOOKLISTS_PATH] = strToU8(JSON.stringify({ format: BOOKLISTS_FORMAT, version: 1, lists: exported }))
+    }
+  } catch (err) {
+    console.warn('[backup] booklists export failed', err)
+  }
   // 书籍文件通常已压缩，容器使用 store 模式，优先速度并避免无意义的重复压缩。
   const zipped = zipSync(entries, { level: 0 })
   return new Blob([zipped.buffer as ArrayBuffer], {
@@ -850,6 +874,15 @@ export async function importBackup(
     sourceCount++
   }
 
+  const listBytes = entries[BOOKLISTS_PATH]
+  if (listBytes) {
+    try {
+      await importBooklists(listBytes, idMap)
+    } catch (err) {
+      console.warn('[backup] booklists import failed', err)
+    }
+  }
+
   const logBytes = entries[READING_LOG_PATH]
   if (logBytes) {
     try {
@@ -883,4 +916,63 @@ async function importReadingLog(bytes: Uint8Array, idMap: Map<string, string>): 
     byKey.set(row.key, prev ? { ...prev, seconds: prev.seconds + row.seconds } : row)
   }
   return importReadingLogRows([...byKey.values()])
+}
+
+/**
+ * 导入书单: 同 id 的书单已存在则并入, 否则同名书单并入, 否则按原 id 新建; 条目的书 id 换成恢复后的新 id
+ * (包里没有的书跳过); 待找条目按 id 去重, 重复导入幂等.
+ */
+async function importBooklists(bytes: Uint8Array, idMap: Map<string, string>): Promise<number> {
+  const parsed: unknown = JSON.parse(strFromU8(bytes))
+  if (!isRecord(parsed) || parsed.format !== BOOKLISTS_FORMAT || !Array.isArray(parsed.lists)) return 0
+  const storage = await getStorage()
+  const existing = await storage.listBooklists()
+  const wantedIds = new Set((await storage.listBooklistWanted()).map(entry => entry.id))
+  let count = 0
+  for (const raw of parsed.lists) {
+    if (!isRecord(raw)) continue
+    const name = optionalString(raw.name)?.trim()
+    const sourceId = optionalString(raw.id)
+    if (!name) continue
+    const target = existing.find(list => list.id === sourceId)
+      ?? existing.find(list => list.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())
+    let listId = target?.id
+    if (!listId) {
+      listId = await storage.createBooklist(name, {
+        id: sourceId,
+        createdAt: optionalNumber(raw.createdAt),
+      })
+      existing.push({ id: listId, name, createdAt: optionalNumber(raw.createdAt) ?? Date.now(), updatedAt: Date.now() })
+      count++
+    }
+    const items = Array.isArray(raw.items) ? raw.items.filter(isRecord) : []
+    for (const item of items) {
+      const bookId = idMap.get(String(item.bookId ?? ''))
+      if (bookId) await storage.addBooksToBooklist(listId, [bookId], { addedAt: optionalNumber(item.addedAt) })
+    }
+    const wanted: BooklistWantedRec[] = []
+    for (const entry of Array.isArray(raw.wanted) ? raw.wanted.filter(isRecord) : []) {
+      const title = optionalString(entry.title)?.trim()
+      if (!title) continue
+      const id = optionalString(entry.id) ?? newId()
+      if (wantedIds.has(id)) continue
+      wantedIds.add(id)
+      const rec: BooklistWantedRec = {
+        id,
+        booklistId: listId,
+        title,
+        author: optionalString(entry.author) ?? '',
+        addedAt: optionalNumber(entry.addedAt) ?? Date.now(),
+      }
+      const year = optionalNumber(entry.year)
+      if (year !== undefined && Number.isInteger(year)) rec.year = year
+      for (const key of ['isbn', 'note', 'originalTitle', 'originalAuthor'] as const) {
+        const value = optionalString(entry[key])
+        if (value) rec[key] = value
+      }
+      wanted.push(rec)
+    }
+    await storage.putBooklistWanted(wanted)
+  }
+  return count
 }

@@ -11,6 +11,9 @@ import { readerPath } from '../services/readerRoute'
 import { loadDaily, localDay, onReadingLogChange } from '../services/readingLog'
 import BookCard from '../components/BookCard.vue'
 import LibraryUploadDialog from '../components/LibraryUploadDialog.vue'
+import BooklistWantedPanel from '../components/BooklistWantedPanel.vue'
+import BooklistShareDialog from '../components/BooklistShareDialog.vue'
+import BooklistImportDialog from '../components/BooklistImportDialog.vue'
 import type { BookMeta } from '../storage'
 import { t } from '../i18n'
 import { useSettings } from '../stores/settings'
@@ -116,6 +119,20 @@ const booklistDraft = ref('')
 const pickerBookIds = ref<string[]>([])
 const pickerDraft = ref('')
 const booklistRenames = ref<Record<string, string>>({})
+const showBooklistShare = ref(false)
+const showBooklistImport = ref(false)
+/** 当前书单的待找条目 (还不在藏书里的书) */
+const activeWanted = computed(() =>
+  activeBooklistId.value ? library.booklistWanted[activeBooklistId.value] ?? [] : [])
+/** 书单只有待找条目时不显示「空书单」「无结果」 */
+const showOnlyWanted = computed(() =>
+  !!activeBooklist.value && !!activeWanted.value.length && !keyword.value.trim() && !tagFilter.value)
+// 书源页「全部加入我的书单」→「查看」: /library?booklist=<id> (路由按 fullPath 重建视图, 不清查询参数)
+watch(() => [route.query.booklist, library.loaded] as const, ([id]) => {
+  if (typeof id === 'string' && id && !paperMode.value && library.booklists.some(item => item.id === id)) {
+    activeBooklistId.value = id
+  }
+}, { immediate: true })
 
 // 顶部「今日阅读」入口 (藏书模式), 记录变化时实时刷新
 const todaySeconds = ref(0)
@@ -149,6 +166,12 @@ onBeforeUnmount(() => {
 function onGlobalKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
   if (showCloudUpload.value) return // 上传对话框自己处理关闭及忙碌状态
+  if (showBooklistShare.value || showBooklistImport.value) {
+    showBooklistShare.value = false
+    showBooklistImport.value = false
+    e.preventDefault()
+    return
+  }
   if (showTagManage.value) showTagManage.value = false
   else if (showUrlModal.value) { if (!urlImporting.value) showUrlModal.value = false }
   else if (showTagModal.value) showTagModal.value = false
@@ -671,6 +694,8 @@ async function batchClearTags() {
           @click="openBooklistManage"
         >{{ t('library.manageBooklists') }}</button>
         <button v-if="activeBooklist && booklistCount(activeBooklist.id)" class="booklist-text-action" @click="uploadBooks(library.booklistBookIds[activeBooklist.id] ?? [])">{{ t('library.uploadBooklist') }}</button>
+        <button v-if="activeBooklist" class="booklist-text-action" @click="showBooklistShare = true">{{ t('booklist.share') }}</button>
+        <button class="booklist-text-action" @click="showBooklistImport = true">{{ t('booklist.import') }}</button>
       </div>
       <div class="booklist-row">
         <button
@@ -761,7 +786,7 @@ async function batchClearTags() {
     </div>
 
     <div
-      v-else-if="activeBooklist && !filtered.length && !keyword.trim() && !tagFilter"
+      v-else-if="activeBooklist && !filtered.length && !keyword.trim() && !tagFilter && !activeWanted.length"
       class="empty booklist-empty"
     >
       <div class="empty-icon" aria-hidden="true">
@@ -776,7 +801,7 @@ async function batchClearTags() {
       </div>
     </div>
 
-    <div v-else-if="!filtered.length" class="empty">
+    <div v-else-if="!filtered.length && !showOnlyWanted" class="empty">
       <div class="empty-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       </div>
@@ -786,7 +811,7 @@ async function batchClearTags() {
       </div>
     </div>
 
-    <div v-else class="grid">
+    <div v-else-if="filtered.length" class="grid">
       <BookCard
         v-for="book in filtered"
         :key="book.id"
@@ -806,6 +831,14 @@ async function batchClearTags() {
         @convert="convertBooks([book.id])"
       />
     </div>
+
+    <!-- 书单里还不在藏书中的书 (待找) -->
+    <BooklistWantedPanel
+      v-if="activeBooklist && library.loaded && !paperMode"
+      :key="activeBooklist.id"
+      :booklist-id="activeBooklist.id"
+      :keyword="keyword"
+    />
 
     <!-- 批量操作栏 -->
     <div v-if="manageMode" class="batch-bar card" role="toolbar" :aria-label="t('library.manage')">
@@ -836,6 +869,9 @@ async function batchClearTags() {
       <button class="btn btn-sm btn-danger" :disabled="!selectedIds.size" @click="batchDelete">{{ t('common.delete') }}</button>
       <button class="btn btn-sm" @click="toggleManage">{{ t('common.done') }}</button>
     </div>
+
+    <BooklistShareDialog v-if="showBooklistShare && activeBooklist" :booklist-id="activeBooklist.id" @close="showBooklistShare = false" />
+    <BooklistImportDialog v-if="showBooklistImport" @close="showBooklistImport = false" @imported="id => (activeBooklistId = id)" />
 
     <LibraryUploadDialog v-if="showCloudUpload" :book-ids="cloudBookIds" @close="showCloudUpload = false" />
 

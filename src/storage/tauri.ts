@@ -4,7 +4,7 @@
  *  - 元数据用 SQLite 索引 (tauri-plugin-sql)
  */
 import type {
-  AnnotationRec, BooklistRec, BookMeta, CatalogSourceRec, LibraryStorage, LocalFileRef, NewBookMeta,
+  AnnotationRec, BooklistRec, BooklistWantedRec, BookMeta, CatalogSourceRec, LibraryStorage, LocalFileRef, NewBookMeta,
 } from './types'
 import { BUILTIN_SOURCES, getLibraryRoot, newId } from './types'
 
@@ -145,6 +145,20 @@ export class TauriStorage implements LibraryStorage {
         ON booklist_items(booklist_id);
       CREATE INDEX IF NOT EXISTS idx_booklist_items_book
         ON booklist_items(book_id);
+      CREATE TABLE IF NOT EXISTS booklist_wanted (
+        id TEXT PRIMARY KEY,
+        booklist_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        author TEXT NOT NULL DEFAULT '',
+        isbn TEXT,
+        year INTEGER,
+        note TEXT,
+        original_title TEXT,
+        original_author TEXT,
+        added_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_booklist_wanted_booklist
+        ON booklist_wanted(booklist_id);
     `)
 
     for (const dir of ['books', 'covers']) {
@@ -347,6 +361,7 @@ export class TauriStorage implements LibraryStorage {
 
   async deleteBooklist(id: string) {
     await this.db.execute('DELETE FROM booklist_items WHERE booklist_id = $1', [id])
+    await this.db.execute('DELETE FROM booklist_wanted WHERE booklist_id = $1', [id])
     await this.db.execute('DELETE FROM booklists WHERE id = $1', [id])
   }
 
@@ -390,6 +405,52 @@ export class TauriStorage implements LibraryStorage {
     await this.db.execute(
       'UPDATE booklists SET updated_at = $1 WHERE id = $2',
       [Date.now(), booklistId])
+  }
+
+  async listBooklistWanted() {
+    const rows = await this.db.select<Array<{
+      id: string; booklist_id: string; title: string; author: string; isbn: string | null; year: number | null
+      note: string | null; original_title: string | null; original_author: string | null; added_at: number
+    }>>('SELECT * FROM booklist_wanted ORDER BY added_at')
+    return rows.map((row): BooklistWantedRec => {
+      const rec: BooklistWantedRec = {
+        id: row.id, booklistId: row.booklist_id, title: row.title, author: row.author ?? '', addedAt: row.added_at,
+      }
+      if (row.isbn) rec.isbn = row.isbn
+      if (row.year != null) rec.year = row.year
+      if (row.note) rec.note = row.note
+      if (row.original_title) rec.originalTitle = row.original_title
+      if (row.original_author) rec.originalAuthor = row.original_author
+      return rec
+    })
+  }
+
+  async putBooklistWanted(recs: BooklistWantedRec[]) {
+    if (!recs.length) return
+    for (const rec of recs) {
+      await this.db.execute(
+        `INSERT OR REPLACE INTO booklist_wanted
+          (id, booklist_id, title, author, isbn, year, note, original_title, original_author, added_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [rec.id, rec.booklistId, rec.title, rec.author ?? '', rec.isbn ?? null, rec.year ?? null, rec.note ?? null,
+          rec.originalTitle ?? null, rec.originalAuthor ?? null, rec.addedAt])
+    }
+    const now = Date.now()
+    for (const id of new Set(recs.map(rec => rec.booklistId))) {
+      await this.db.execute('UPDATE booklists SET updated_at = $1 WHERE id = $2', [now, id])
+    }
+  }
+
+  async deleteBooklistWanted(ids: string[]) {
+    const unique = [...new Set(ids)]
+    if (!unique.length) return
+    const now = Date.now()
+    for (const id of unique) {
+      const rows = await this.db.select<Array<{ booklist_id: string }>>(
+        'SELECT booklist_id FROM booklist_wanted WHERE id = $1', [id])
+      await this.db.execute('DELETE FROM booklist_wanted WHERE id = $1', [id])
+      if (rows[0]) await this.db.execute('UPDATE booklists SET updated_at = $1 WHERE id = $2', [now, rows[0].booklist_id])
+    }
   }
 
   async listAnnotations(bookId: string) {

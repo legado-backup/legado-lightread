@@ -68,6 +68,15 @@ try {
     buffer: Buffer.from('# 藏书包测试\n\n这是正文。', 'utf8'),
   })
   await sourcePage.locator('.toast.success').waitFor({ timeout: 15_000 })
+  // 书单 (含一条待找条目) 随藏书包导出 / 导入, 见 docs/booklists.md
+  await sourcePage.evaluate(async () => {
+    const { getStorage } = await import('/src/storage/index.ts')
+    const storage = await getStorage()
+    const [book] = await storage.listBooks()
+    const id = await storage.createBooklist('包内书单', { id: 'bl-archive', createdAt: 1 })
+    await storage.addBooksToBooklist(id, [book.id], { addedAt: 2 })
+    await storage.putBooklistWanted([{ id: 'w-archive', booklistId: id, title: '瓦尔登湖', author: '梭罗', year: 1854, addedAt: 3 }])
+  })
   await sourcePage.goto(`${base}/#/settings`, { waitUntil: 'networkidle' })
 
   const downloadPromise = sourcePage.waitForEvent('download')
@@ -88,6 +97,11 @@ try {
   }
   if (compatibilityManifest.books?.length !== 1 || compatibilityManifest.annotations?.length !== 0) {
     throw new Error('JSON 兼容清单内容错误')
+  }
+  const booklistsDoc = JSON.parse(strFromU8(entries['booklists.json'] ?? strToU8('{}')))
+  if (booklistsDoc.format !== 'org.lightread.booklists' || booklistsDoc.lists?.[0]?.name !== '包内书单'
+    || booklistsDoc.lists[0].items.length !== 1 || booklistsDoc.lists[0].wanted[0]?.title !== '瓦尔登湖') {
+    throw new Error('书单未随藏书包导出')
   }
   const root = frontmatter(entries['index.md'])
   if (root.okf_version !== '0.1') throw new Error('未声明 OKF v0.1')
@@ -126,6 +140,19 @@ try {
   targetPage = await importArchive(targetContext, authorityPath)
   if (!(await targetPage.locator('.toast.success').count())) throw new Error('OKF 重复导入失败')
   await expectOneBook(targetPage, 'archive-test')
+  const restoredLists = await targetPage.evaluate(async () => {
+    const { getStorage } = await import('/src/storage/index.ts')
+    const storage = await getStorage()
+    const lists = await storage.listBooklists()
+    return {
+      lists: lists.map(list => list.name),
+      items: lists.length ? (await storage.listBooklistBookIds(lists[0].id)).length : 0,
+      wanted: (await storage.listBooklistWanted()).map(w => `${w.booklistId}:${w.title}:${w.year}`),
+    }
+  })
+  if (JSON.stringify(restoredLists) !== JSON.stringify({ lists: ['包内书单'], items: 1, wanted: ['bl-archive:瓦尔登湖:1854'] })) {
+    throw new Error(`书单未随藏书包恢复 (重复导入须幂等): ${JSON.stringify(restoredLists)}`)
+  }
   await targetContext.close()
 
   // 摘要被篡改时必须在写库前拒绝。
@@ -245,7 +272,7 @@ try {
   await v1Context.close()
 
   await sourceContext.close()
-  console.log('OKF 藏书协议测试通过：标准结构、可选兼容 manifest、OKF 权威优先、往返、第三方导入、幂等、完整性、JSON v1/v2 兼容')
+  console.log('OKF 藏书协议测试通过：标准结构、可选兼容 manifest、OKF 权威优先、往返 (含书单与待找条目)、第三方导入、幂等、完整性、JSON v1/v2 兼容')
 } finally {
   await browser?.close()
   try {
