@@ -5,6 +5,33 @@ import {
   sectionSizes, bytesPerPage, fallbackBytesPerPage, sectionPageCounts,
   pagePosition, locatePage, pageToFraction, fractionToPage, parseJumpInput,
 } from '../src/services/readerPages.ts'
+import { effectiveReaderLayout, effectivePdfLayout, portraitSpacing } from '../src/services/portraitLayout.ts'
+
+// ---- 竖屏单页滚动 (services/portraitLayout.ts) ----
+test('竖屏且开启时生效为单栏滚动, 横屏 / 关闭时用用户设置', () => {
+  const base = { flow: 'paginated', maxColumnCount: 2, portraitScroll: true }
+  assert.deepEqual(effectiveReaderLayout({ ...base, portrait: true }), { flow: 'scrolled', maxColumnCount: 1, portraitLocked: true })
+  assert.deepEqual(effectiveReaderLayout({ ...base, portrait: false }), { flow: 'paginated', maxColumnCount: 2, portraitLocked: false })
+  assert.deepEqual(effectiveReaderLayout({ ...base, portraitScroll: false, portrait: true }), { flow: 'paginated', maxColumnCount: 2, portraitLocked: false })
+  assert.equal(effectiveReaderLayout({ ...base, portrait: false, forceSingleColumn: true }).maxColumnCount, 1)
+})
+
+test('PDF 竖屏锁定为单页连续滚动, 放映不受影响', () => {
+  const base = { mode: 'paged', spreadMode: 'facing', portraitScroll: true }
+  assert.deepEqual(effectivePdfLayout({ ...base, portrait: true }), { mode: 'scroll', spreadMode: 'single', portraitLocked: true })
+  assert.deepEqual(effectivePdfLayout({ ...base, portrait: false }), { mode: 'paged', spreadMode: 'facing', portraitLocked: false })
+  assert.equal(effectivePdfLayout({ ...base, portrait: true, presentation: true }).mode, 'paged')
+})
+
+test('竖屏留白按像素: 手机约 18px / 平板约 36px, 随用户页边距缩放且不超过原百分比', () => {
+  const phone = portraitSpacing(390, 6)
+  assert.ok(Math.abs(phone.gapPercent / 100 * 390 - 18) < 0.5)
+  const tablet = portraitSpacing(912, 6)
+  assert.ok(Math.abs(tablet.gapPercent / 100 * 912 - 36) < 0.5)
+  assert.ok(tablet.maxInlineSize >= 912, '行宽上限不再卡住竖屏平板')
+  assert.ok(portraitSpacing(912, 12).gapPercent > tablet.gapPercent, '调大页边距仍然有效')
+  assert.ok(portraitSpacing(200, 6).gapPercent <= 6, '窄窗口不比原百分比更宽')
+})
 
 test('非线性与空章不计入', () => {
   assert.deepEqual(sectionSizes([{ size: 100 }, { size: 50, linear: 'no' }, { size: 0 }, {}]), [100, 0, 0, 0])

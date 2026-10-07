@@ -20,6 +20,8 @@ import { KOKORO_VOICES, DEFAULT_KOKORO_SID, kokoroVoiceLabel } from '../services
 import { localPack, localTtsSynthesize, refreshLocalPack } from '../services/localTts'
 import LocalTtsPack from '../components/LocalTtsPack.vue'
 import { useReadingTimer } from '../composables/useReadingTimer'
+import { useMediaQuery } from '../composables/useMediaQuery'
+import { effectiveReaderLayout, portraitSpacing, PORTRAIT_QUERY } from '../services/portraitLayout'
 import { toast } from '../services/toast'
 import { t } from '../i18n'
 import { searchBook, type SearchHit } from '../services/bookSearch'
@@ -301,6 +303,16 @@ let Overlayer: any = null
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 
 const appDark = computed(() => resolvedTheme.value === 'dark')
+// 竖屏 (手机 / iPad / Surface 竖着拿): 「竖屏时单页滚动」开启时改为单栏连续滚动, 横过来恢复用户自己的翻页 / 分栏。
+// 只算生效值, 不改写保存的 settings.reader.flow; 页码、手势等凡按 flow 分支的地方都用 effectiveFlow
+const portraitView = useMediaQuery(PORTRAIT_QUERY)
+const readerLayout = computed(() => effectiveReaderLayout({
+  flow: settings.reader.flow,
+  maxColumnCount: settings.reader.maxColumnCount,
+  portraitScroll: settings.reader.portraitScroll,
+  portrait: portraitView.value,
+}))
+const effectiveFlow = computed(() => readerLayout.value.flow)
 // 阅读模式与点睛在下方声明, 二者初始化时会互相 / 回头读取这里的值;
 // 先用响应式占位, 声明完再填入, 避免初始化顺序问题 (TDZ), 填入后依赖它们的 computed 自动重算
 const lateModes = shallowRef<ReturnType<typeof useReadingModes>>()
@@ -320,6 +332,28 @@ function selectedCustomFont() {
   return m ? settings.customFonts.find(f => f.name === m[1]) : undefined
 }
 
+/**
+ * 排版几何 (左右留白 / 行宽上限 / 上下边带)。竖屏时按绝对像素留窄边并放宽行宽让正文铺满,
+ * 不改用户保存的页边距百分比 (横屏照旧); 见 services/portraitLayout.ts portraitSpacing
+ */
+function layoutGeometry() {
+  const prefs = settings.reader
+  const width = container.value?.clientWidth || window.innerWidth
+  const portrait = portraitView.value
+  const spacing = portrait ? portraitSpacing(width, prefs.gap) : null
+  const phone = window.innerWidth <= 600
+  // 上下边带: 翻页模式放页眉页脚 (章节名 / 进度), 手机屏幕矮收窄些; 竖屏滚动没有页眉页脚, 只留一线呼吸
+  const margin = portrait && readerLayout.value.flow === 'scrolled'
+    ? (phone ? '12px' : '20px')
+    : (phone ? '36px' : '48px')
+  return {
+    gap: `${spacing ? spacing.gapPercent : prefs.gap}%`,
+    maxInline: spacing ? `${spacing.maxInlineSize}px` : '720px',
+    margin,
+  }
+}
+let appliedGeometry = ''
+
 function applyPrefs() {
   if (!view) return
   const prefs = settings.reader
@@ -327,12 +361,15 @@ function applyPrefs() {
     // 墨水屏: 去掉翻页动画 (残影)
     if (modes.einkActive.value) view.renderer.removeAttribute('animated')
     else view.renderer.setAttribute('animated', '')
-    view.renderer.setAttribute('flow', prefs.flow)
-    view.renderer.setAttribute('gap', `${prefs.gap}%`)
-    // 大字 / 歌词运行时强制单栏, 不改用户自己的分栏设置
-    view.renderer.setAttribute('max-column-count', String(modes.forceSingleColumn.value ? 1 : prefs.maxColumnCount))
-    // 页眉页脚带 (章节名 / 进度) 的高度; 手机屏幕矮, 收窄些把空间留给正文
-    view.renderer.setAttribute('margin', window.innerWidth <= 600 ? '36px' : '48px')
+    const layout = readerLayout.value
+    view.renderer.setAttribute('flow', layout.flow)
+    const geo = layoutGeometry()
+    appliedGeometry = JSON.stringify(geo)
+    view.renderer.setAttribute('gap', geo.gap)
+    view.renderer.setAttribute('max-inline-size', geo.maxInline)
+    // 大字 / 歌词运行时、竖屏单页滚动时强制单栏, 不改用户自己的分栏设置
+    view.renderer.setAttribute('max-column-count', String(modes.forceSingleColumn.value ? 1 : layout.maxColumnCount))
+    view.renderer.setAttribute('margin', geo.margin)
     view.renderer.setStyles?.(getReaderCSS({ ...prefs, fontFamily: resolveFontFamily(prefs.fontFamily) }, appDark.value, modes.readerStyle.value))
     const custom = selectedCustomFont()
     if (custom) {
@@ -376,10 +413,23 @@ async function importFont() {
 }
 
 let prefsTimer: ReturnType<typeof setTimeout> | undefined
-watch([() => settings.reader, appDark], () => {
+watch([() => settings.reader, appDark, readerLayout, portraitView], () => {
   clearTimeout(prefsTimer)
   prefsTimer = setTimeout(applyPrefs, 120)
 }, { deep: true })
+// 拖动窗口 / 分屏改变宽度: 竖屏留白按像素算, 跨过手机宽度时边带也变; 几何没变就不重排
+let geometryTimer: ReturnType<typeof setTimeout> | undefined
+function onWindowResize() {
+  clearTimeout(geometryTimer)
+  geometryTimer = setTimeout(() => {
+    if (view && JSON.stringify(layoutGeometry()) !== appliedGeometry) applyPrefs()
+  }, 200)
+}
+window.addEventListener('resize', onWindowResize)
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onWindowResize)
+  clearTimeout(geometryTimer)
+})
 
 function onRelocate(e: CustomEvent) {
   modes.onRelocate(e.detail)
@@ -1475,7 +1525,7 @@ function onSectionLoad(e: CustomEvent) {
     const t0 = e.changedTouches[0]
     // 滚动模式下记下起手时是否已停在本节顶 / 底: 只有停稳后再滑才跨章, 避免惯性一滑到底就跳走
     const r = view?.renderer
-    const scrolled = settings.reader.flow === 'scrolled' && r
+    const scrolled = effectiveFlow.value === 'scrolled' && r
     touchStart = t0
       ? {
           x: t0.clientX,
@@ -1492,7 +1542,7 @@ function onSectionLoad(e: CustomEvent) {
   doc.addEventListener('touchmove', (e: TouchEvent) => {
     const st = touchStart
     const t0 = e.changedTouches[0]
-    if (!st || !t0 || st.crossed || settings.reader.flow !== 'scrolled') return
+    if (!st || !t0 || st.crossed || effectiveFlow.value !== 'scrolled') return
     const dy = t0.clientY - st.y
     if (Math.abs(dy) < 48 || Math.abs(dy) < Math.abs(t0.clientX - st.x) * 1.5) return
     const sel = doc.getSelection()
@@ -1519,7 +1569,7 @@ function onSectionLoad(e: CustomEvent) {
     // 翻页模式下明显的上下滑动也翻页 (上滑下一页 / 下滑上一页), 单手竖向阅读更顺手;
     // 正在选字 (长按后拖动) 不算。foliate 对竖向滑动本无动作, 但其 touchend 会做
     // 吸附动画, 与翻页动画抢滚动位置, 先拦掉
-    if (settings.reader.flow === 'paginated' && Math.abs(dy) >= 60 && Math.abs(dy) >= Math.abs(dx) * 1.5) {
+    if (effectiveFlow.value === 'paginated' && Math.abs(dy) >= 60 && Math.abs(dy) >= Math.abs(dx) * 1.5) {
       const sel = doc.getSelection()
       if (sel && !sel.isCollapsed) return
       e.stopImmediatePropagation()
@@ -1529,7 +1579,7 @@ function onSectionLoad(e: CustomEvent) {
     }
     if (st.crossed) return
     // 滚动模式也能「翻页」: 明显的左右横滑按一屏滚动 (左滑下一屏 / 右滑上一屏)
-    if (settings.reader.flow === 'scrolled' && Math.abs(dx) >= 60 && Math.abs(dx) >= Math.abs(dy) * 1.5) {
+    if (effectiveFlow.value === 'scrolled' && Math.abs(dx) >= 60 && Math.abs(dx) >= Math.abs(dy) * 1.5) {
       const sel = doc.getSelection()
       if (sel && !sel.isCollapsed) return
       suppressClickUntil = Date.now() + 700
@@ -1883,7 +1933,7 @@ async function confirmJump() {
   else {
     const f = pageToFraction(secSizes, secCounts, parsed.page, {
       perScreen: pagesPerScreen,
-      scrolled: settings.reader.flow === 'scrolled',
+      scrolled: effectiveFlow.value === 'scrolled',
     })
     target = f == null ? null : { fraction: f }
   }
@@ -2148,7 +2198,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="reader" :class="[{ 'bars-on': barsVisible }, modes.shellClass.value]" :style="{ background: themeColors.bg, color: themeColors.fg }">
+  <div class="reader" :class="[{ 'bars-on': barsVisible, 'portrait-scroll': portraitView && effectiveFlow === 'scrolled' }, modes.shellClass.value]" :style="{ background: themeColors.bg, color: themeColors.fg }">
     <!-- 工具栏隐藏时: 鼠标移到上下边缘呼出 -->
     <div v-if="!barsVisible" class="bar-peek top" @mouseenter="showBars()" />
     <div v-if="!barsVisible" class="bar-peek bottom" @mouseenter="showBars()" />
@@ -2782,6 +2832,14 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="set-row">
+        <label :title="t('reader.portraitScrollTitle')">{{ t('reader.portrait') }}</label>
+        <div class="seg" :title="t('reader.portraitScrollTitle')">
+          <button :class="{ active: settings.reader.portraitScroll }" :aria-pressed="settings.reader.portraitScroll" @click="settings.reader.portraitScroll = true">{{ t('reader.portraitScrollOn') }}</button>
+          <button :class="{ active: !settings.reader.portraitScroll }" :aria-pressed="!settings.reader.portraitScroll" @click="settings.reader.portraitScroll = false">{{ t('reader.portraitScrollOff') }}</button>
+        </div>
+      </div>
+      <p v-if="readerLayout.portraitLocked" class="set-note" role="note">{{ t('reader.portraitLockedNote') }}</p>
+      <div class="set-row">
         <label>{{ t('reader.columns') }}</label>
         <div class="seg">
           <button :class="{ active: settings.reader.maxColumnCount === 1 }" @click="settings.reader.maxColumnCount = 1">{{ t('reader.singleColumn') }}</button>
@@ -2972,6 +3030,10 @@ onBeforeUnmount(() => {
 }
 .nav.next {
   right: 6px;
+}
+/* 竖屏滚动: 左右留白很窄, 侧边翻页钮会压住正文边缘、抢走点按; 上下滑 / 滚轮即可, 收起 */
+.reader.portrait-scroll .nav {
+  display: none;
 }
 .slider {
   flex: 1;
@@ -3763,6 +3825,12 @@ onBeforeUnmount(() => {
 .set-row .input {
   flex: 1;
   height: 30px;
+}
+.set-note {
+  margin: -4px 0 0 42px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
 }
 .font-hint {
   font-size: 12px;

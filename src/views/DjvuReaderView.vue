@@ -105,14 +105,24 @@ function onWheel(e: WheelEvent) {
 
 let touchX = 0
 let touchY = 0
+let touchAtTop = false
+let touchAtBottom = false
 const onTouchStart = (e: TouchEvent) => {
   touchX = e.touches[0].clientX
   touchY = e.touches[0].clientY
+  // 记下起手时是否已停在本页顶 / 底: 停稳后再竖滑才换页, 竖屏单手上下滑着读 (同滚轮到底翻页)
+  const el = box.value
+  touchAtTop = !!el && el.scrollTop <= 2
+  touchAtBottom = !!el && el.scrollTop + el.clientHeight >= el.scrollHeight - 2
 }
 const onTouchEnd = (e: TouchEvent) => {
   const dx = e.changedTouches[0].clientX - touchX
   const dy = e.changedTouches[0].clientY - touchY
   if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.4) (dx < 0 ? next : prev)()
+  else if (Math.abs(dy) > 56 && Math.abs(dy) > Math.abs(dx) * 1.4) {
+    if (dy < 0 && touchAtBottom) next()
+    else if (dy > 0 && touchAtTop) prev()
+  }
 }
 
 function handleKeydown(e: KeyboardEvent) {

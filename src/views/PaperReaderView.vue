@@ -56,6 +56,8 @@ import {
 import { useLibrary } from '../stores/library'
 import { useSettings } from '../stores/settings'
 import { useReadingTimer } from '../composables/useReadingTimer'
+import { useMediaQuery } from '../composables/useMediaQuery'
+import { effectivePdfLayout, PORTRAIT_QUERY } from '../services/portraitLayout'
 import { toast } from '../services/toast'
 import { printPdf, revealStoredBook, savePdfAs } from '../services/pdfFileActions'
 import {
@@ -143,11 +145,25 @@ const aiReady = computed(() => aiConfigured())
 const isPaper = computed(() => meta.value?.kind === 'paper')
 const backTarget = computed(() => (isPaper.value ? '/papers' : '/library'))
 const backLabel = computed(() => (isPaper.value ? t('paper.backToPapers') : t('reader.backToLibrary')))
+/** 幻灯片放映 (整页翻页 + 全屏); 放映时不受竖屏单页滚动约束 */
+const presentationMode = ref(false)
+/**
+ * 竖屏 (手机 / 平板 / Surface 竖着拿) 且开启「竖屏时单页滚动」时, 生效为单页连续滚动; 横过来恢复
+ * settings.pdf.mode / spreadMode。只算生效值, 不改写用户保存的设置。
+ */
+const portraitView = useMediaQuery(PORTRAIT_QUERY)
+const pdfEffective = computed(() => effectivePdfLayout({
+  mode: settings.pdf.mode,
+  spreadMode: settings.pdf.spreadMode,
+  portraitScroll: settings.reader.portraitScroll,
+  portrait: portraitView.value,
+  presentation: presentationMode.value,
+}))
 /** 所有 PDF 共用阅读模式；v7 起默认连续滚动。 */
-const mode = computed<'paged' | 'scroll'>(() => settings.pdf.mode)
+const mode = computed<'paged' | 'scroll'>(() => pdfEffective.value.mode)
 const pdfLayout = computed(() => settings.pdf.layout)
 const bookPaged = computed(() => pdfLayout.value === 'original' && mode.value === 'paged')
-const spreadMode = computed(() => settings.pdf.spreadMode)
+const spreadMode = computed(() => pdfEffective.value.spreadMode)
 const scrollSpread = computed(() =>
   pdfLayout.value === 'original' && mode.value === 'scroll' && spreadMode.value !== 'single')
 
@@ -173,7 +189,7 @@ type PdfZoom = number | 'fit-page' | 'fit-width'
 const LEGACY_ZOOM_KEY = 'lightread-paper-zoom'
 const ZOOM_KEY = `lightread-pdf-zoom:${bookId}`
 const restoredZoom = restoreZoom()
-const zoom = ref<PdfZoom>(restoredZoom ?? (settings.pdf.mode === 'scroll' ? 'fit-width' : 'fit-page'))
+const zoom = ref<PdfZoom>(restoredZoom ?? (mode.value === 'scroll' ? 'fit-width' : 'fit-page'))
 const scrollStartPadding = computed(() => typeof zoom.value === 'number' ? NORMAL_SCROLL_PADDING : 0)
 
 function restoreZoom(): PdfZoom | null {
@@ -436,38 +452,72 @@ async function pagedGoto(page: number) {
   await renderPaged()
 }
 
-async function switchMode(next: 'paged' | 'scroll') {
-  if (settings.pdf.mode === next) return
-  stopAutoRead()
-  settings.pdf.mode = next
-  if (next === 'paged' && restoredZoom == null && zoom.value === 'fit-width') {
-    zoom.value = settings.pdf.fit === 'fitH' ? 'fit-page' : 'fit-width'
-  }
-  renderedScale.clear()
-  await nextTick()
-  if (next === 'paged') {
-    await pagedGoto(currentPage.value)
-  } else {
-    attachScrollListener()
-    await nextTick()
-    await relayout(true)
-    scrollGoto(currentPage.value)
-    updateViewport()
-  }
-  observeActiveViewport()
+/**
+ * 页面当前按哪种阅读方式 / 页布局排好的。生效值 (mode / spreadMode) 可能因旋转屏幕、
+ * 放映进出等在别处改变, syncPdfLayout 比对二者, 只在不一致时重排一次 (幂等, 可重复调用)。
+ * null 表示文档尚未完成首次排版。
+ */
+let laidOut: { mode: 'paged' | 'scroll'; spreadMode: 'single' | 'facing' | 'book' } | null = null
+function markLaidOut() {
+  laidOut = { mode: mode.value, spreadMode: spreadMode.value }
 }
 
-async function setSpreadMode(next: 'single' | 'facing' | 'book') {
-  settings.pdf.spreadMode = next
+async function syncPdfLayout() {
+  if (!laidOut) return
+  const next = { mode: mode.value, spreadMode: spreadMode.value }
+  if (next.mode === laidOut.mode && next.spreadMode === laidOut.spreadMode) return
+  const modeChanged = next.mode !== laidOut.mode
+  laidOut = next
+  // 重排版式 (reflow) 不分翻页 / 滚动, 回到原版时按当时的生效值排
+  if (pdfLayout.value !== 'original') return
   renderedScale.clear()
   await nextTick()
-  if (bookPaged.value) {
+  if (modeChanged) {
+    if (next.mode === 'paged') {
+      await pagedGoto(currentPage.value)
+    } else {
+      attachScrollListener()
+      await nextTick()
+      await relayout(true)
+      scrollGoto(currentPage.value)
+      updateViewport()
+    }
+    observeActiveViewport()
+  } else if (bookPaged.value) {
     currentPage.value = spreadOf(currentPage.value)[0]
     await renderPaged()
   } else {
     await relayout(true)
   }
 }
+
+/** 竖屏锁定中改翻页 / 双页: 照常保存, 但提示横屏后才生效 */
+function noteLockedChoice() {
+  if (pdfEffective.value.portraitLocked) toast(t('reader.portraitLockedToast'))
+}
+
+async function switchMode(next: 'paged' | 'scroll') {
+  if (settings.pdf.mode === next && mode.value === next) return
+  stopAutoRead()
+  settings.pdf.mode = next
+  if (next === 'paged' && restoredZoom == null && zoom.value === 'fit-width') {
+    zoom.value = settings.pdf.fit === 'fitH' ? 'fit-page' : 'fit-width'
+  }
+  if (mode.value !== next) noteLockedChoice()
+  await syncPdfLayout()
+}
+
+async function setSpreadMode(next: 'single' | 'facing' | 'book') {
+  settings.pdf.spreadMode = next
+  if (spreadMode.value !== next) noteLockedChoice()
+  await syncPdfLayout()
+}
+
+// 旋转屏幕 / 拖动窗口跨过竖屏阈值、切换「竖屏时单页滚动」: 按新的生效值重排, 停在当前页
+watch(() => pdfEffective.value.portraitLocked, () => {
+  stopAutoRead()
+  void syncPdfLayout()
+})
 
 async function setPagedFit(fit: 'fitH' | 'fitW') {
   settings.pdf.fit = fit
@@ -706,7 +756,6 @@ const paperRoot = ref<HTMLElement>()
 const moreMenu = ref(false)
 const propertiesOpen = ref(false)
 const isFullscreen = ref(false)
-const presentationMode = ref(false)
 let fullscreenWindowUnlisten: (() => void) | undefined
 let presentationRestore: {
   mode: 'paged' | 'scroll'
@@ -884,13 +933,16 @@ async function toggleFullscreen() {
 async function enterPresentation() {
   moreMenu.value = false
   if (presentationMode.value) return
+  // 记下用户保存的设置 (而非竖屏下的生效值), 退出放映时原样恢复
   presentationRestore = {
-    mode: mode.value,
-    spreadMode: spreadMode.value,
+    mode: settings.pdf.mode,
+    spreadMode: settings.pdf.spreadMode,
     zoom: zoom.value,
     wasFullscreen: isFullscreen.value,
   }
   presentationMode.value = true
+  // 放映不受竖屏锁定: 先按解除锁定后的生效值排好, 下面再切到整页单页
+  await syncPdfLayout()
   if (pdfLayout.value === 'reflow') await switchPdfLayout('original')
   if (mode.value !== 'paged') await switchMode('paged')
   if (spreadMode.value !== 'single') await setSpreadMode('single')
@@ -906,9 +958,15 @@ async function exitPresentation(exitFullscreen = true) {
   if (exitFullscreen && !restore?.wasFullscreen && isFullscreen.value) {
     await setFullscreen(false)
   }
-  if (!restore) return
-  if (mode.value !== restore.mode) await switchMode(restore.mode)
-  if (spreadMode.value !== restore.spreadMode) await setSpreadMode(restore.spreadMode)
+  if (!restore) {
+    await syncPdfLayout()
+    return
+  }
+  stopAutoRead()
+  settings.pdf.mode = restore.mode
+  settings.pdf.spreadMode = restore.spreadMode
+  // 竖屏锁定会在这里重新生效
+  await syncPdfLayout()
   await applyZoom(restore.zoom)
 }
 
@@ -3506,6 +3564,7 @@ onMounted(async () => {
       if (currentPage.value > 1) scrollGoto(currentPage.value)
       updateViewport()
     }
+    markLaidOut()
     buildOutline()
     resizeObserver = new ResizeObserver(() => {
       clearTimeout(resizeTimer)
@@ -3814,6 +3873,16 @@ onBeforeUnmount(() => {
               <button role="menuitem" @click="openDocumentFolder">{{ t('reader.openFolder') }}</button>
               <button role="menuitem" @click="openProperties">{{ t('reader.properties') }}</button>
               <button role="menuitem" @click="toggleDrawerTab('annotations'); moreMenu = false">{{ t('reader.comments') }}</button>
+              <button
+                role="menuitemcheckbox"
+                class="more-check"
+                :aria-checked="settings.reader.portraitScroll"
+                :title="t('reader.portraitScrollTitle')"
+                @click="settings.reader.portraitScroll = !settings.reader.portraitScroll; moreMenu = false"
+              >
+                <span>{{ t('reader.portraitScrollMenu') }}</span>
+                <svg v-if="settings.reader.portraitScroll" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M4.5 10.5l3.5 3.5 7.5-8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              </button>
             </div>
           </div>
           <button
@@ -5039,6 +5108,16 @@ onBeforeUnmount(() => {
   font-size: 13px;
   text-align: left;
   transition: background-color 140ms ease, color 140ms ease;
+}
+.reader-more-menu .more-check {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.reader-more-menu .more-check svg {
+  flex-shrink: 0;
+  color: var(--brand);
 }
 .reader-more-menu button:hover,
 .reader-more-menu button:focus-visible {

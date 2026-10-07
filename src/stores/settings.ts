@@ -12,6 +12,8 @@ export interface ReaderPrefs {
   theme: 'auto' | 'light' | 'sepia' | 'green' | 'dark'
   flow: 'paginated' | 'scrolled'
   maxColumnCount: 1 | 2
+  /** 平板竖屏 (高于宽) 时改为单栏连续滚动, 横屏恢复上面的 flow / 分栏; PDF 同样适用 */
+  portraitScroll: boolean
   fontFamily: string
   justify: boolean
   /** 字距 (em), 0 为书籍原样; 大字预设为 0.05 */
@@ -237,6 +239,7 @@ const defaults: SettingsState = {
     theme: 'auto',
     flow: 'paginated',
     maxColumnCount: 2,
+    portraitScroll: true,
     fontFamily: '',
     justify: true,
     letterSpacing: 0,
