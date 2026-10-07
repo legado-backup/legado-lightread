@@ -19,6 +19,9 @@
   --brand-light: #e8f0ff;
   --brand-soft: color-mix(in srgb, var(--brand) 10%, transparent);
   --on-brand: #ffffff;
+  /* 二维码: 深色模式下也保持白底深色模块, 否则部分扫码器认不出反色码 (不在深色主题里重定义) */
+  --qr-bg: #ffffff;
+  --qr-fg: #111418;
 
   /* 表面与文字 */
   --bg: #f5f6f8;

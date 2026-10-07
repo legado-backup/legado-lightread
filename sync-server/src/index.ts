@@ -1,13 +1,15 @@
 /**
  * 轻阅账号 / 多端同步后端 (Cloudflare Worker, sync.jiangshu.ai)
  *
- * 只存同步记录 (SyncDoc, 见 docs/sync.md), 不存书籍文件. 接口约定见 docs/account-api.md.
- *  - D1 (DB): 账号、验证码、会话、按 UTC 日的限流计数
- *  - R2 (DOCS): 每台设备的 SyncDoc, 键 u/<userId>/devices/<deviceId>.json
+ * 存同步记录 (SyncDoc, 见 docs/sync.md), 不长期存书籍文件; 互传的文件临时存 7 天. 接口约定见 docs/account-api.md.
+ *  - D1 (DB): 账号、验证码、会话、按 UTC 日的限流计数; 互传条目 / 设备登记 / 取件码 (见 src/transfer.ts)
+ *  - R2 (DOCS): 每台设备的 SyncDoc, 键 u/<userId>/devices/<deviceId>.json;
+ *    互传文件 transfer/<userId>/<id> (7 天), 取件码文件 drop/<id> (≤ 1 小时)
  *  - 登录: 邮箱 6 位验证码 (Resend 发信), 10 分钟有效, 每码最多试 5 次
  *  - 鉴权: Bearer token (32 字节随机数 base64url), 服务端只存 SHA-256, 登出即吊销
  *
  *  - 匿名使用统计: POST /v1/ping 心跳, GET /v1/admin/stats + /admin 统计页 (ADMIN_TOKEN 保护), 见 src/stats.ts
+ *  - 互传: /v1/devices, /v1/transfers (账号内设备间) 与 /v1/drops, /d/<code> (匿名取件码), 见 src/transfer.ts
  *
  * 部署: cd sync-server && npx wrangler deploy -c wrangler.jsonc
  * 配置密钥: npx wrangler secret put RESEND_API_KEY -c wrangler.jsonc (以及 ADMIN_TOKEN)
@@ -16,6 +18,7 @@
 
 import ADMIN_HTML from './admin.html'
 import { MAX_STATS_DAYS, beijingDay, computeStats, parsePing, recordPing, rollupStatements } from './stats'
+import { accountTransferCleanup, cleanupExpired, isTransferRoute, routeDrops, routeTransfers } from './transfer'
 
 // ---- 运行时类型 (只声明用到的部分, 免装 @cloudflare/workers-types) ----
 
@@ -33,10 +36,12 @@ export interface D1Database {
   prepare(sql: string): D1PreparedStatement
   batch(statements: D1PreparedStatement[]): Promise<D1Result[]>
 }
-interface R2Object {
+export interface R2Object {
   key: string
+  size: number
 }
-interface R2ObjectBody extends R2Object {
+export interface R2ObjectBody extends R2Object {
+  body: ReadableStream<Uint8Array>
   text(): Promise<string>
 }
 interface R2Objects {
@@ -44,9 +49,14 @@ interface R2Objects {
   truncated: boolean
   cursor?: string
 }
-interface R2Bucket {
+export interface R2Bucket {
   get(key: string): Promise<R2ObjectBody | null>
-  put(key: string, value: string, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown>
+  /** ReadableStream 必须是已知长度的 (如带 content-length 的请求体), 否则 workerd 拒绝 */
+  put(
+    key: string,
+    value: ReadableStream | ArrayBuffer | ArrayBufferView | string,
+    options?: { httpMetadata?: { contentType?: string } },
+  ): Promise<R2Object | null>
   delete(keys: string | string[]): Promise<void>
   list(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<R2Objects>
 }
@@ -63,6 +73,11 @@ export interface Env {
   DEV_EXPOSE_CODE?: string
   /** 使用统计管理员令牌 (secret): GET /v1/admin/stats 的 Bearer. 未设则统计接口一律 401 */
   ADMIN_TOKEN?: string
+  /**
+   * 可选: 网页版地址 (如 https://example.com/). 设了之后取件码分享链接 /d/<code> 302 到
+   * <WEB_APP_URL>#/transfer?code=<code>; 未设则返回纯文本说明. 不写进 wrangler.jsonc, 需要时 vars / secret 配置
+   */
+  WEB_APP_URL?: string
 }
 
 // ---- 常量 ----
@@ -82,51 +97,51 @@ const MAX_AUTH_BODY = 4 * 1024
 /** 匿名统计: 心跳请求体上限; 每个 IP 每个北京日最多 120 次 (客户端每天至多 2 次, 约 60 个安装共用一个出口 IP) */
 const MAX_PING_BODY = 1024
 const PING_IP_DAILY = 120
-const DEVICE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+export const DEVICE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-const CORS: Record<string, string> = {
+export const CORS: Record<string, string> = {
   'access-control-allow-origin': '*',
-  'access-control-allow-headers': 'authorization, content-type',
+  'access-control-allow-headers': 'authorization, content-type, x-drop-token',
   'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'access-control-max-age': '86400',
 }
 
 // ---- 响应 ----
 
-const json = (status: number, payload: unknown, extra?: Record<string, string>) =>
+export const json = (status: number, payload: unknown, extra?: Record<string, string>) =>
   new Response(JSON.stringify(payload), {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8', ...CORS, ...extra },
   })
 
-const noContent = () => new Response(null, { status: 204, headers: CORS })
+export const noContent = () => new Response(null, { status: 204, headers: CORS })
 
-const fail = (status: number, error: string, retryAfter?: number) =>
+export const fail = (status: number, error: string, retryAfter?: number) =>
   retryAfter === undefined
     ? json(status, { error })
     : json(status, { error, retryAfter }, { 'retry-after': String(retryAfter) })
 
 // ---- 工具 ----
 
-const today = (now = Date.now()) => new Date(now).toISOString().slice(0, 10)
+export const today = (now = Date.now()) => new Date(now).toISOString().slice(0, 10)
 
 /** 距下一个 UTC 零点的秒数 (按日限流的 retryAfter) */
-const secondsToNextDay = (now = Date.now()) => Math.max(1, Math.ceil((DAY - (now % DAY)) / 1000))
+export const secondsToNextDay = (now = Date.now()) => Math.max(1, Math.ceil((DAY - (now % DAY)) / 1000))
 
-async function sha256Hex(text: string): Promise<string> {
+export async function sha256Hex(text: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-function base64url(bytes: Uint8Array): string {
+export function base64url(bytes: Uint8Array): string {
   let s = ''
   for (const b of bytes) s += String.fromCharCode(b)
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
 /** 均匀分布的 6 位数字 (拒绝采样, 避免取模偏差) */
-function randomCode(): string {
+export function randomCode(): string {
   const buf = new Uint32Array(1)
   const limit = Math.floor(0x1_0000_0000 / 1_000_000) * 1_000_000
   for (;;) {
@@ -137,14 +152,14 @@ function randomCode(): string {
 
 const normEmail = (v: unknown) => (typeof v === 'string' ? v.trim().toLowerCase() : '')
 
-const isObj = (v: unknown): v is Record<string, unknown> =>
+export const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
 /**
  * 读请求体, 超过 limit 字节即返回 null (边读边数, 不会把超大请求整个读进内存).
  * content-length 只作快速拒绝, 以实际字节数为准.
  */
-async function readBody(request: Request, limit: number): Promise<Uint8Array | null> {
+export async function readBody(request: Request, limit: number): Promise<Uint8Array | null> {
   const declared = Number(request.headers.get('content-length') ?? '')
   if (Number.isFinite(declared) && declared > limit) return null
   if (!request.body) return new Uint8Array(0)
@@ -181,7 +196,7 @@ async function readJson(request: Request, limit: number): Promise<unknown> {
 }
 
 /** 自增并返回当日计数 (原子, 跨节点一致) */
-async function bump(db: D1Database, key: string, day: string): Promise<number> {
+export async function bump(db: D1Database, key: string, day: string): Promise<number> {
   const row = await db
     .prepare(
       'INSERT INTO counters(key, day, count) VALUES(?1, ?2, 1) ' +
@@ -195,7 +210,7 @@ async function bump(db: D1Database, key: string, day: string): Promise<number> {
 const docsPrefix = (userId: string) => `u/${userId}/devices/`
 
 /** 列出前缀下全部对象键 (分页) */
-async function listKeys(bucket: R2Bucket, prefix: string): Promise<string[]> {
+export async function listKeys(bucket: R2Bucket, prefix: string): Promise<string[]> {
   const keys: string[] = []
   let cursor: string | undefined
   do {
@@ -252,13 +267,13 @@ interface Account {
   email: string
   createdAt: number
 }
-interface Session {
+export interface Session {
   tokenHash: string
   lastSeenAt: number
   account: Account
 }
 
-async function authenticate(request: Request, env: Env): Promise<Session | null> {
+export async function authenticate(request: Request, env: Env): Promise<Session | null> {
   const m = /^Bearer\s+([A-Za-z0-9_-]{16,128})$/.exec(request.headers.get('authorization') ?? '')
   if (!m) return null
   const tokenHash = await sha256Hex(m[1])
@@ -393,7 +408,10 @@ async function deleteMe(session: Session, env: Env): Promise<Response> {
   // 先删 R2 文档 (每次最多 1000 个键), 再删库里的账号与会话
   const keys = await listKeys(env.DOCS, `u/${id}/`)
   for (let i = 0; i < keys.length; i += 1000) await env.DOCS.delete(keys.slice(i, i + 1000))
+  // 互传: 该账号的互传条目、设备登记、取件码及其文件 (R2 在这里删, 返回删库语句)
+  const transferCleanup = await accountTransferCleanup(env, id)
   await env.DB.batch([
+    ...transferCleanup,
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?1').bind(id),
     env.DB.prepare('DELETE FROM codes WHERE email = ?1').bind(email),
     env.DB.prepare('DELETE FROM counters WHERE key = ?1').bind(`put:${id}`),
@@ -523,10 +541,11 @@ const secondsToBeijingMidnight = (now = Date.now()) => {
 }
 
 /**
- * 心跳限流键: IP 不落库, 只存 HMAC(当天, IP) 的前 32 位十六进制; 密钥是 ADMIN_TOKEN (secret),
- * 没有它无法从键反推 IP. 计数行两天后被定时任务删除.
+ * 按 IP 限流的计数键: IP 不落库, 只存 `<prefix>:<HMAC(当天|IP) 前 32 位十六进制>`; 密钥由 ADMIN_TOKEN (secret)
+ * 派生, 没有它无法从键反推 IP. 计数行两天后被定时任务删除.
+ * 心跳用 prefix 'ping' (北京日); 取件码用 'drop:c' 创建 / 'drop:q' 查询 / 'drop:m' 输错 (UTC 日).
  */
-async function pingRateKey(env: Env, ip: string, day: string): Promise<string> {
+export async function ipRateKey(env: Env, prefix: string, ip: string, day: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(`lightread-ping:${env.ADMIN_TOKEN ?? ''}`),
@@ -535,7 +554,7 @@ async function pingRateKey(env: Env, ip: string, day: string): Promise<string> {
     ['sign'],
   )
   const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${day}|${ip}`)))
-  return 'ping:' + [...mac.slice(0, 16)].map(b => b.toString(16).padStart(2, '0')).join('')
+  return `${prefix}:` + [...mac.slice(0, 16)].map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
 async function handlePing(request: Request, env: Env): Promise<Response> {
@@ -544,7 +563,7 @@ async function handlePing(request: Request, env: Env): Promise<Response> {
   const now = Date.now()
   const day = beijingDay(now)
   const ip = request.headers.get('cf-connecting-ip') ?? 'unknown'
-  if ((await bump(env.DB, await pingRateKey(env, ip, day), day)) > PING_IP_DAILY) {
+  if ((await bump(env.DB, await ipRateKey(env, 'ping', ip, day), day)) > PING_IP_DAILY) {
     return fail(429, 'rate_limited', secondsToBeijingMidnight(now))
   }
   await recordPing(env.DB, ping, day)
@@ -608,12 +627,17 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (method === 'GET' && pathname === '/v1/admin/stats') return adminStats(request, env, search)
   if (method === 'GET' && (pathname === '/admin' || pathname === '/admin/')) return adminPage()
 
+  // 取件码 (匿名, 可选登录) 与分享链接 /d/<code>
+  const drop = routeDrops(request, env, pathname)
+  if (drop) return drop
+
   const docMatch = /^\/v1\/docs\/([^/]+)$/.exec(pathname)
   const authed =
     (pathname === '/v1/me' && (method === 'GET' || method === 'DELETE')) ||
     (pathname === '/v1/auth/logout' && method === 'POST') ||
     (pathname === '/v1/docs' && method === 'GET') ||
-    (docMatch !== null && method === 'PUT')
+    (docMatch !== null && method === 'PUT') ||
+    isTransferRoute(method, pathname)
   if (!authed) return fail(404, 'not_found')
 
   // 先鉴权再校验路径参数, 未登录请求一律 401
@@ -623,6 +647,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (pathname === '/v1/me') return method === 'GET' ? getMe(session, env) : deleteMe(session, env)
   if (pathname === '/v1/auth/logout') return logout(session, env)
   if (pathname === '/v1/docs') return listDocs(session, env)
+  if (isTransferRoute(method, pathname)) return routeTransfers(request, env, session, pathname, search)
   const deviceId = docMatch![1]
   if (!DEVICE_ID_RE.test(deviceId)) return fail(400, 'invalid_doc')
   return putDoc(request, session, env, deviceId)
@@ -638,7 +663,10 @@ export default {
     }
   },
 
-  /** 每日清理: 过期验证码与两天前的计数; 90 天前的统计心跳聚合成按天计数后删除 */
+  /**
+   * 每日清理: 过期验证码与两天前的计数; 90 天前的统计心跳聚合成按天计数后删除;
+   * 过期的互传 / 取件 (连同 R2 文件) 与 90 天没见过的设备登记
+   */
   async scheduled(_event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
     const now = Date.now()
     ctx.waitUntil(
@@ -648,5 +676,6 @@ export default {
         ...rollupStatements(env.DB, beijingDay(now)),
       ]),
     )
+    ctx.waitUntil(cleanupExpired(env, now))
   },
 }

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { randomUUID } from 'node:crypto'
+import { createHmac, randomUUID } from 'node:crypto'
 import { createTestHarness } from 'wrangler'
 import { addDays, beijingDay } from '../src/stats.ts'
 
@@ -20,12 +20,16 @@ const server = createTestHarness({
 const BASE = 'http://sync.test'
 let ipSeq = 0
 
-/** 每次发码 / 心跳用不同 IP, 避免撞上单 IP 每日上限 */
+/** 每次发码 / 心跳 / 取件码请求用不同 IP, 避免撞上单 IP 每日上限 (需要固定 IP 时显式传 cf-connecting-ip) */
 function call(method, path, { body, token, raw, headers = {} } = {}) {
   const h = { ...headers }
   if (token) h.authorization = `Bearer ${token}`
   if (body !== undefined && !raw) h['content-type'] = 'application/json'
-  if ((path === '/v1/auth/code' || path === '/v1/ping') && !h['cf-connecting-ip']) {
+  // 测试运行时转发请求时会丢掉 undici 自动加的 content-length (改成 chunked), 原始请求体显式带上, 同浏览器上传
+  if (raw && h['content-length'] === undefined && (typeof body === 'string' || body instanceof Uint8Array)) {
+    h['content-length'] = String(typeof body === 'string' ? Buffer.byteLength(body) : body.byteLength)
+  }
+  if ((path === '/v1/auth/code' || path === '/v1/ping' || path.startsWith('/v1/drops')) && !h['cf-connecting-ip']) {
     ++ipSeq
     h['cf-connecting-ip'] = `10.${(ipSeq >> 16) & 255}.${(ipSeq >> 8) & 255}.${ipSeq & 255}`
   }
@@ -632,4 +636,553 @@ test('定时任务: 90 天前的心跳聚合进 ping_daily 后删除, installs �
     s.daily.find(d => d.day === old),
     { day: old, actives: 3, readers: 1, newInstalls: 1 },
   )
+})
+
+// ---- 互传: 账号通道 ----
+
+const utcDay = () => new Date().toISOString().slice(0, 10)
+const near = (actual, expected, slack = 10_000) =>
+  assert.ok(Math.abs(actual - expected) <= slack, `${actual} ≉ ${expected}`)
+
+async function listFor(token, device, extra = '') {
+  const res = await call('GET', `/v1/transfers?device=${device}${extra}`, { token })
+  assert.equal(res.status, 200)
+  const body = await jsonOf(res)
+  assert.equal(typeof body.now, 'number')
+  return body.items
+}
+
+const sendTransfer = (token, body) => call('POST', '/v1/transfers', { token, body })
+
+function testBytes(n) {
+  const out = new Uint8Array(n)
+  for (let i = 0; i < n; i++) out[i] = (i * 31 + 7) & 255
+  return out
+}
+
+test('互传: 文字发给全部 / 链接发给指定设备; 本机看得到自己发的; 其他账号看不到; since; 设备列表', async () => {
+  const a = await login('xfer@example.com')
+  const b = await login('xfer@example.com')
+  const c = await login('xfer-other@example.com')
+  const devA = randomUUID(), devB = randomUUID(), devD = randomUUID()
+  assert.deepEqual(await listFor(a.token, devA, '&name=' + encodeURIComponent('  手机 A  ')), [])
+  assert.deepEqual(await listFor(b.token, devB, '&name=PC%20B'), [])
+
+  const t0 = Date.now()
+  const textRes = await sendTransfer(a.token, { kind: 'text', fromDevice: devA, fromName: '手机 A', text: '你好 hello' })
+  assert.equal(textRes.status, 201)
+  assert.equal(textRes.headers.get('access-control-allow-origin'), '*')
+  const { item: text } = await jsonOf(textRes)
+  assert.match(text.id, /^[0-9a-f-]{36}$/)
+  const { id: _id, createdAt, expiresAt, ...rest } = text
+  assert.deepEqual(rest, { kind: 'text', fromDevice: devA, fromName: '手机 A', toDevice: null, title: '', text: '你好 hello' })
+  near(createdAt, t0)
+  assert.equal(expiresAt - createdAt, 7 * 86400_000)
+
+  const linkRes = await sendTransfer(a.token, {
+    kind: 'link', fromDevice: devA, toDevice: devB, url: ' https://example.com/a?b=1 ', title: ' 例子 ',
+  })
+  assert.equal(linkRes.status, 201)
+  const { item: link } = await jsonOf(linkRes)
+  assert.equal(link.url, 'https://example.com/a?b=1')
+  assert.equal(link.title, '例子')
+  assert.equal(link.toDevice, devB)
+  assert.equal(link.fromName, '')
+  assert.ok(!('text' in link))
+  // 没给标题的链接用网址作标题
+  const untitled = await jsonOf(await sendTransfer(a.token, { kind: 'link', fromDevice: devA, toDevice: devA, url: 'http://x.test/' }))
+  assert.equal(untitled.item.title, 'http://x.test/')
+
+  // B: 收到文字和发给它的链接, 新到旧; 看不到 A 发给自己的
+  const forB = await listFor(b.token, devB)
+  assert.deepEqual(forB.map(i => i.id).sort(), [text.id, link.id].sort())
+  assert.ok(forB[0].createdAt >= forB[1].createdAt)
+  assert.deepEqual(forB.find(i => i.id === text.id), text)
+  // 同账号的 D: 只有发给全部的文字
+  assert.deepEqual((await listFor(b.token, devD)).map(i => i.id), [text.id])
+  // A 自己: 发出的都在
+  assert.deepEqual((await listFor(a.token, devA)).map(i => i.id).sort(), [text.id, link.id, untitled.item.id].sort())
+  // 其他账号: 即便用同一个设备 id 也看不到
+  assert.deepEqual(await listFor(c.token, devA), [])
+  assert.deepEqual(await listFor(c.token, devB), [])
+
+  // since: 只返回 created_at > since 的
+  assert.deepEqual((await listFor(b.token, devB, `&since=${link.createdAt}`)).map(i => i.id), [])
+  const sinceItems = await listFor(b.token, devB, `&since=${link.createdAt - 1}`)
+  assert.ok(sinceItems.some(i => i.id === link.id))
+  assert.ok(sinceItems.every(i => i.createdAt > link.createdAt - 1))
+
+  // 设备列表: 名字 trim, 改名立即生效; 只列本账号
+  await listFor(b.token, devB, '&name=PC%20B2')
+  const devRes = await call('GET', '/v1/devices', { token: a.token })
+  assert.equal(devRes.status, 200)
+  const { devices } = await jsonOf(devRes)
+  const byId = Object.fromEntries(devices.map(d => [d.id, d]))
+  assert.equal(byId[devA].name, '手机 A')
+  assert.equal(byId[devB].name, 'PC B2')
+  assert.equal(byId[devD].name, '')
+  assert.equal(typeof byId[devA].lastSeenAt, 'number')
+  // C 只有自己轮询过的设备 (同一个设备 id 在各账号下各自登记)
+  const cDevices = (await jsonOf(await call('GET', '/v1/devices', { token: c.token }))).devices
+  assert.deepEqual(cDevices.map(d => d.id).sort(), [devA, devB].sort())
+  assert.ok(cDevices.every(d => d.name === ''))
+  // 不带 name 的轮询不清掉名字
+  await listFor(a.token, devA)
+  assert.equal((await jsonOf(await call('GET', '/v1/devices', { token: a.token }))).devices.find(d => d.id === devA).name, '手机 A')
+
+  // device 缺失 / 非法
+  for (const q of ['', '?device=', '?device=bad.id', `?device=${'x'.repeat(65)}`]) {
+    const res = await call('GET', `/v1/transfers${q}`, { token: a.token })
+    assert.equal(res.status, 400, q)
+    assert.deepEqual(await jsonOf(res), { error: 'invalid_device' })
+  }
+
+  // 未登录一律 401 (先鉴权再校验路径参数)
+  for (const [m, p] of [
+    ['GET', '/v1/devices'], ['GET', `/v1/transfers?device=${devA}`], ['POST', '/v1/transfers'],
+    ['DELETE', `/v1/transfers/${text.id}`], ['PUT', '/v1/transfers/x/blob'], ['GET', '/v1/transfers/bad.id/blob'],
+  ]) {
+    const res = await call(m, p)
+    assert.equal(res.status, 401, `${m} ${p}`)
+    assert.deepEqual(await jsonOf(res), { error: 'unauthorized' })
+  }
+})
+
+test('互传: 文件先建记录 → 上传前不可见 → PUT 本体 → 下载原样字节; 长度不符 400; 删除对所有设备生效', async () => {
+  const a = await login('xfer-file@example.com')
+  const b = await login('xfer-file@example.com')
+  const c = await login('xfer-file-other@example.com')
+  const devA = randomUUID(), devB = randomUUID()
+  const bytes = testBytes(3000)
+
+  const res = await sendTransfer(a.token, {
+    kind: 'file', fromDevice: devA, fromName: 'A', filename: '../dir\\书 "x".epub', size: bytes.length, mime: 'application/epub+zip',
+  })
+  assert.equal(res.status, 201)
+  const { item } = await jsonOf(res)
+  assert.equal(item.filename, '书 "x".epub')
+  assert.equal(item.title, '书 "x".epub')
+  assert.equal(item.size, 3000)
+  assert.equal(item.mime, 'application/epub+zip')
+  assert.equal(item.expiresAt - item.createdAt, 86400_000) // 24 小时内要传完
+  assert.ok(!('text' in item) && !('url' in item))
+
+  // 上传完之前谁都看不到, 也下载不了
+  assert.ok(!(await listFor(b.token, devB)).some(i => i.id === item.id))
+  assert.ok(!(await listFor(a.token, devA)).some(i => i.id === item.id))
+  assert.equal((await call('GET', `/v1/transfers/${item.id}/blob`, { token: b.token })).status, 404)
+
+  const put = (body, token = a.token) => call('PUT', `/v1/transfers/${item.id}/blob`, { token, body, raw: true })
+  const short = await put(bytes.slice(0, 100))
+  assert.equal(short.status, 400)
+  assert.deepEqual(await jsonOf(short), { error: 'invalid_length' })
+  assert.equal((await put(new Uint8Array(0))).status, 400)
+  // 其他账号上传 → 404
+  assert.equal((await put(bytes, c.token)).status, 404)
+  assert.equal((await put(bytes)).status, 204)
+  const again = await put(bytes)
+  assert.equal(again.status, 409)
+  assert.deepEqual(await jsonOf(again), { error: 'already_uploaded' })
+
+  const listed = (await listFor(b.token, devB)).find(i => i.id === item.id)
+  assert.ok(listed)
+  near(listed.expiresAt, Date.now() + 7 * 86400_000)
+
+  const got = await call('GET', `/v1/transfers/${item.id}/blob`, { token: b.token })
+  assert.equal(got.status, 200)
+  assert.equal(got.headers.get('content-type'), 'application/octet-stream')
+  assert.equal(got.headers.get('content-length'), '3000')
+  assert.equal(
+    got.headers.get('content-disposition'),
+    `attachment; filename="_ _x_.epub"; filename*=UTF-8''%E4%B9%A6%20%22x%22.epub`,
+  )
+  assert.equal(got.headers.get('x-content-type-options'), 'nosniff')
+  assert.equal(got.headers.get('cache-control'), 'no-store')
+  assert.equal(got.headers.get('access-control-allow-origin'), '*')
+  assert.match(got.headers.get('access-control-expose-headers'), /content-disposition/)
+  assert.deepEqual(new Uint8Array(await got.arrayBuffer()), bytes)
+
+  // 其他账号下载 / 删除 → 404
+  assert.equal((await call('GET', `/v1/transfers/${item.id}/blob`, { token: c.token })).status, 404)
+  assert.equal((await call('DELETE', `/v1/transfers/${item.id}`, { token: c.token })).status, 404)
+
+  const env = await server.getWorker().getEnv()
+  const key = `transfer/${a.account.id}/${item.id}`
+  assert.ok(await env.DOCS.get(key))
+
+  // B 删除: 对所有设备生效, R2 对象一起删
+  assert.equal((await call('DELETE', `/v1/transfers/${item.id}`, { token: b.token })).status, 204)
+  assert.ok(!(await listFor(a.token, devA)).some(i => i.id === item.id))
+  assert.equal(await env.DOCS.get(key), null)
+  assert.equal((await call('DELETE', `/v1/transfers/${item.id}`, { token: b.token })).status, 404)
+  assert.equal((await call('GET', `/v1/transfers/${item.id}/blob`, { token: a.token })).status, 404)
+
+  // 文字条目不能 PUT 本体
+  const { item: txt } = await jsonOf(await sendTransfer(a.token, { kind: 'text', fromDevice: devA, text: 'x' }))
+  assert.equal((await call('PUT', `/v1/transfers/${txt.id}/blob`, { token: a.token, body: 'x', raw: true })).status, 404)
+})
+
+test('互传: 字段校验 → 400 invalid_transfer; 超限 → 413 too_large', async () => {
+  const { token } = await login('xfer-valid@example.com')
+  const dev = randomUUID()
+  const bad = [
+    {},
+    { kind: 'image', fromDevice: dev, text: 'x' },
+    { kind: 'text', text: 'x' },
+    { kind: 'text', fromDevice: 'bad.id', text: 'x' },
+    { kind: 'text', fromDevice: dev, toDevice: 'a b', text: 'x' },
+    { kind: 'text', fromDevice: dev, toDevice: 5, text: 'x' },
+    { kind: 'text', fromDevice: dev },
+    { kind: 'text', fromDevice: dev, text: '   ' },
+    { kind: 'text', fromDevice: dev, text: 5 },
+    { kind: 'text', fromDevice: dev, text: 'x', title: 'x'.repeat(301) },
+    { kind: 'text', fromDevice: dev, text: 'x', title: 7 },
+    { kind: 'text', fromDevice: dev, text: 'x', fromName: 7 },
+    { kind: 'link', fromDevice: dev },
+    { kind: 'link', fromDevice: dev, url: 'javascript:alert(1)' },
+    { kind: 'link', fromDevice: dev, url: 'data:text/html,<b>x</b>' },
+    { kind: 'link', fromDevice: dev, url: 'not a url' },
+    { kind: 'link', fromDevice: dev, url: 'https://e.com/' + 'x'.repeat(4096) },
+    { kind: 'file', fromDevice: dev, size: 10 },
+    { kind: 'file', fromDevice: dev, filename: '../', size: 10 },
+    { kind: 'file', fromDevice: dev, filename: '..', size: 10 },
+    { kind: 'file', fromDevice: dev, filename: 'a.epub' },
+    { kind: 'file', fromDevice: dev, filename: 'a.epub', size: 0 },
+    { kind: 'file', fromDevice: dev, filename: 'a.epub', size: 1.5 },
+    { kind: 'file', fromDevice: dev, filename: 'a.epub', size: '10' },
+    { kind: 'file', fromDevice: dev, filename: 'x'.repeat(256), size: 10 },
+    { kind: 'file', fromDevice: dev, filename: 'a.epub', size: 10, mime: 'x'.repeat(101) },
+    [],
+  ]
+  for (const body of bad) {
+    const res = await sendTransfer(token, body)
+    assert.equal(res.status, 400, JSON.stringify(body).slice(0, 80))
+    assert.deepEqual(await jsonOf(res), { error: 'invalid_transfer' })
+  }
+  assert.equal((await call('POST', '/v1/transfers', { token, body: '{oops', raw: true })).status, 400)
+
+  // 正好 64 KB 可以; 多 1 字节 / 按 UTF-8 计超限 → 413
+  assert.equal((await sendTransfer(token, { kind: 'text', fromDevice: dev, text: 'x'.repeat(64 * 1024) })).status, 201)
+  for (const body of [
+    { kind: 'text', fromDevice: dev, text: 'x'.repeat(64 * 1024 + 1) },
+    { kind: 'text', fromDevice: dev, text: '中'.repeat(22000) }, // 66000 字节
+    { kind: 'file', fromDevice: dev, filename: 'a.pdf', size: 50 * 1024 * 1024 + 1 },
+    { kind: 'text', fromDevice: dev, text: 'x', pad: 'x'.repeat(81 * 1024) }, // 请求体超 80 KB
+  ]) {
+    const res = await sendTransfer(token, body)
+    assert.equal(res.status, 413)
+    assert.deepEqual(await jsonOf(res), { error: 'too_large' })
+  }
+  assert.equal((await sendTransfer(token, { kind: 'file', fromDevice: dev, filename: 'a.pdf', size: 50 * 1024 * 1024 })).status, 201)
+  // 上传本体时 content-length 超过 50 MB → 413 (不读请求体)
+  const huge = await call('PUT', `/v1/transfers/${randomUUID()}/blob`, {
+    token, body: new Uint8Array(50 * 1024 * 1024 + 1), raw: true,
+  })
+  assert.equal(huge.status, 413)
+})
+
+test('互传限流: 每账号每天 200 条 / 500 MB → 429 + retryAfter; 超限的字节不计入', async () => {
+  const { token, account } = await login('xfer-limit@example.com')
+  const env = await server.getWorker().getEnv()
+  const day = utcDay()
+  const dev = randomUUID()
+  await env.DB.prepare('INSERT INTO counters(key, day, count) VALUES(?1, ?2, 500 * 1024 * 1024 - 10)')
+    .bind(`xfer:b:${account.id}`, day)
+    .run()
+  const tooMuch = await sendTransfer(token, { kind: 'file', fromDevice: dev, filename: 'a', size: 11 })
+  assert.equal(tooMuch.status, 429)
+  const body = await jsonOf(tooMuch)
+  assert.equal(body.error, 'rate_limited')
+  assert.ok(body.retryAfter > 0 && body.retryAfter <= 86400)
+  assert.equal(tooMuch.headers.get('retry-after'), String(body.retryAfter))
+  assert.equal((await sendTransfer(token, { kind: 'file', fromDevice: dev, filename: 'a', size: 10 })).status, 201)
+  const used = await env.DB.prepare('SELECT count FROM counters WHERE key = ?1 AND day = ?2').bind(`xfer:b:${account.id}`, day).first()
+  assert.equal(used.count, 500 * 1024 * 1024)
+  // 字节用完后文字还能发
+  assert.equal((await sendTransfer(token, { kind: 'text', fromDevice: dev, text: 'x' })).status, 201)
+
+  await env.DB.prepare('UPDATE counters SET count = 200 WHERE key = ?1 AND day = ?2').bind(`xfer:n:${account.id}`, day).run()
+  const items = await sendTransfer(token, { kind: 'text', fromDevice: dev, text: 'x' })
+  assert.equal(items.status, 429)
+  assert.equal((await jsonOf(items)).error, 'rate_limited')
+})
+
+test('DELETE /v1/me: 一并删除互传条目、设备登记与 R2 文件', async () => {
+  const s = await login('xfer-bye@example.com')
+  const dev = randomUUID()
+  await listFor(s.token, dev, '&name=x')
+  const { item } = await jsonOf(await sendTransfer(s.token, { kind: 'file', fromDevice: dev, filename: 'a.bin', size: 5 }))
+  assert.equal((await call('PUT', `/v1/transfers/${item.id}/blob`, { token: s.token, body: testBytes(5), raw: true })).status, 204)
+  assert.equal((await sendTransfer(s.token, { kind: 'text', fromDevice: dev, text: 'x' })).status, 201)
+  const env = await server.getWorker().getEnv()
+  assert.equal((await env.DOCS.list({ prefix: `transfer/${s.account.id}/` })).objects.length, 1)
+
+  assert.equal((await call('DELETE', '/v1/me', { token: s.token })).status, 204)
+  assert.equal((await env.DOCS.list({ prefix: `transfer/${s.account.id}/` })).objects.length, 0)
+  for (const table of ['transfers', 'devices']) {
+    const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE account_id = ?1`).bind(s.account.id).first()
+    assert.equal(row.n, 0, table)
+  }
+})
+
+// ---- 互传: 临时取件码 ----
+
+const createDrop = (body, opts = {}) => call('POST', '/v1/drops', { body, ...opts })
+const lookup = (code, ip) => call('GET', `/v1/drops/${code}`, ip ? { headers: { 'cf-connecting-ip': ip } } : {})
+
+/** 与 Worker 的 ipRateKey 相同: <prefix>:HMAC-SHA256('lightread-ping:' + ADMIN_TOKEN, 日期|IP) 前 32 位十六进制 */
+const ipKey = (prefix, ip, day = utcDay()) =>
+  `${prefix}:` + createHmac('sha256', `lightread-ping:${ADMIN_TOKEN}`).update(`${day}|${ip}`).digest('hex').slice(0, 32)
+
+/** 库里不存在的 6 位取件码 */
+async function unusedCodes(n) {
+  const env = await server.getWorker().getEnv()
+  const used = new Set((await env.DB.prepare('SELECT code FROM drops').all()).results.map(r => r.code))
+  const out = []
+  for (let i = 0; out.length < n; i++) {
+    const code = String(100000 + i * 7919)
+    if (!used.has(code)) out.push(code)
+  }
+  return out
+}
+
+test('取件码: 匿名文字取件, 每次查看算一次领取, 10 次后 410; 链接默认 1 小时; 过期 410', async () => {
+  const t0 = Date.now()
+  const res = await createDrop({ kind: 'text', text: '取件内容', ttl: 600 })
+  assert.equal(res.status, 201)
+  const drop = await jsonOf(res)
+  assert.match(drop.code, /^\d{6}$/)
+  assert.match(drop.ownerToken, /^[A-Za-z0-9_-]{43}$/)
+  assert.match(drop.id, /^[0-9a-f-]{36}$/)
+  assert.equal(drop.maxDownloads, 10)
+  near(drop.expiresAt, t0 + 600_000)
+
+  for (let i = 1; i <= 10; i++) {
+    const got = await lookup(drop.code)
+    assert.equal(got.status, 200, `lookup ${i}`)
+    assert.equal(got.headers.get('cache-control'), 'no-store')
+    const body = await jsonOf(got)
+    assert.equal(body.downloadsLeft, 10 - i)
+    if (i === 1) {
+      const { createdAt, ...rest } = body
+      assert.deepEqual(rest, { kind: 'text', title: '', text: '取件内容', expiresAt: drop.expiresAt, downloadsLeft: 9 })
+      near(createdAt, t0)
+    }
+  }
+  const gone = await lookup(drop.code)
+  assert.equal(gone.status, 410)
+  assert.deepEqual(await jsonOf(gone), { error: 'gone' })
+
+  const link = await jsonOf(await createDrop({ kind: 'link', url: 'https://example.com/x' }))
+  near(link.expiresAt, Date.now() + 3600_000)
+  const got = await jsonOf(await lookup(link.code))
+  assert.equal(got.url, 'https://example.com/x')
+  assert.equal(got.title, 'https://example.com/x')
+  assert.ok(!('text' in got) && !('filename' in got))
+
+  // 过期 → 410
+  const env = await server.getWorker().getEnv()
+  await env.DB.prepare('UPDATE drops SET expires_at = ?1 WHERE id = ?2').bind(Date.now() - 1, link.id).run()
+  assert.equal((await lookup(link.code)).status, 410)
+})
+
+test('取件码: 校验 → 400 invalid_drop; 匿名文件 20 MB, 登录后 50 MB; 无效 token 按匿名处理', async () => {
+  for (const body of [
+    { kind: 'text', text: 'x', ttl: 60 },
+    { kind: 'text', text: 'x', ttl: '600' },
+    { kind: 'text', text: 'x', ttl: 7200 },
+    { kind: 'note', text: 'x' },
+    { kind: 'text' },
+    { kind: 'link', url: 'javascript:alert(1)' },
+    { kind: 'file', filename: 'a', size: 0 },
+    'x',
+  ]) {
+    const res = await createDrop(body)
+    assert.equal(res.status, 400, JSON.stringify(body))
+    assert.deepEqual(await jsonOf(res), { error: 'invalid_drop' })
+  }
+  assert.equal((await createDrop({ kind: 'text', text: 'x'.repeat(64 * 1024 + 1) })).status, 413)
+
+  const file = size => ({ kind: 'file', filename: 'big.pdf', size })
+  assert.equal((await createDrop(file(20 * 1024 * 1024))).status, 201)
+  const anon = await createDrop(file(25 * 1024 * 1024))
+  assert.equal(anon.status, 413)
+  assert.deepEqual(await jsonOf(anon), { error: 'too_large' })
+  assert.equal((await createDrop(file(25 * 1024 * 1024), { token: 'x'.repeat(43) })).status, 413)
+  const { token, account } = await login('drop-sender@example.com')
+  const authed = await createDrop(file(25 * 1024 * 1024), { token })
+  assert.equal(authed.status, 201)
+  assert.equal((await createDrop(file(50 * 1024 * 1024 + 1), { token })).status, 413)
+  const env = await server.getWorker().getEnv()
+  const row = await env.DB.prepare('SELECT account_id, owner_hash FROM drops WHERE id = ?1').bind((await jsonOf(authed)).id).first()
+  assert.equal(row.account_id, account.id)
+  assert.match(row.owner_hash, /^[0-9a-f]{64}$/)
+})
+
+test('取件码: 文件上传凭 x-drop-token; 查看元数据不算领取, 下载算; 撤回删文件', async () => {
+  const bytes = testBytes(1234)
+  const drop = await jsonOf(await createDrop({ kind: 'file', filename: 'notes.txt', size: bytes.length, mime: 'text/plain' }))
+  // 上传前查不到 (算一次输错)
+  assert.equal((await lookup(drop.code)).status, 404)
+
+  const put = (body, tokenHeader) =>
+    call('PUT', `/v1/drops/${drop.id}/blob`, { body, raw: true, headers: tokenHeader === undefined ? {} : { 'x-drop-token': tokenHeader } })
+  assert.equal((await put(bytes)).status, 403)
+  const wrong = await put(bytes, 'x'.repeat(43))
+  assert.equal(wrong.status, 403)
+  assert.deepEqual(await jsonOf(wrong), { error: 'forbidden' })
+  assert.equal((await call('PUT', `/v1/drops/${randomUUID()}/blob`, { body: bytes, raw: true, headers: { 'x-drop-token': drop.ownerToken } })).status, 404)
+  assert.equal((await put(bytes.slice(1), drop.ownerToken)).status, 400)
+  assert.equal((await put(bytes, drop.ownerToken)).status, 204)
+  assert.equal((await put(bytes, drop.ownerToken)).status, 409)
+
+  const meta = await jsonOf(await lookup(drop.code))
+  assert.equal(meta.kind, 'file')
+  assert.equal(meta.filename, 'notes.txt')
+  assert.equal(meta.title, 'notes.txt')
+  assert.equal(meta.size, 1234)
+  assert.equal(meta.mime, 'text/plain')
+  assert.equal(meta.downloadsLeft, 10)
+  assert.equal((await lookup(drop.code)).status, 200)
+
+  const blob = await call('GET', `/v1/drops/${drop.code}/blob`)
+  assert.equal(blob.status, 200)
+  assert.equal(blob.headers.get('content-type'), 'application/octet-stream')
+  assert.equal(blob.headers.get('content-disposition'), `attachment; filename="notes.txt"; filename*=UTF-8''notes.txt`)
+  assert.equal(blob.headers.get('x-content-type-options'), 'nosniff')
+  assert.equal(blob.headers.get('cache-control'), 'no-store')
+  assert.deepEqual(new Uint8Array(await blob.arrayBuffer()), bytes)
+  assert.equal((await jsonOf(await lookup(drop.code))).downloadsLeft, 9)
+
+  // 文字取件没有 blob
+  const text = await jsonOf(await createDrop({ kind: 'text', text: 'hi' }))
+  assert.equal((await call('GET', `/v1/drops/${text.code}/blob`)).status, 404)
+  assert.equal((await call('PUT', `/v1/drops/${text.id}/blob`, { body: 'x', raw: true, headers: { 'x-drop-token': text.ownerToken } })).status, 409)
+
+  // 撤回: 错 token 403, 对的 204, 文件一起删
+  const env = await server.getWorker().getEnv()
+  assert.ok(await env.DOCS.get(`drop/${drop.id}`))
+  assert.equal((await call('DELETE', `/v1/drops/${drop.id}`, { headers: { 'x-drop-token': text.ownerToken } })).status, 403)
+  assert.equal((await call('DELETE', `/v1/drops/${drop.id}`, { headers: { 'x-drop-token': drop.ownerToken } })).status, 204)
+  assert.equal(await env.DOCS.get(`drop/${drop.id}`), null)
+  assert.equal((await call('DELETE', `/v1/drops/${drop.id}`, { headers: { 'x-drop-token': drop.ownerToken } })).status, 404)
+  assert.equal((await lookup(drop.code)).status, 404)
+})
+
+test('取件码限流: 每 IP 每天建 20 次; 查询 60 次; 输错 10 次后当天全部 429; 计数键不含 IP', async () => {
+  const ip = '198.51.100.7'
+  for (let i = 1; i <= 20; i++) {
+    const res = await createDrop({ kind: 'text', text: `n${i}` }, { headers: { 'cf-connecting-ip': ip } })
+    assert.equal(res.status, 201, `create ${i}`)
+  }
+  const limited = await createDrop({ kind: 'text', text: 'x' }, { headers: { 'cf-connecting-ip': ip } })
+  assert.equal(limited.status, 429)
+  const body = await jsonOf(limited)
+  assert.equal(body.error, 'rate_limited')
+  assert.ok(body.retryAfter > 0 && body.retryAfter <= 86400)
+  const env = await server.getWorker().getEnv()
+  const row = await env.DB.prepare('SELECT count FROM counters WHERE key = ?1 AND day = ?2').bind(ipKey('drop:c', ip), utcDay()).first()
+  assert.equal(row.count, 21)
+  const all = (await env.DB.prepare('SELECT key FROM counters').all()).results
+  assert.ok(!all.some(r => r.key.includes(ip)))
+
+  // 输错: 格式错与查无都算; 满 10 次后连正确的码也 429, 别的 IP 不受影响
+  const target = await jsonOf(await createDrop({ kind: 'text', text: 'target' }))
+  const guesser = '198.51.100.8'
+  const misses = ['abcdef', '12345', '1234567', ...(await unusedCodes(7))]
+  for (const [i, code] of misses.entries()) {
+    const res = await lookup(code, guesser)
+    assert.equal(res.status, i < 3 ? 400 : 404, code)
+    assert.deepEqual(await jsonOf(res), { error: i < 3 ? 'invalid_code' : 'not_found' })
+  }
+  const locked = await lookup(target.code, guesser)
+  assert.equal(locked.status, 429)
+  assert.equal((await jsonOf(locked)).error, 'rate_limited')
+  assert.equal((await lookup(target.code, '198.51.100.9')).status, 200)
+
+  // 查询次数: 推到 60 次后 429
+  const heavy = '198.51.100.10'
+  await env.DB.prepare('INSERT INTO counters(key, day, count) VALUES(?1, ?2, 60)').bind(ipKey('drop:q', heavy), utcDay()).run()
+  assert.equal((await lookup(target.code, heavy)).status, 429)
+  assert.equal((await call('GET', `/v1/drops/${target.code}/blob`, { headers: { 'cf-connecting-ip': heavy } })).status, 429)
+})
+
+test('取件码分享链接 /d/<code>: 未配 WEB_APP_URL 时纯文本说明; 预检放行 x-drop-token', async () => {
+  const res = await call('GET', '/d/123456')
+  assert.equal(res.status, 200)
+  assert.equal(res.headers.get('content-type'), 'text/plain; charset=utf-8')
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff')
+  const text = await res.text()
+  assert.match(text, /123456/)
+  assert.match(text, /互传/)
+  assert.doesNotMatch(text, /</)
+  for (const p of ['/d/abc', '/d/1234567', '/d/123456/x']) assert.equal((await call('GET', p)).status, 404, p)
+
+  const pre = await call('OPTIONS', '/v1/drops/abc/blob', {
+    headers: { origin: 'https://app.example', 'access-control-request-method': 'PUT', 'access-control-request-headers': 'x-drop-token' },
+  })
+  assert.equal(pre.status, 204)
+  assert.match(pre.headers.get('access-control-allow-headers'), /x-drop-token/)
+  assert.match(pre.headers.get('access-control-allow-headers'), /authorization/)
+  // 未知方法 / 路径
+  assert.equal((await call('PATCH', '/v1/drops/abc')).status, 404)
+  assert.equal((await call('GET', '/v1/drops')).status, 404)
+})
+
+test('取件码分享链接: 配了 WEB_APP_URL 时 302 到网页版互传页', async () => {
+  const web = createTestHarness({
+    root,
+    workers: [{ configPath: './wrangler.jsonc', vars: { WEB_APP_URL: 'https://read.example/app/#/library' } }],
+  })
+  try {
+    await web.listen()
+    const res = await web.fetch(BASE + '/d/012345', { redirect: 'manual' })
+    assert.equal(res.status, 302)
+    assert.equal(res.headers.get('location'), 'https://read.example/app/#/transfer?code=012345')
+  } finally {
+    await web.close()
+  }
+})
+
+test('定时清理: 过期的互传 / 取件连同 R2 文件删除, 未过期的保留; 90 天没见过的设备删除', async () => {
+  const env = await server.getWorker().getEnv()
+  const now = Date.now()
+  const acct = randomUUID()
+  const ins = (id, expiresAt) =>
+    env.DB.prepare(
+      "INSERT INTO transfers(id, account_id, from_device, kind, title, r2_key, size, filename, ready, created_at, expires_at) " +
+        "VALUES(?1, ?2, 'dev', 'file', 't', ?3, 1, 'f', 1, ?4, ?5)",
+    ).bind(id, acct, `transfer/${acct}/${id}`, now - 8 * 86400_000, expiresAt)
+  const insDrop = (id, code, expiresAt) =>
+    env.DB.prepare(
+      "INSERT INTO drops(id, code, owner_hash, kind, r2_key, size, filename, created_at, expires_at) " +
+        "VALUES(?1, ?2, 'h', 'file', ?3, 1, 'f', ?4, ?5)",
+    ).bind(id, code, `drop/${id}`, now - 7200_000, expiresAt)
+  const [oldT, newT, oldD, newD] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()]
+  const [codeOld, codeNew] = await unusedCodes(2)
+  await env.DB.batch([
+    ins(oldT, now - 1000),
+    ins(newT, now + 86400_000),
+    insDrop(oldD, codeOld, now - 1000),
+    insDrop(newD, codeNew, now + 600_000),
+    env.DB.prepare("INSERT INTO devices VALUES(?1, 'old-dev', 'x', ?2)").bind(acct, now - 91 * 86400_000),
+    env.DB.prepare("INSERT INTO devices VALUES(?1, 'new-dev', 'x', ?2)").bind(acct, now - 89 * 86400_000),
+  ])
+  for (const key of [`transfer/${acct}/${oldT}`, `transfer/${acct}/${newT}`, `drop/${oldD}`, `drop/${newD}`]) {
+    await env.DOCS.put(key, 'x')
+  }
+
+  const res = await server.getWorker().scheduled({ cron: '17 3 * * *', scheduledTime: new Date() })
+  assert.equal(res.outcome, 'ok')
+
+  const ids = async table =>
+    (await env.DB.prepare(`SELECT id FROM ${table} WHERE id IN (?1, ?2, ?3, ?4)`).bind(oldT, newT, oldD, newD).all()).results.map(r => r.id)
+  assert.deepEqual(await ids('transfers'), [newT])
+  assert.deepEqual(await ids('drops'), [newD])
+  assert.equal(await env.DOCS.get(`transfer/${acct}/${oldT}`), null)
+  assert.equal(await env.DOCS.get(`drop/${oldD}`), null)
+  assert.ok(await env.DOCS.get(`transfer/${acct}/${newT}`))
+  assert.ok(await env.DOCS.get(`drop/${newD}`))
+  const devs = (await env.DB.prepare('SELECT device_id FROM devices WHERE account_id = ?1').bind(acct).all()).results.map(r => r.device_id)
+  assert.deepEqual(devs, ['new-dev'])
 })

@@ -13,6 +13,7 @@ import { isTauri } from './storage'
 import { startExternalOpen } from './services/externalOpen'
 import { toast } from './services/toast'
 import { requestAutoSync, startAutoSync } from './services/sync'
+import { startTransferPolling, transferState } from './services/transfer'
 import {
   canInAppInstall,
   downloadInstaller,
@@ -29,6 +30,7 @@ const route = useRoute()
 const router = useRouter()
 let stopExternalOpen: (() => void) | undefined
 let stopSync: (() => void) | undefined
+let stopTransfer: (() => void) | undefined
 let stopUpdateChecks: (() => void) | undefined
 
 const updateInfo = ref<UpdateInfo | null>(null)
@@ -102,6 +104,8 @@ onMounted(async () => {
   if (isTauri()) stopExternalOpen = await startExternalOpen(router)
   // 多端同步: 启动一次、切到后台、每 5 分钟 (未开启自动同步时引擎自己跳过)
   stopSync = startAutoSync()
+  // 互传: 启动、获得焦点、可见期间定时收取 (未登录且未配置 WebDAV 时什么也不做)
+  stopTransfer = startTransferPolling(() => router.push('/transfer'))
   // 匿名使用统计: 每天一次, 后台进行
   void pingUsage()
   void recoverFromLocalTtsCrash()
@@ -119,6 +123,7 @@ async function recoverFromLocalTtsCrash() {
 onBeforeUnmount(() => {
   stopExternalOpen?.()
   stopSync?.()
+  stopTransfer?.()
   stopUpdateChecks?.()
 })
 // 阅读页全屏沉浸, 隐藏侧栏
@@ -133,6 +138,8 @@ const navs = [
   { path: '/papers', labelKey: 'nav.papers', icon: 'M6 2h9a1 1 0 0 1 .7.3l4 4a1 1 0 0 1 .3.7v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm8 2H6v16h12V8h-3a1 1 0 0 1-1-1V4zm2 .41V6h1.59L16 4.41zM8 11a1 1 0 0 1 1-1h6a1 1 0 1 1 0 2H9a1 1 0 0 1-1-1zm0 4a1 1 0 0 1 1-1h6a1 1 0 1 1 0 2H9a1 1 0 0 1-1-1z' },
   { path: '/catalogs', labelKey: 'nav.catalogs', icon: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM4.06 13h3.97c.1 1.9.5 3.63 1.1 5.02A8.02 8.02 0 0 1 4.06 13zm0-2a8.02 8.02 0 0 1 5.07-7.02c-.6 1.4-1 3.12-1.1 5.02H4.06zM12 4.04c.83.9 1.72 2.87 1.94 6.96h-3.88c.22-4.09 1.1-6.05 1.94-6.96zM10.06 13h3.88c-.22 4.09-1.11 6.05-1.94 6.96-.83-.9-1.72-2.87-1.94-6.96zm5.9 0h3.98a8.02 8.02 0 0 1-5.07 5.02c.6-1.4 1-3.12 1.1-5.02zm0-2c-.1-1.9-.5-3.63-1.1-5.02A8.02 8.02 0 0 1 19.95 11h-3.98z' },
   { path: '/stats', labelKey: 'nav.stats', icon: 'M4 13a1.5 1.5 0 0 1 3 0v5.5a1.5 1.5 0 0 1-3 0V13zm6.5-5a1.5 1.5 0 0 1 3 0v10.5a1.5 1.5 0 0 1-3 0V8zM17 4.5a1.5 1.5 0 0 1 3 0v14a1.5 1.5 0 0 1-3 0v-14z' },
+  // 互传: 手机底部标签栏已有 5 个, 不再挤第 6 个 (手机入口在藏书页「导入」菜单与设置页), 见 docs/device-transfer.md
+  { path: '/transfer', labelKey: 'nav.transfer', desktopOnly: true, icon: 'M16.3 3.3a1 1 0 0 1 1.4 0l3 3a1 1 0 0 1 0 1.4l-3 3a1 1 0 1 1-1.4-1.4L17.58 8H5a1 1 0 0 1 0-2h12.59l-1.3-1.3a1 1 0 0 1 0-1.4zM7.7 13.3a1 1 0 0 1 0 1.4L6.42 16H19a1 1 0 1 1 0 2H6.41l1.3 1.3a1 1 0 1 1-1.42 1.4l-3-3a1 1 0 0 1 0-1.4l3-3a1 1 0 0 1 1.42 0z' },
 ]
 
 // 设置固定在侧栏左下角, 保持主导航干净
@@ -162,12 +169,18 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
           :key="n.path"
           :to="n.path"
           class="nav-item"
+          :class="{ 'nav-desktop-only': 'desktopOnly' in n && n.desktopOnly }"
           :title="t(n.labelKey)"
         >
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
             <path :d="n.icon" fill="currentColor" />
           </svg>
           <span class="nav-label">{{ t(n.labelKey) }}</span>
+          <span
+            v-if="n.path === '/transfer' && transferState.unread"
+            class="nav-badge"
+            :aria-label="t('transfer.unread', { n: transferState.unread })"
+          >{{ transferState.unread > 99 ? '99+' : transferState.unread }}</span>
         </router-link>
       </nav>
       <div class="sidebar-bottom">
@@ -323,6 +336,20 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
 .nav-label {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.nav-badge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--brand);
+  color: var(--on-brand);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 .sidebar-bottom {
   position: relative;
@@ -543,6 +570,16 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
   .nav-label {
     display: none;
   }
+  .nav-badge {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 16px;
+  }
   .nav-item {
     justify-content: center;
     padding: 0;
@@ -594,6 +631,9 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
     box-shadow: 0 -1px 0 color-mix(in srgb, var(--border) 50%, transparent);
   }
   .logo {
+    display: none;
+  }
+  .nav-desktop-only {
     display: none;
   }
   .nav {

@@ -14,6 +14,8 @@ export const router = createRouter({
     { path: '/read-djvu/:id', component: () => import('../views/DjvuReaderView.vue') },
     { path: '/catalogs', component: () => import('../views/CatalogView.vue') },
     { path: '/stats', component: () => import('../views/StatsView.vue') },
+    // 互传 (设备间发送文字 / 链接 / 文件; ?code=123456 直接取件)
+    { path: '/transfer', component: () => import('../views/TransferView.vue') },
     { path: '/settings', component: () => import('../views/SettingsView.vue') },
     { path: '/manual', component: () => import('../views/ManualView.vue') },
   ],
