@@ -1,7 +1,7 @@
 /** Web 端存储实现: IndexedDB (Dexie), 书籍与封面以 Blob 存库 */
 import Dexie, { type Table } from 'dexie'
 import type {
-  AnnotationRec, BooklistRec, BookMeta, CatalogSourceRec, LibraryStorage, NewBookMeta,
+  AnnotationRec, BooklistRec, BooklistWantedRec, BookMeta, CatalogSourceRec, LibraryStorage, NewBookMeta,
 } from './types'
 import { BUILTIN_SOURCES, newId } from './types'
 
@@ -27,6 +27,7 @@ class LightReadDB extends Dexie {
   sources!: Table<CatalogSourceRec, string>
   booklists!: Table<BooklistRec, string>
   booklistItems!: Table<BooklistItemRow, [string, string]>
+  booklistWanted!: Table<BooklistWantedRec, string>
 
   constructor() {
     super('lightread')
@@ -41,6 +42,15 @@ class LightReadDB extends Dexie {
       sources: 'id, url, addedAt',
       booklists: 'id, name, createdAt, updatedAt',
       booklistItems: '[booklistId+bookId], booklistId, bookId, addedAt',
+    })
+    // 3: 书单的「待找」条目 (还不在藏书里的书), 见 docs/booklists.md
+    this.version(3).stores({
+      books: 'id, title, author, format, addedAt, lastReadAt',
+      annotations: 'id, bookId, createdAt',
+      sources: 'id, url, addedAt',
+      booklists: 'id, name, createdAt, updatedAt',
+      booklistItems: '[booklistId+bookId], booklistId, bookId, addedAt',
+      booklistWanted: 'id, booklistId, addedAt',
     })
   }
 }
@@ -143,8 +153,9 @@ export class DexieStorage implements LibraryStorage {
   }
 
   async deleteBooklist(id: string) {
-    await this.db.transaction('rw', this.db.booklists, this.db.booklistItems, async () => {
+    await this.db.transaction('rw', this.db.booklists, this.db.booklistItems, this.db.booklistWanted, async () => {
       await this.db.booklistItems.where('booklistId').equals(id).delete()
+      await this.db.booklistWanted.where('booklistId').equals(id).delete()
       await this.db.booklists.delete(id)
     })
   }
@@ -181,6 +192,34 @@ export class DexieStorage implements LibraryStorage {
     await this.db.transaction('rw', this.db.booklists, this.db.booklistItems, async () => {
       await this.db.booklistItems.bulkDelete(uniqueIds.map(bookId => [booklistId, bookId]))
       await this.db.booklists.update(booklistId, { updatedAt: Date.now() })
+    })
+  }
+
+  async listBooklistWanted() {
+    return this.db.booklistWanted.orderBy('addedAt').toArray()
+  }
+
+  async putBooklistWanted(recs: BooklistWantedRec[]) {
+    if (!recs.length) return
+    const now = Date.now()
+    await this.db.transaction('rw', this.db.booklists, this.db.booklistWanted, async () => {
+      await this.db.booklistWanted.bulkPut(recs.map(rec => ({ ...rec })))
+      for (const id of new Set(recs.map(rec => rec.booklistId))) {
+        await this.db.booklists.update(id, { updatedAt: now })
+      }
+    })
+  }
+
+  async deleteBooklistWanted(ids: string[]) {
+    const unique = [...new Set(ids)]
+    if (!unique.length) return
+    await this.db.transaction('rw', this.db.booklists, this.db.booklistWanted, async () => {
+      const rows = (await this.db.booklistWanted.bulkGet(unique)).filter(Boolean) as BooklistWantedRec[]
+      await this.db.booklistWanted.bulkDelete(unique)
+      const now = Date.now()
+      for (const id of new Set(rows.map(row => row.booklistId))) {
+        await this.db.booklists.update(id, { updatedAt: now })
+      }
     })
   }
 

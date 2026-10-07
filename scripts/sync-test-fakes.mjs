@@ -13,6 +13,7 @@ export function createFakeStorage() {
   const booklists = new Map()
   const items = new Map() // `${booklistId}|${bookId}` → { booklistId, bookId, addedAt }
   const sources = new Map()
+  const wanted = new Map() // 待找条目 id → BooklistWantedRec
   const id = () => crypto.randomUUID()
   const clone = v => structuredClone(v)
   const s = {
@@ -67,8 +68,14 @@ export function createFakeStorage() {
     async renameBooklist(bid, name) { const b = booklists.get(bid); if (b) b.name = name },
     async deleteBooklist(bid) {
       for (const [k, it] of items) if (it.booklistId === bid) items.delete(k)
+      for (const [k, w] of wanted) if (w.booklistId === bid) wanted.delete(k)
       booklists.delete(bid)
     },
+    async listBooklistWanted() {
+      return [...wanted.values()].sort((a, b) => a.addedAt - b.addedAt).map(clone)
+    },
+    async putBooklistWanted(recs) { for (const r of recs) wanted.set(r.id, clone(r)) },
+    async deleteBooklistWanted(ids) { for (const w of ids) wanted.delete(w) },
     async listBooklistItems(bid) {
       return [...items.values()].filter(it => it.booklistId === bid)
         .sort((a, b) => a.addedAt - b.addedAt).map(({ bookId, addedAt }) => ({ bookId, addedAt }))

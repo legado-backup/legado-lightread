@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
-import type { BooklistRec, BookMeta } from '../storage'
-import { getStorage } from '../storage'
+import type { BooklistRec, BooklistWantedRec, BookMeta } from '../storage'
+import { getStorage, newId } from '../storage'
+import { planAutoLink, planListImport, type BooklistEntry } from '../services/booklists'
 import { recordReading } from '../services/readingLog.ts'
 import { activeAgentTurn, cleanupAgentPaper, paperAgentRuntimeAvailable, stopAgentTurn } from '../services/paperAgent.ts'
 
@@ -9,6 +10,8 @@ export const useLibrary = defineStore('library', {
     books: [] as BookMeta[],
     booklists: [] as BooklistRec[],
     booklistBookIds: {} as Record<string, string[]>,
+    /** 书单 id → 待找条目 (还不在藏书里的书), 按加入时间升序 */
+    booklistWanted: {} as Record<string, BooklistWantedRec[]>,
     loaded: false,
     coverUrls: {} as Record<string, string>,
   }),
@@ -23,9 +26,28 @@ export const useLibrary = defineStore('library', {
         booklist.id,
         await storage.listBooklistBookIds(booklist.id),
       ] as const))
+      let wanted = await storage.listBooklistWanted()
+      // 待找的书已经进了藏书 (导入 / 下载 / 同步之后): 自动加入书单并删除待找条目
+      const links = planAutoLink(wanted, books)
+      if (links.length) {
+        const byList = Object.fromEntries(memberships.map(([id, ids]) => [id, [...ids]]))
+        for (const link of links) {
+          if (!byList[link.booklistId]) continue
+          if (!byList[link.booklistId].includes(link.bookId)) {
+            await storage.addBooksToBooklist(link.booklistId, [link.bookId])
+            byList[link.booklistId].push(link.bookId)
+          }
+        }
+        await storage.deleteBooklistWanted(links.map(link => link.wantedId))
+        const linked = new Set(links.map(link => link.wantedId))
+        wanted = wanted.filter(entry => !linked.has(entry.id))
+        this.booklistBookIds = byList
+      } else {
+        this.booklistBookIds = Object.fromEntries(memberships)
+      }
       this.books = books
       this.booklists = booklists
-      this.booklistBookIds = Object.fromEntries(memberships)
+      this.booklistWanted = groupWanted(wanted)
       this.loaded = true
       // 封面异步补齐
       for (const book of this.books) {
@@ -81,6 +103,64 @@ export const useLibrary = defineStore('library', {
       await storage.deleteBooklist(id)
       this.booklists = this.booklists.filter(item => item.id !== id)
       delete this.booklistBookIds[id]
+      delete this.booklistWanted[id]
+    },
+    /** 给书单添加待找的书 (书目信息); 已在藏书里的直接加入书单, 与已有条目重复的跳过. 返回 [加入的书, 新待找] 数量 */
+    async addEntriesToBooklist(booklistId: string, entries: readonly BooklistEntry[]) {
+      const storage = await getStorage()
+      const plan = planListImport(entries, this.books, {
+        bookIds: this.booklistBookIds[booklistId] ?? [],
+        wanted: this.booklistWanted[booklistId] ?? [],
+      })
+      if (plan.bookIds.length) await this.addBooksToBooklist(booklistId, plan.bookIds)
+      if (plan.wanted.length) {
+        const now = Date.now()
+        const recs: BooklistWantedRec[] = plan.wanted.map((entry, index) => ({
+          ...entry,
+          id: newId(),
+          booklistId,
+          addedAt: now + index,
+        }))
+        await storage.putBooklistWanted(recs)
+        this.booklistWanted[booklistId] = [...(this.booklistWanted[booklistId] ?? []), ...recs]
+        const booklist = this.booklists.find(item => item.id === booklistId)
+        if (booklist) booklist.updatedAt = now
+      }
+      return { linked: plan.bookIds.length, wanted: plan.wanted.length }
+    },
+    /**
+     * 把一组书目存成个人书单: 有同名书单就并进去, 否则新建 (uniqueName 时同名加序号另建).
+     * 用于「全部加入我的书单」与「导入书单」.
+     */
+    async saveEntriesAsBooklist(name: string, entries: readonly BooklistEntry[], opts: { uniqueName?: boolean } = {}) {
+      const trimmed = name.trim() || 'Booklist'
+      const sameName = (n: string) => this.booklists.find(
+        item => item.name.trim().toLocaleLowerCase() === n.trim().toLocaleLowerCase())
+      let target = sameName(trimmed)
+      let finalName = trimmed
+      if (target && opts.uniqueName) {
+        for (let i = 2; sameName(finalName); i++) finalName = `${trimmed} (${i})`
+        target = undefined
+      }
+      const created = !target
+      const id = target?.id ?? await this.createBooklist(finalName)
+      const result = await this.addEntriesToBooklist(id, entries)
+      return { id, name: finalName, created, ...result }
+    },
+    async updateWanted(rec: BooklistWantedRec) {
+      const storage = await getStorage()
+      const plain: BooklistWantedRec = JSON.parse(JSON.stringify(rec))
+      await storage.putBooklistWanted([plain])
+      const list = this.booklistWanted[rec.booklistId] ?? []
+      this.booklistWanted[rec.booklistId] = list.map(item => (item.id === rec.id ? plain : item))
+    },
+    async removeWanted(ids: string[]) {
+      const storage = await getStorage()
+      await storage.deleteBooklistWanted(ids)
+      const removed = new Set(ids)
+      for (const listId of Object.keys(this.booklistWanted)) {
+        this.booklistWanted[listId] = this.booklistWanted[listId].filter(item => !removed.has(item.id))
+      }
     },
     async addBooksToBooklist(booklistId: string, bookIds: string[]) {
       const storage = await getStorage()
@@ -126,3 +206,9 @@ export const useLibrary = defineStore('library', {
     },
   },
 })
+
+function groupWanted(wanted: BooklistWantedRec[]): Record<string, BooklistWantedRec[]> {
+  const out: Record<string, BooklistWantedRec[]> = {}
+  for (const entry of wanted) (out[entry.booklistId] ??= []).push(entry)
+  return out
+}

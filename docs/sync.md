@@ -48,6 +48,7 @@ InfiniCLOUD 每个账号的 WebDAV 节点不同（`https://<节点>.teracloud.jp
 | annotations | 标注 id | 完整标注，`bookId` 换成 `bookHash` | LWW |
 | booklists | 书单 id | `{ name, createdAt }` | LWW |
 | booklistItems | `${booklistId}\|${bookHash}` | `{ booklistId, bookHash, addedAt }` | LWW |
+| booklistWanted（可选） | 待找条目 id | 书单里还不在藏书中的书 `{ booklistId, title, author, isbn?, year?, note?, originalTitle?, originalAuthor?, addedAt }`（见 `docs/booklists.md`） | LWW；旧客户端的文档没有此字段，合并时视为空 |
 | sources | 书源地址的规范化形式 `sourceKey(url)` | 自定义书源 / 私人书库 `{ title, url, kind, addedAt, username?, password? }`（含鉴权，内置书源不同步） | LWW，stamp.t 为该书源**最后一次被修改的时间**（`updatedAt`），见下文「私人书库（自定义书源）」 |
 | readingLog（可选） | `设备 id → 日期 YYYY-MM-DD → 书的 hash` | 该设备当天在该书上贡献的秒数 | G-Counter：逐叶取较大值 |
 | settings（可选） | 设置路径，如 `reader.fontSize`、`webdavUrl` | 该项的值 | LWW，stamp.t 为该项**最后一次被修改的时间**，见下文「设置同步」 |
@@ -104,7 +105,7 @@ InfiniCLOUD 每个账号的 WebDAV 节点不同（`https://<节点>.teracloud.jp
 | 新落地的书（有基线，但上次不在本地，如刚导入了一本仅元数据的书） | **沿用已同步的寄存器**（基线，没有则远端），同步过的元数据胜过刚导入的新元数据；都没有才 stamp `now` | 本地 `lastReadAt ?? 0` 大于已同步进度的 t 才用本地值（stamp t 取 `lastReadAt`），否则沿用 | 同上 |
 | 首次同步（没有基线） | 远端有寄存器就原样沿用（远端优先），没有才 stamp `now` | 同上一行（仍按阅读时间，读得更晚的本地进度胜出） | 远端是 alive 沿用，否则 `{ true, now }`：本地有文件的书总是存活，**会复活远端已删的书** |
 
-标注、书单、书单条目、书源（书源的 stamp 用修改时间，见「私人书库（自定义书源）」）：
+标注、书单、书单条目、待找条目、书源（书源的 stamp 用修改时间，见「私人书库（自定义书源）」）：
 
 - 有基线：与基线 diff，变了的打 stamp `now`。
 - 首次同步：远端有寄存器（**包括墓碑**）就原样沿用，远端删掉的不会被旧备份加回来；远端没有的才 stamp `now`。
@@ -114,12 +115,13 @@ InfiniCLOUD 每个账号的 WebDAV 节点不同（`https://<节点>.teracloud.jp
 - 书：基线里是 alive，**且上次同步后本地确实有这本书**（基线的 `presentHashes`），这次本地没有了 → 墓碑。只有元数据、文件还没下到本地的书，不会因为「本地没有」被删。
 - 标注：基线里有，所属的书上次在本地（`presentHashes`）**且此刻仍在本地**，本地却没有这条 → 墓碑。
 - 书单条目：同上，另外所属书单此刻也要在本地。
+- 待找条目：基线里有，所属书单此刻在本地，本地却没有这条 → 墓碑（被自动关联成书单条目的也是这样删掉的）。
 - 书整本删了、书单整个删了时，其标注 / 条目不单独生成墓碑，由书或书单的墓碑级联。这样不会把「因书单已删而从未落地」的条目误判为删除；书或书单日后被恢复（重新导入、并发改名胜出）时，里面的内容也一起回来。
 - 书单、书源：基线里有、本地没有 → 墓碑。
 
 ## 落地到本地（`planApply`）
 
-操作按可执行顺序排列：`addBook → updateBook → addBooklist/renameBooklist → addAnnotation/updateAnnotation → addBooklistItem → addSource/updateSource →` 各类删除（`removeBooklistItem, deleteAnnotation, deleteBooklist, deleteSource, deleteBook`）。
+操作按可执行顺序排列：`addBook → updateBook → addBooklist/renameBooklist → addAnnotation/updateAnnotation → addBooklistItem/putWanted → addSource/updateSource →` 各类删除（`removeBooklistItem, deleteWanted, deleteAnnotation, deleteBooklist, deleteSource, deleteBook`）。待找条目新增或内容变了都产出 `putWanted`（同 id 覆盖），要求所属书单在合并结果里存活；书单删除时由 `deleteBooklist` 级联。
 
 - **例外**：标注的 cfi/text/kind 等不可原地修改的字段变了时，产出紧挨着的 `deleteAnnotation + addAnnotation`（同一 id），放在添加阶段，保证先删后加。书源内容变了时产出 `updateSource`（原地改写，本地 id 不变），与 `addSource` 同一阶段。
 - 书在合并结果里已删时，其标注 / 书单条目不再单独产出操作，由 `deleteBook` 级联；书单删除同理由 `deleteBooklist` 级联其条目。新增标注 / 条目要求所属的书（和书单）在合并结果里存活。

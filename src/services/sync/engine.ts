@@ -6,7 +6,7 @@ import type { BookMeta, CatalogSourceRec, LibraryStorage, NewBookMeta } from '..
 import { baselineUsableFor, nextBaselineRemotes, type SyncStore } from './baseline.ts'
 import {
   annotationFrom, bookMetaFrom, buildLocalDoc, mergeDocs, mergeReadingLog, mergeSettingRegs, planApply, progressFrom,
-  sourceFrom, sourceKey,
+  sourceFrom, sourceKey, wantedFrom,
 } from './merge.ts'
 import { buildSettingsRegs, planSettingsApply } from './settingsSync.ts'
 import {
@@ -98,7 +98,7 @@ async function scanLocal(
     byHash.set(h, list)
   }
   const state: LocalState = {
-    books: {}, annotations: {}, booklists: {}, booklistItems: {}, sources: {}, sourceTimes: {},
+    books: {}, annotations: {}, booklists: {}, booklistItems: {}, booklistWanted: {}, sources: {}, sourceTimes: {},
   }
   const idsByHash = new Map<string, string[]>()
   for (const [hash, list] of byHash) {
@@ -133,6 +133,10 @@ async function scanLocal(
         state.booklistItems[key] = { booklistId: bl.id, bookHash: hash, addedAt: item.addedAt }
       }
     }
+  }
+
+  for (const w of await storage.listBooklistWanted()) {
+    if (booklistIds.has(w.booklistId)) state.booklistWanted![w.id] = wantedFrom(w)
   }
 
   // 自定义书源 (私人书库等) 按规范化地址归并; 同一地址多条时取 addedAt 最早的一条为规范, 内置书源不同步
@@ -348,6 +352,16 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
         const ids = scan.idsByHash.get(op.hash)
         if (!ids?.length || !scan.booklistIds.has(op.booklistId)) return false
         await storage.removeBooksFromBooklist(op.booklistId, ids)
+        return true
+      }
+      case 'putWanted': {
+        if (!scan.booklistIds.has(op.value.booklistId)) return false
+        await storage.putBooklistWanted([{ ...op.value, id: op.id }])
+        return true
+      }
+      case 'deleteWanted': {
+        if (!(op.id in (local.booklistWanted ?? {}))) return false
+        await storage.deleteBooklistWanted([op.id])
         return true
       }
       case 'addSource': {

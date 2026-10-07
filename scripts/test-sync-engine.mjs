@@ -425,3 +425,32 @@ test('WebDAV: 请求整体超时 → sync.err.timeout, 并中止请求', async t
   }, tr)
   await assert.rejects(nativeTimeout.putFile('abc', new Blob([enc('x')])), { message: 'sync.err.timeout' })
 })
+
+test('书单的待找条目: A → B 沿用 id; B 删除后回到 A; 删除书单级联', async () => {
+  const dav = createFakeDav()
+  const A = await device('A')
+  const B = await device('B')
+  const listId = await A.storage.createBooklist('想读', { createdAt: clock })
+  await A.storage.putBooklistWanted([
+    { id: 'w-1', booklistId: listId, title: '理想国', author: '柏拉图', originalTitle: 'The Republic', originalAuthor: 'Plato', year: -375, addedAt: clock },
+    { id: 'w-2', booklistId: listId, title: '瓦尔登湖', author: '梭罗', note: '', addedAt: clock + 1 },
+  ])
+  tick(); await sync(A, dav)
+  tick(); await sync(B, dav)
+  assert.deepEqual((await B.storage.listBooklistWanted()).map(w => [w.id, w.booklistId, w.title, w.year ?? null, w.originalTitle ?? null]), [
+    ['w-1', listId, '理想国', -375, 'The Republic'],
+    ['w-2', listId, '瓦尔登湖', null, null],
+  ])
+  tick(); assert.equal((await sync(B, dav)).applied, 0, '幂等')
+
+  await B.storage.deleteBooklistWanted(['w-2'])
+  tick(); await sync(B, dav)
+  tick(); await sync(A, dav)
+  assert.deepEqual((await A.storage.listBooklistWanted()).map(w => w.id), ['w-1'])
+
+  await A.storage.deleteBooklist(listId)
+  tick(); await sync(A, dav)
+  tick(); await sync(B, dav)
+  assert.deepEqual(await B.storage.listBooklists(), [])
+  assert.deepEqual(await B.storage.listBooklistWanted(), [])
+})
