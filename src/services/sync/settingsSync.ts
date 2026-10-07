@@ -41,6 +41,7 @@ export const SETTINGS_SYNC_SPEC: SettingsSpec = {
     theme: SYNC,
     flow: SYNC,
     maxColumnCount: SYNC,
+    portraitScroll: SYNC,
     /** 字体名: 别的设备没有这个字体时按 CSS 回退, 照样同步 */
     fontFamily: SYNC,
     justify: SYNC,
