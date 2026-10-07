@@ -1,12 +1,13 @@
 # 轻阅账号 / 多端同步后端
 
-Cloudflare Worker（`https://sync.jiangshu.ai`）：邮箱验证码登录 + 按设备存取同步文档（`SyncDoc`）。只存同步记录，**不存书籍文件**。接口约定见 [`docs/account-api.md`](../docs/account-api.md)，文档格式见 [`docs/sync.md`](../docs/sync.md)。
+Cloudflare Worker（`https://sync.jiangshu.ai`）：邮箱验证码登录 + 按设备存取同步文档（`SyncDoc`）+ 互传。同步只存同步记录，不长期存书籍文件；互传的文件临时存（账号 7 天、取件码 ≤ 1 小时）。接口约定见 [`docs/account-api.md`](../docs/account-api.md)，文档格式见 [`docs/sync.md`](../docs/sync.md)。
 
 - D1 `lightread-sync`：账号、验证码、会话、按 UTC 日的限流计数（`schema.sql`）
 - R2 `lightread-sync`：每台设备的文档，键 `u/<userId>/devices/<deviceId>.json`
 - 发信：Resend REST API，发件人见 `wrangler.jsonc` 的 `MAIL_FROM`
 - 匿名使用统计：`POST /v1/ping` 心跳、`GET /v1/admin/stats` 与 `/admin` 统计页（secret `ADMIN_TOKEN` 保护，本机备份 `~/.config/lightread/stats-admin-token`），见 `src/stats.ts` 与 account-api.md「匿名使用统计」
-- 每天 UTC 03:17 的 Cron 清理过期验证码与两天前的计数，并把 90 天前的统计心跳聚合进 `ping_daily`
+- 互传（`src/transfer.ts`，设计见 [`docs/device-transfer.md`](../docs/device-transfer.md)）：账号内设备间 `/v1/devices`、`/v1/transfers`（D1 `transfers` / `devices`，文件 R2 `transfer/<userId>/<id>`）；匿名取件码 `/v1/drops`、分享链接 `/d/<code>`（D1 `drops`，文件 R2 `drop/<id>`）。可选变量 `WEB_APP_URL`（网页版地址，`/d/<code>` 据此 302；不写进 `wrangler.jsonc`）
+- 每天 UTC 03:17 的 Cron 清理过期验证码与两天前的计数，把 90 天前的统计心跳聚合进 `ping_daily`，并删除过期的互传 / 取件（连同 R2 文件）与 90 天没见过的设备登记
 - 调用日志（invocation logs）已关闭，Cloudflare 不留请求头 / IP；`console.error` 等自定义日志照常
 
 ## 部署
@@ -25,6 +26,16 @@ npx wrangler deploy -c wrangler.jsonc                  # 同时绑定自定义�
 ```
 
 建表用的 `schema.sql` 是幂等的。`~/.config/tokenssh-ai/cloudflare-workers-token` 没有 D1 权限，用它部署时改表要走 Cloudflare MCP 的 D1 query API（把 `schema.sql` 里新增的 `CREATE … IF NOT EXISTS` 发过去）。
+
+### 迁移：互传表（0001）
+
+互传新增的三张表在 `migrations/0001_transfers.sql`（与 `schema.sql` 末尾一段相同，幂等）。**上线互传前**要先在生产库执行一次，且需用户确认后再做：
+
+```bash
+npx wrangler d1 execute lightread-sync -c wrangler.jsonc --remote --file migrations/0001_transfers.sql
+```
+
+workers token 没有 D1 权限，实际走 Cloudflare MCP 的 D1 query API，把文件里的 `CREATE … IF NOT EXISTS` 语句发过去。必须先建表、再部署 Worker：顺序反了互传接口、注销账号（`DELETE /v1/me` 会顺带删互传数据）和 Cron 里的互传清理都会出错。
 
 之后改代码只需重跑最后一条；轮换 Key 重跑 `secret put`。验证：`curl https://sync.jiangshu.ai/health` → `{"ok":true}`。
 

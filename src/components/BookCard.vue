@@ -26,6 +26,8 @@ const emit = defineEmits<{
   addToBooklist: []
   upload: []
   convert: []
+  /** 发送到其他设备 (互传) */
+  send: []
 }>()
 
 const progress = computed(() => {
@@ -84,9 +86,10 @@ function openMenu() {
   menuOpen.value = true
   setTimeout(() => document.addEventListener('pointerdown', onOutsidePointerDown, true))
 }
-function menuAction(event: 'remove' | 'togglePin' | 'addToBooklist' | 'upload' | 'convert') {
+function menuAction(event: 'remove' | 'togglePin' | 'addToBooklist' | 'upload' | 'convert' | 'send') {
   closeMenu()
   if (event === 'remove') emit('remove')
+  else if (event === 'send') emit('send')
   else if (event === 'togglePin') emit('togglePin')
   else if (event === 'upload') emit('upload')
   else if (event === 'convert') emit('convert')
@@ -199,6 +202,16 @@ function onKeydown(e: KeyboardEvent) {
           @keydown.stop
         >
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 18H5a4 4 0 0 1-.6-8 7 7 0 0 1 13.4-2 5 5 0 0 1 1.2 10h-2M12 20V10m-4 4 4-4 4 4"/></svg>
+        </button>
+        <button
+          type="button"
+          class="action send"
+          :title="t('transfer.sendToDevices')"
+          :aria-label="t('transfer.sendToDevices')"
+          @click.stop="menuAction('send')"
+          @keydown.stop
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4z"/></svg>
         </button>
         <button
           type="button"
@@ -408,7 +421,8 @@ function onKeydown(e: KeyboardEvent) {
 .pin.pinned,
 .pin:hover,
 .booklist-action:hover,
-.convert:hover {
+.convert:hover,
+.send:hover {
   background: var(--brand);
 }
 .action:disabled {

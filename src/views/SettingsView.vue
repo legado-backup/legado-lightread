@@ -846,6 +846,15 @@ const APPEARANCE_OPTIONS = [
             </span>
           </label>
         </div>
+        <!-- 互传入口 (手机底部标签栏没有「互传」) -->
+        <router-link to="/transfer" class="transfer-entry">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16.3 3.3a1 1 0 0 1 1.4 0l3 3a1 1 0 0 1 0 1.4l-3 3a1 1 0 1 1-1.4-1.4L17.58 8H5a1 1 0 0 1 0-2h12.59l-1.3-1.3a1 1 0 0 1 0-1.4zM7.7 13.3a1 1 0 0 1 0 1.4L6.42 16H19a1 1 0 1 1 0 2H6.41l1.3 1.3a1 1 0 1 1-1.42 1.4l-3-3a1 1 0 0 1 0-1.4l3-3a1 1 0 0 1 1.42 0z" /></svg>
+          <span class="toggle-text">
+            <span class="row-title">{{ t('transfer.settingsEntry') }}</span>
+            <span class="row-desc">{{ t('transfer.settingsEntryDesc') }}</span>
+          </span>
+          <svg class="transfer-entry-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+        </router-link>
       </div>
 
       <!-- 轻阅账号 -->
@@ -1782,6 +1791,25 @@ h2:focus {
 .sync-toggles {
   margin-top: 10px;
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.transfer-entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 2px 4px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  color: var(--text-2);
+}
+.transfer-entry:hover {
+  text-decoration: none;
+  color: var(--brand);
+}
+.transfer-entry .toggle-text {
+  flex: 1;
+  min-width: 0;
+}
+.transfer-entry-chevron {
+  color: var(--text-3);
 }
 .sync-section {
   display: flex;

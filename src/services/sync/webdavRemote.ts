@@ -54,7 +54,8 @@ export function uploadTimeoutMs(size?: number): number {
 /** JS 侧计时比原生侧多留的余量, 让原生超时先触发、报出更准确的错误 */
 const TIMEOUT_SLACK_MS = 15_000
 
-function defaultHttp(cfg: WebdavConfig): HttpFn {
+/** 默认 HTTP 函数 (互传的 WebDAV 通道复用, 见 services/transfer/webdavChannel.ts) */
+export function defaultHttp(cfg: WebdavConfig): HttpFn {
   return async (url, req) => {
     const [{ fetchRemote, authHeader, REMOTE_USER_AGENT }, { isTauri }] = await Promise.all([
       import('../net.ts'), import('../../storage/types.ts'),

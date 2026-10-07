@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useLibrary } from '../stores/library'
 import { importFiles } from '../services/importer'
 import { importFromUrl } from '../services/urlImport'
+import { sendBookToDevices } from '../services/transfer'
 import { ACCEPT, SUPPORTED_EXTS, canConvertToEpub } from '../services/format'
 import { toast } from '../services/toast'
 import { formatReadingTime } from '../composables/useReadingTimer'
@@ -649,6 +650,11 @@ async function batchClearTags() {
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 18H5a4 4 0 0 1-.6-8 7 7 0 0 1 13.4-2 5 5 0 0 1 1.2 10h-2M12 20V10m-4 4 4-4 4 4"/></svg>
             {{ t('library.uploadToCloud') }}
           </button>
+          <!-- 互传入口 (手机底部标签栏没有「互传」) -->
+          <button role="menuitem" @click="importMenu = false; router.push('/transfer')">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16.3 3.3a1 1 0 0 1 1.4 0l3 3a1 1 0 0 1 0 1.4l-3 3a1 1 0 1 1-1.4-1.4L17.58 8H5a1 1 0 0 1 0-2h12.59l-1.3-1.3a1 1 0 0 1 0-1.4zM7.7 13.3a1 1 0 0 1 0 1.4L6.42 16H19a1 1 0 1 1 0 2H6.41l1.3 1.3a1 1 0 1 1-1.42 1.4l-3-3a1 1 0 0 1 0-1.4l3-3a1 1 0 0 1 1.42 0z"/></svg>
+            {{ t('transfer.libraryEntry') }}
+          </button>
         </div>
       </div>
       <!-- 手机端换行点: 标题+导入 一行, 搜索+排序+管理 一行 -->
@@ -804,6 +810,7 @@ async function batchClearTags() {
         @add-to-booklist="openBooklistPicker([book.id])"
         @upload="uploadBooks([book.id])"
         @convert="convertBooks([book.id])"
+        @send="sendBookToDevices(book.id)"
       />
     </div>
 

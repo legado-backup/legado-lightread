@@ -42,6 +42,9 @@ export const syncState = reactive({
 let store: SyncStore | null = null
 const syncStore = () => (store ??= createDexieSyncStore())
 
+/** 本机的同步设备 id (互传也用它标识设备) */
+export const localDeviceId = (): Promise<string> => syncStore().getDeviceId()
+
 /**
  * WebDAV 已可用: 地址已填写, 且填了账号时也有密码.
  * (设置同步可能只带来地址和账号, 密码要在发送方开启「同步密码与密钥」才会过来; 缺密码时不去连, 免得报认证失败)

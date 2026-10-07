@@ -42,6 +42,9 @@
     "test:reading-modes": "node --experimental-strip-types --test scripts/test-reading-modes.mjs",
     "e2e:sync": "node scripts/e2e-sync.mjs",
     "e2e:account": "node scripts/e2e-account.mjs",
+    "e2e:transfer": "node scripts/e2e-transfer.mjs",
+    "test:transfer": "node --experimental-strip-types --test scripts/test-transfer.mjs",
+    "test:qr": "node --experimental-strip-types --test scripts/test-qr.mjs",
     "stats": "node scripts/stats.mjs",
     "deploy": "npm run build && wrangler deploy"
   },
