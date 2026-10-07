@@ -216,7 +216,7 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
           @click="handleSidebarUpdate"
         >
           <span class="sidebar-update-icon" aria-hidden="true">
-            <svg class="sidebar-update-ring" viewBox="0 0 24 24" width="30" height="30">
+            <svg class="sidebar-update-ring" viewBox="0 0 24 24" width="24" height="24">
               <circle class="ring-track" cx="12" cy="12" r="10.5" pathLength="100" />
               <circle
                 class="ring-bar"
@@ -227,7 +227,7 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
                 :stroke-dashoffset="updateProgress == null ? 72 : 100 - Math.round(updateProgress * 100)"
               />
             </svg>
-            <svg class="sidebar-update-glyph" viewBox="0 0 24 24" width="18" height="18">
+            <svg class="sidebar-update-glyph" viewBox="0 0 24 24" width="15" height="15">
               <path d="M12 4.5v10m0 0 4-4m-4 4-4-4M5.5 19.5h13" />
             </svg>
             <span class="sidebar-update-dot" />
@@ -367,7 +367,7 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
   box-sizing: border-box;
   width: 100%;
   height: 40px;
-  padding-right: 56px;
+  padding-right: 48px;
   overflow: hidden;
 }
 .sidebar-settings-icon {
@@ -394,15 +394,15 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
   box-shadow: 0 0 0 2px var(--card);
 }
 
-/* ---- 侧栏更新按钮: 平时是一枚 40px 的淡品牌色圆钮 (带呼吸小圆点), 悬停向左展开成胶囊;
+/* ---- 侧栏更新按钮: 平时是一枚 32px 的淡品牌色圆钮 (在 40px 的设置行里上下居中) (带呼吸小圆点), 悬停向左展开成胶囊;
    下载中保持展开, 图标外圈显示进度环 ---- */
 .sidebar-update {
   position: absolute;
-  top: 0;
-  right: 0;
+  top: 4px;
+  right: 4px;
   width: auto;
-  max-width: 40px;
-  height: 40px;
+  max-width: 32px;
+  height: 32px;
   padding: 0;
   display: flex;
   align-items: center;
@@ -424,22 +424,22 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
 .sidebar-update:hover,
 .sidebar-update:focus-visible,
 .sidebar-update.downloading {
-  max-width: 168px;
+  max-width: 148px;
   border-color: color-mix(in srgb, var(--brand) 36%, transparent);
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--brand) 22%, transparent);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--brand) 22%, transparent);
 }
 .sidebar-update:active {
   background: color-mix(in srgb, var(--brand) 20%, var(--card));
 }
 .sidebar-update:focus-visible {
   outline: none;
-  box-shadow: var(--ring), 0 6px 18px color-mix(in srgb, var(--brand) 22%, transparent);
+  box-shadow: var(--ring), 0 4px 14px color-mix(in srgb, var(--brand) 22%, transparent);
 }
 .sidebar-update-icon {
   position: relative;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
   display: grid;
   place-items: center;
 }
@@ -483,10 +483,10 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
 /* 「有新版」呼吸小圆点 */
 .sidebar-update-dot {
   position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 7px;
-  height: 7px;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--brand);
   box-shadow: 0 0 0 2px var(--brand-light);
@@ -504,21 +504,21 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
   display: none;
 }
 .sidebar-update-label {
-  /* 悬停展开后总宽 ≥ 110px (e2e 要求 ≥108px) */
+  /* 悬停展开后总宽 ≥ 114px (e2e 要求 ≥108px) */
   min-width: 72px;
-  padding: 0 16px 0 2px;
+  padding: 0 12px 0 1px;
   text-align: left;
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  line-height: 38px;
+  line-height: 30px;
   font-variant-numeric: tabular-nums;
   opacity: 0;
   transition: opacity var(--dur) var(--ease);
 }
 .sidebar-update-version {
-  margin-left: 6px;
-  font-size: 11.5px;
+  margin-left: 5px;
+  font-size: 11px;
   font-weight: 500;
   opacity: 0.72;
 }
@@ -607,16 +607,18 @@ const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83
   /* 图标栏: 更新按钮放在设置图标下方, 居中的方圆钮, 不展开 */
   .sidebar-update {
     position: relative;
+    top: 0;
+    right: 0;
     align-self: center;
-    max-width: 40px;
-    width: 40px;
+    max-width: 32px;
+    width: 32px;
     justify-content: center;
     border-radius: var(--radius-lg);
   }
   .sidebar-update:hover,
   .sidebar-update:focus-visible,
   .sidebar-update.downloading {
-    max-width: 40px;
+    max-width: 32px;
   }
   .sidebar-update-label {
     display: none;
