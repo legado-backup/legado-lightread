@@ -1337,7 +1337,8 @@ function onSpeedInput(e: Event) {
   .rm-chip {
     height: 40px;
   }
-  .rm-step {
+  .rm-step,
+  .rm-close {
     width: 44px;
     height: 44px;
   }
