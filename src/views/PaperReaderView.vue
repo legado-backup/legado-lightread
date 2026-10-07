@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { AUTO_SPEED_LEVELS, speedPosition, secondsAtPosition } from '../services/autoReadSpeed'
+import LevelSlider from '../components/LevelSlider.vue'
 import { pingUsage } from '../services/usageStats'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -4633,8 +4635,16 @@ onBeforeUnmount(() => {
           <template v-else><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8.5 5.2a1 1 0 0 1 1.02.03l9 5.95a1 1 0 0 1 0 1.66l-9 5.95A1 1 0 0 1 8 17.95V6.05a1 1 0 0 1 .5-.85z"/></svg>{{ t('common.start') }}</template>
         </button>
         <label>{{ t('reader.speed') }}</label>
-        <input v-model.number="settings.autoReadSeconds" type="range" min="3" max="60" step="1" />
-        <span class="auto-speed">{{ t('reader.secPerPage', { n: settings.autoReadSeconds }) }}</span>
+        <LevelSlider
+          class="auto-speed-slider"
+          :model-value="speedPosition(settings.autoReadSeconds)"
+          :min="0"
+          :max="AUTO_SPEED_LEVELS.length - 1"
+          :step="0.05"
+          :stops="AUTO_SPEED_LEVELS.map((l, i) => ({ value: i, label: t(l.key) }))"
+          :label="t('reader.speed')"
+          @update:model-value="settings.autoReadSeconds = secondsAtPosition($event)"
+        />
         <button class="icon-btn auto-collapse" :title="t('reader.collapseControls')" @click="collapseAutoPanel">
           <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="m5.5 7.5 4.5 4.5 4.5-4.5" /></svg>
         </button>
@@ -6230,11 +6240,10 @@ onBeforeUnmount(() => {
   width: 160px;
   accent-color: var(--brand);
 }
-.auto-speed {
-  font-size: 12px;
-  color: var(--text-3);
-  width: 64px;
-  font-variant-numeric: tabular-nums;
+.auto-speed-slider {
+  flex: 0 1 260px;
+  min-width: 200px;
+  padding-top: 6px;
 }
 .auto-collapse {
   background: var(--bg);

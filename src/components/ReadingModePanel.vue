@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import { AUTO_SPEED_LEVELS, speedPosition, secondsAtPosition } from '../services/autoReadSpeed'
+import LevelSlider from './LevelSlider.vue'
+import { GUIDE_COLORS, WORD_GUIDE_MIN, WORD_GUIDE_STOPS, guideAccent, guideIntensity } from '../services/readingModes/wordGuideIntensity'
+import { READER_THEMES, resolveReaderTheme } from '../services/readerTheme'
+import { resolvedTheme } from '../services/appearance'
 /**
  * 「阅读模式」面板 (docs/reader-panels.md §3.2): 书页怎么动、怎么带你读。桌面为顶栏下的浮层卡片, 手机为底部抽屉
  * (遮罩由 ReaderView 的 sheet-scrim 提供)。自上而下:
@@ -44,6 +49,8 @@ const emit = defineEmits<{
 }>()
 
 const settings = useSettings()
+/** 色块按当前正文主题显示实际颜色 (夜间用亮色) */
+const swatchTheme = computed(() => resolveReaderTheme(settings.reader.theme, resolvedTheme.value === 'dark'))
 const tw = computed(() => settings.readingMode.typewriter)
 const ly = computed(() => settings.readingMode.lyric)
 const eye = computed(() => settings.readingMode.eyeCare)
@@ -175,10 +182,7 @@ function close() {
   emit('close')
 }
 
-function onAutoSeconds(e: Event) {
-  const n = Number((e.target as HTMLInputElement).value)
-  if (Number.isFinite(n)) emit('update:autoReadSeconds', Math.min(60, Math.max(3, Math.round(n))))
-}
+
 
 function toggleAuto() {
   if (props.autoReading) {
@@ -388,18 +392,15 @@ function onSpeedInput(e: Event) {
         <p class="rm-hint">{{ t(autoScrolled ? 'readingMode.autoScrollHint' : 'readingMode.autoHint') }}</p>
         <div class="rm-row">
           <span class="rm-label">{{ t('reader.speed') }}</span>
-          <input
-            class="rm-range"
-            type="range"
-            min="3"
-            max="60"
-            step="1"
-            :value="autoReadSeconds"
-            :aria-label="t('reader.speed')"
-            :aria-valuetext="t(autoScrolled ? 'reader.secPerScreen' : 'reader.secPerPage', { n: autoReadSeconds })"
-            @input="onAutoSeconds"
+          <LevelSlider
+            :model-value="speedPosition(autoReadSeconds)"
+            :min="0"
+            :max="AUTO_SPEED_LEVELS.length - 1"
+            :step="0.05"
+            :stops="AUTO_SPEED_LEVELS.map((l, i) => ({ value: i, label: t(l.key) }))"
+            :label="t('reader.speed')"
+            @update:model-value="emit('update:autoReadSeconds', secondsAtPosition($event))"
           />
-          <span class="rm-value">{{ t(autoScrolled ? 'reader.secPerScreen' : 'reader.secPerPage', { n: autoReadSeconds }) }}</span>
         </div>
         <button type="button" class="btn btn-primary rm-main" @click="toggleAuto">
           <svg v-if="autoReading" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 5a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0V6a1 1 0 0 1 1-1zm8 0a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0V6a1 1 0 0 1 1-1z"/></svg>
@@ -559,11 +560,11 @@ function onSpeedInput(e: Event) {
                 class="rm-chip"
                 :class="{ on: modes.speed.value === n }"
                 :aria-pressed="modes.speed.value === n"
+                :title="modes.speedUnit.value === 'cpm' ? t('readingMode.cpm', { n }) : t('readingMode.wpm', { n })"
                 @click="modes.speed.value = n"
               >
-                {{ t(presetLabels[i]) }} {{ n }}
+                {{ t(presetLabels[i]) }}
               </button>
-              <span v-if="tab === 'lyric'" class="rm-per-line">{{ t('readingMode.secPerLine', { n: modes.lyricSecondsPerLine.value }) }}</span>
             </div>
           </template>
 
@@ -718,23 +719,35 @@ function onSpeedInput(e: Event) {
       <p v-if="modes.wordGuideBlocked.value" class="rm-note" role="note">{{ t('readingMode.wordGuideBlocked') }}</p>
       <p v-else-if="!modes.wordGuideSupported.value" class="rm-note" role="note">{{ t('readingMode.wordGuideUnsupported') }}</p>
       <div v-if="settings.readingMode.wordGuide.enabled" class="rm-row">
-        <span class="rm-label">{{ t('readingMode.strength') }}</span>
-        <div class="segmented">
+        <span class="rm-label">{{ t('readingMode.guideStrength') }}</span>
+        <LevelSlider
+          :model-value="guideIntensity(settings.readingMode.wordGuide)"
+          :min="WORD_GUIDE_MIN"
+          :max="1"
+          :step="0.01"
+          :stops="WORD_GUIDE_STOPS.map(s => ({ value: s.value, label: t(s.key) }))"
+          :label="t('readingMode.guideStrength')"
+          @update:model-value="settings.readingMode.wordGuide.intensity = $event"
+        />
+      </div>
+      <div v-if="settings.readingMode.wordGuide.enabled" class="rm-row">
+        <span class="rm-label">{{ t('readingMode.guideColor') }}</span>
+        <div class="rm-swatches" role="radiogroup" :aria-label="t('readingMode.guideColor')">
           <button
+            v-for="c in GUIDE_COLORS"
+            :key="c.id"
             type="button"
-            :class="{ active: settings.readingMode.wordGuide.strength === 'light' }"
-            :aria-pressed="settings.readingMode.wordGuide.strength === 'light'"
-            @click="settings.readingMode.wordGuide.strength = 'light'"
+            role="radio"
+            class="rm-swatch"
+            :class="{ active: (settings.readingMode.wordGuide.color ?? 'teal') === c.id }"
+            :aria-checked="(settings.readingMode.wordGuide.color ?? 'teal') === c.id"
+            :title="t(c.key)"
+            :aria-label="t(c.key)"
+            :style="{ '--sw': guideAccent(c.id, swatchTheme), '--swbg': READER_THEMES[swatchTheme].bg }"
+            @click="settings.readingMode.wordGuide.color = c.id"
           >
-            {{ t('readingMode.strengthLight') }}
-          </button>
-          <button
-            type="button"
-            :class="{ active: settings.readingMode.wordGuide.strength === 'normal' }"
-            :aria-pressed="settings.readingMode.wordGuide.strength === 'normal'"
-            @click="settings.readingMode.wordGuide.strength = 'normal'"
-          >
-            {{ t('readingMode.strengthNormal') }}
+            <span class="rm-swatch-dot" aria-hidden="true">文</span>
+            <span class="rm-swatch-name">{{ t(c.key) }}</span>
           </button>
         </div>
       </div>
@@ -743,6 +756,58 @@ function onSpeedInput(e: Event) {
 </template>
 
 <style scoped>
+/* 仿生阅读配色: 色块里的「文」字用当前正文主题下的实际颜色 */
+.rm-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rm-swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.rm-swatch-dot {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--swbg, var(--card));
+  color: var(--sw);
+  font-size: 16px;
+  font-weight: 600;
+  transition: box-shadow var(--dur) var(--ease);
+}
+.rm-swatch.active {
+  color: var(--text);
+  font-weight: 600;
+}
+.rm-swatch.active .rm-swatch-dot {
+  border-color: var(--sw);
+  box-shadow: 0 0 0 2px var(--sw);
+}
+.rm-swatch:focus-visible {
+  outline: none;
+}
+.rm-swatch:focus-visible .rm-swatch-dot {
+  box-shadow: var(--ring);
+}
+@media (hover: none) {
+  .rm-swatch-dot {
+    width: 40px;
+    height: 40px;
+  }
+}
 .rm-sound {
   display: flex;
   flex-direction: column;
@@ -1308,13 +1373,6 @@ function onSpeedInput(e: Event) {
 }
 .rm-indent {
   padding-left: 74px;
-}
-.rm-per-line {
-  align-self: center;
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--text-3);
-  font-variant-numeric: tabular-nums;
 }
 .rm-tabs button.running {
   position: relative;

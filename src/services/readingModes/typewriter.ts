@@ -28,6 +28,7 @@ import {
   type Token,
 } from './pacing.ts'
 import { clearReadingModeMarks, createRevealLayer, type RevealColors, type RevealLayer } from './revealLayer.ts'
+import { FOCUS_BAND_BOTTOM, FOCUS_LINE } from '../readingFocus.ts'
 
 export type TypewriterState = 'idle' | 'running' | 'paused' | 'turning'
 
@@ -559,7 +560,7 @@ export class TypewriterController {
     return groupLines(pos, lineSize).map(([a, b]) => [weighted[a].start, weighted[b - 1].end] as [number, number])
   }
 
-  /** 滚动模式的打字机滚动: 出字行超过视口 60% 时滚到约 40% 处 */
+  /** 滚动模式的打字机滚动: 与听书跟随同一套阅读焦点 (services/readingFocus) — 出字行越过舒适区下沿 (65%) 时挪回焦点线 (38%) */
   #follow() {
     const text = this.#text!
     if (this.#cursor <= 0) return
@@ -571,7 +572,7 @@ export class TypewriterController {
     const vp = this.#host.viewportRect()
     if (!frame || !vp || vp.height <= 0) return
     const y = frame.top + rect.bottom
-    if ((y - vp.top) / vp.height > 0.6) this.#host.scrollForward(y - vp.top - vp.height * 0.4)
+    if ((y - vp.top) / vp.height > FOCUS_BAND_BOTTOM) this.#host.scrollForward(y - vp.top - vp.height * FOCUS_LINE)
   }
 
   #beginTurn(now: number) {

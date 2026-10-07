@@ -25,6 +25,9 @@ npm run test:compat / test:tts   # 旧 WebView 兼容 (构建目标/polyfill/CSS
 npm run test:reader-pages / test:listen-eta   # 重排书页码 (实测+推算/双栏/跳页往返); 听书剩余时间 (语速学习/人话时长)
 npm run test:read-aloud      # 听书: 句子游标断句 + 播放管线 (分块/预取/无缝拼接/回退, 假时钟) + 音色目录
 npm run test:reading-modes   # 阅读模式: 打字机出字节奏 / 断句 / 按行分组 (纯函数)
+npm run test:reading-focus   # 阅读焦点: 舒适区 25%–65% / 焦点线 38% / 长句 / 手动滚动后暂停跟随 (听书跟随与跳转落点, 纯函数)
+npm run test:zh-segment      # 仿生阅读中文分词: 词表切分 / 歧义不上色 / ICU 回退 / 交替规则 / 速度 (<15ms/万字)
+node scripts/build-zh-lexicon.mjs   # 重新生成中文词表 src/data/zh-lexicon.txt + 回退合并表 zhMergeWords.ts (下载 jieba / DeepSeek-R1 词表到 ~/.cache, 校验 SHA-256)
 npm run test:book-sources    # 公共书源: 查询归一 / 哲学文库·研辞问典本地索引搜索 / 教材分卷合并与排序 / IA·Open Library·GitHub 相关度
 node scripts/build-philosophy-index.mjs   # 重新生成哲学文库离线索引 src/data/philosophy-index.json (限速抓目录页, 约 5 分钟)
 node scripts/build-wendian-index.mjs      # 重新生成研辞问典离线书目 src/data/wendian-index.json (sitemap + 分类列表页, ≤1 次/秒, 约 17 分钟; 不碰站内搜索)

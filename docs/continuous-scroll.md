@@ -124,6 +124,7 @@ fork 仍注册为 `foliate-paginator`（view.js 按名字创建，且运行时�
 | `scroll` | 容器滚动时派发 |
 | `goTo({ index, anchor })` | 目标章已在槽中 → 滚过去（数字 anchor = 该章内比例），不重新加载、不发 `load`；否则重建槽 |
 | `scrollToAnchor(range \| el \| fraction)` | Range / 元素按其所属文档找槽并加上槽偏移；数字 = 主章内比例 |
+| `rangeBox(range \| el)` / `scrollToRange(range \| el, opts)` | 阅读焦点用（见 §12「阅读焦点」）：取目标在视口里的位置；把目标首行放到视口顶下 `at` px |
 | `next(distance?)` / `prev(distance?)` | 平滑滚动 `distance ?? size`，自然跨章；到已载内容边缘先载邻章再继续；书首书尾返回 |
 | `nextSection()` / `prevSection()` | 滚到邻章顶部（必要时先载） |
 | `setStyles(css)` | 应用到所有现存槽和以后新载的槽 |
@@ -204,6 +205,11 @@ fork 仍注册为 `foliate-paginator`（view.js 按名字创建，且运行时�
     - 修订后：停顿 0 次，反向位移 0px，最多 6 个、中位数 5 个已载槽，走过 21 章。
   - device 场景修订后：反向位移 0px，最多 7 个已载槽。甩动途中有 2 次压力卸载（换成占位块，可见内容不动）。
   - 原有的冒烟 e2e 35 项全部通过。
+- **阅读焦点（2026-10-07）**：程序替读者把视图移到一段文字时（听书跟随、搜索结果、划线、点睛、回到朗读位置）不再顶端对齐，规则在 `src/services/readingFocus.ts`（舒适区 25%–65%、焦点线 38%，按扣掉显示中顶栏 / 底栏的可读区算；单测 `npm run test:reading-focus`），渲染器只管几何：
+  - `rangeBox(range | el)` → `{ top, bottom, viewport }`：目标首行顶 / 末行底相对滚动视口顶边的 px。任一已提交的槽都行，非连续的滚动模式也可用；翻页、竖排或目标不在显示中的文档时返回 null。
+  - `scrollToRange(range | el, { at, behavior: 'smooth' | 'auto', duration, reason })`：把首行放到视口顶下 `at` px（默认一个 margin，同 `scrollToAnchor`）。`smooth` 用可让位的动画：读者滚轮 / 手指一动就停；新的调用取消还在跑的旧调用。连续模式下目标所在槽成为主章（钉住到用户滚动），`#cAnchor` 记的是它此刻在屏上的位置，重排后仍停在那里；单章滚动模式下 `render()` 重新锚定时也保持 `at`。翻页 / 竖排等同 `scrollToAnchor`。
+  - `goTo({ index, anchor, focus: { at, behavior } })`：Range / 元素锚点落在 `at` 处（`behavior: 'auto'` 不做动画），数字锚点（章首、比例）不受影响。轻阅用 `view.resolveNavigation()` 解析 CFI 后直接调渲染器的 `goTo`，再自行 `history.pushState`。
+  - `scrollToAnchor` 不变（顶端对齐），目录 / 章节跳转、书签、续读、「回到第 N 页」继续用它：它们存的是当时屏幕顶上那一行，挪到焦点线会让每次打开的位置往前退一截。
 - **已知限制**：
   - headless 下 iframe 加载快、合成线程惯性的行为也和 WebView2 不同，Surface 上的大幅回跳在本地没有复现。修订的依据是 Surface 日志（每次回跳之前都是甩动中的一批上方卸载），仍需实机复测。
   - 如果读者两侧 2 屏以内堆满了极短的章，压力卸载找不到候选，紧急载入最多可到 10 个槽。

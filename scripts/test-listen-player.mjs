@@ -362,7 +362,18 @@ class FakeAudioContext {
   async suspend() { if (this.state === 'running') { this.base = this.currentTime; this.state = 'suspended' } }
   async resume() { if (this.state !== 'running') { this.since = performance.now(); this.state = 'running' } }
   createBuffer(ch, len, sr) { return new FakeBuffer(ch, len, sr) }
-  createGain() { return { gain: { value: 1 }, connect: n => n, disconnect() {} } }
+  createGain() {
+    // 记录自动化: 定时关闭的淡出在总音量上做线性渐弱
+    const param = {
+      value: 1, ramps: [],
+      cancelScheduledValues() { this.ramps.length = 0 },
+      setValueAtTime(v) { this.value = v },
+      linearRampToValueAtTime(v, at) { this.ramps.push([v, at]) },
+    }
+    const g = { gain: param, to: null, connect: n => { g.to = n; return n }, disconnect() {} }
+    ;(this.gains ??= []).push(g)
+    return g
+  }
   createBufferSource() {
     const src = {
       buffer: null, onended: null, stopped: false, at: null,
@@ -692,4 +703,51 @@ test('播放器: feed 出错 → onEnd(error), 之前的句子照常读完', asy
   assert.equal(end.reason, 'error')
   assert.equal(end.error.message, 'bad chapter')
   assert.deepEqual(log.keys, ['s0', 's1', 's2', 's3'])
+})
+
+test('播放器: 定时关闭淡出 → 总音量线性渐弱到 0 后暂停, 继续时音量复原并读完', async () => {
+  resetEnv('edge')
+  const sentences = book(12)
+  const { player, log } = makePlayer()
+  player.play(makeFeed(sentences))
+  await until(() => log.keys.length >= 2)
+  const ctx = env.ctx
+  const master = ctx.gains.find(g => g.to === ctx.destination)
+  assert.ok(master, '有一个接到输出的总音量节点')
+  assert.ok(ctx.gains.filter(g => g !== master).every(g => g.to === master), '各块经过总音量')
+  const fading = player.fadeOut(0.06)
+  assert.equal(master.gain.ramps.length, 1)
+  assert.equal(master.gain.ramps[0][0], 0, '渐弱到 0')
+  assert.equal(await fading, 'done')
+  assert.equal(player.state, 'paused')
+  player.resume()
+  assert.equal(master.gain.value, 1)
+  assert.equal(master.gain.ramps.length, 0, '复原后没有残留的渐弱')
+  await log.done
+  assert.deepEqual(log.keys, sentences.map(s => s.key))
+})
+
+test('播放器: 淡出途中读者自己暂停 → 不再自动暂停, 音量复原', async () => {
+  resetEnv('edge')
+  const { player, log } = makePlayer()
+  player.play(makeFeed(book(12)))
+  await until(() => log.keys.length >= 1)
+  const fading = player.fadeOut(0.08)
+  player.pause()
+  assert.equal(await fading, 'cancelled')
+  const master = env.ctx.gains.find(g => g.to === env.ctx.destination)
+  assert.equal(master.gain.value, 1)
+  player.stop()
+})
+
+test('播放器: 系统语音没法调音量 → fadeOut 返回 unsupported, 继续读', async () => {
+  resetEnv('system')
+  const sentences = book(8)
+  const { player, log } = makePlayer()
+  player.play(makeFeed(sentences))
+  await until(() => log.keys.length >= 1)
+  assert.equal(await player.fadeOut(0.05), 'unsupported')
+  assert.notEqual(player.state, 'paused')
+  await log.done
+  assert.deepEqual(log.keys, sentences.map(s => s.key))
 })

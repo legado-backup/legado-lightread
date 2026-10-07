@@ -114,6 +114,27 @@ const animate = (a, b, duration, ease, render) => new Promise(resolve => {
     }
     requestAnimationFrame(step)
 })
+// LightRead (reading focus): a scroll animation that yields — it stops (resolves false) as soon
+// as `stop()` says so or someone else (the reader's wheel / finger) moved the position
+const easeInOutQuad = x => x < .5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2
+const glide = (from, to, duration, ease, read, write, stop) => new Promise(resolve => {
+    let start
+    let last = read()
+    const step = now => {
+        if (stop?.() || Math.abs(read() - last) > 2) return resolve(false)
+        start ??= now
+        const fraction = Math.min(1, (now - start) / Math.max(1, duration))
+        write(lerp(from, to, ease(fraction)))
+        last = read()
+        if (fraction < 1) requestAnimationFrame(step)
+        else resolve(true)
+    }
+    requestAnimationFrame(step)
+})
+const docOf = target => {
+    const node = target?.startContainer ?? target
+    return node?.nodeType === 9 ? node : node?.ownerDocument ?? null
+}
 
 // collapsed range doesn't return client rects sometimes (or always?)
 // try make get a non-collapsed range or element
@@ -524,6 +545,8 @@ export class Paginator extends HTMLElement {
     #margin = 0
     #index = -1
     #anchor = 0 // anchor view to a fraction (0-1), Range, or Element
+    #anchorAt = null // LightRead: px from the viewport top where a Range / element anchor sits (null = margin)
+    #glideToken = 0 // LightRead: bumped by every scrollToRange; a newer one cancels a running glide
     #justAnchored = false
     #locked = false // while true, prevent any further navigation
     #styles
@@ -1100,7 +1123,7 @@ export class Paginator extends HTMLElement {
     }
     async #scrollToRect(rect, reason) {
         if (this.scrolled) {
-            const offset = this.#getRectMapper()(rect).left - this.#margin
+            const offset = this.#getRectMapper()(rect).left - (this.#anchorAt ?? this.#margin)
             return this.#scrollTo(offset, reason)
         }
         const offset = this.#getRectMapper()(rect).left
@@ -1133,8 +1156,78 @@ export class Paginator extends HTMLElement {
         return this.#scrollTo(offset, reason, smooth)
     }
     async scrollToAnchor(anchor, select) {
+        this.#anchorAt = null
         if (this.#mode === 'cont') return this.#contScrollToAnchor(anchor, select)
         return this.#scrollToAnchor(anchor, select ? 'selection' : 'navigation')
+    }
+    // ---- LightRead: reading focus (docs/continuous-scroll.md §12) ----
+    // Where a Range / element sits in the scroll viewport: { top, bottom, viewport } in px from the
+    // viewport's top edge (top = first line, bottom = last line). Works for any laid-out slot.
+    // null outside horizontal scrolled flow, or when the target is not in a displayed document.
+    rangeBox(anchor) {
+        if (!this.scrolled || this.#vertical || !anchor || typeof anchor !== 'object') return null
+        const frame = this.#frameOf(docOf(anchor))
+        if (!frame) return null
+        let top = Infinity
+        let bottom = -Infinity
+        try {
+            const target = anchor.startContainer && anchor.collapsed
+                ? uncollapse(anchor.cloneRange()) : anchor
+            for (const r of target.getClientRects()) if (r.height > 0) {
+                top = Math.min(top, r.top)
+                bottom = Math.max(bottom, r.bottom)
+            }
+            if (!(bottom > top)) {
+                const r = target.getBoundingClientRect()
+                if (r.height > 0) [top, bottom] = [r.top, r.bottom]
+            }
+        } catch { return null }
+        if (!(bottom > top)) return null
+        const offset = frame.getBoundingClientRect().top + frame.clientTop - this.#ctTop()
+        return { top: offset + top, bottom: offset + bottom, viewport: this.size }
+    }
+    #frameOf(doc) {
+        if (!doc) return null
+        if (this.#mode === 'cont') {
+            const slot = this.#slots.find(s => !s.dead && s.ready && s.committed && s.view?.document === doc)
+            return slot ? slot.iframe ?? slot.view.element.querySelector('iframe') : null
+        }
+        return this.#view?.document === doc ? this.#view.element.querySelector('iframe') : null
+    }
+    // Scroll so the target's first line lands `at` px below the viewport top (default: one margin,
+    // like scrollToAnchor). behavior 'smooth' glides for `duration` ms and gives way at once if the
+    // reader scrolls; a newer call cancels a running one. In continuous mode the target's slot
+    // becomes the primary section and its on-screen position is what relayouts keep. Paginated /
+    // vertical: same as scrollToAnchor (the target's page is shown).
+    async scrollToRange(anchor, { at, behavior = 'auto', duration = 300, reason = 'navigation' } = {}) {
+        if (!this.scrolled || this.#vertical || !anchor || typeof anchor !== 'object')
+            return this.scrollToAnchor(anchor)
+        const doc = docOf(anchor)
+        let slot = null
+        if (this.#mode === 'cont') {
+            slot = this.#slots.find(s => !s.dead && s.ready && s.view?.document === doc)
+            if (!slot) return
+            if (!slot.committed) this.#contCommit(slot)
+        } else if (!doc || this.#view?.document !== doc) return
+        const line = Number.isFinite(at) ? at : this.#margin
+        const token = ++this.#glideToken
+        const smooth = behavior === 'smooth' && this.hasAttribute('animated')
+        if (slot) return this.#contScrollTo(slot, anchor, reason, smooth,
+            { at: line, duration, stop: () => token !== this.#glideToken })
+        const box = this.rangeBox(anchor)
+        if (!box) return this.scrollToAnchor(anchor)
+        const ct = this.#container
+        const st = ct.scrollTop
+        const target = Math.max(0, Math.min(ct.scrollHeight - ct.clientHeight, st + box.top - line))
+        this.#anchor = anchor
+        this.#anchorAt = line
+        if (Math.abs(target - st) < 1) return
+        if (smooth) {
+            const done = await glide(st, target, duration, easeInOutQuad,
+                () => ct.scrollTop, x => { ct.scrollTop = x }, () => token !== this.#glideToken)
+            if (!done) return // the reader took over, or a newer call did
+        } else ct.scrollTop = target
+        this.#afterScroll(reason)
     }
     async #scrollToAnchor(anchor, reason = 'anchor') {
         this.#anchor = anchor
@@ -1172,8 +1265,10 @@ export class Paginator extends HTMLElement {
         const range = this.#getVisibleRange()
         this.#lastVisibleRange = range
         // don't set new anchor if relocation was to scroll to anchor
-        if (reason !== 'selection' && reason !== 'navigation' && reason !== 'anchor')
+        if (reason !== 'selection' && reason !== 'navigation' && reason !== 'anchor') {
             this.#anchor = range
+            this.#anchorAt = null
+        }
         else this.#justAnchored = true
 
         const index = this.#index
@@ -1188,7 +1283,7 @@ export class Paginator extends HTMLElement {
         this.dispatchEvent(new CustomEvent('relocate', { detail }))
     }
     async #display(promise) {
-        const { index, src, anchor, onLoad, select } = await promise
+        const { index, src, anchor, onLoad, select, focus } = await promise
         this.#index = index
         const hasFocus = this.#view?.document?.hasFocus()
         if (src) {
@@ -1213,15 +1308,20 @@ export class Paginator extends HTMLElement {
             }))
             this.#view = view
         }
-        await this.scrollToAnchor((typeof anchor === 'function'
-            ? anchor(this.#view.document) : anchor) ?? 0, select)
+        const target = (typeof anchor === 'function' ? anchor(this.#view.document) : anchor) ?? 0
+        // LightRead: goTo({ focus: { at } }) puts a Range / element target `at` px below the top
+        if (focus && Number.isFinite(focus.at) && this.scrolled && !this.#vertical
+            && target && typeof target === 'object') {
+            this.#anchorAt = focus.at
+            await this.#scrollToAnchor(target, select ? 'selection' : 'navigation')
+        } else await this.scrollToAnchor(target, select)
         if (hasFocus) this.focusView()
     }
     #canGoToIndex(index) {
         return index >= 0 && index <= this.sections.length - 1
     }
-    async #goTo({ index, anchor, select }) {
-        if (index === this.#index) await this.#display({ index, anchor, select })
+    async #goTo({ index, anchor, select, focus }) {
+        if (index === this.#index) await this.#display({ index, anchor, select, focus })
         else {
             const oldIndex = this.#index
             const onLoad = detail => {
@@ -1230,7 +1330,7 @@ export class Paginator extends HTMLElement {
                 this.dispatchEvent(new CustomEvent('load', { detail }))
             }
             await this.#display(Promise.resolve(this.sections[index].load())
-                .then(src => ({ index, src, anchor, onLoad, select }))
+                .then(src => ({ index, src, anchor, onLoad, select, focus }))
                 .catch(e => {
                     console.warn(e)
                     console.warn(new Error(`Failed to load section ${index}`))
@@ -1465,6 +1565,7 @@ export class Paginator extends HTMLElement {
         this.#vertical = primary.vertical
         this.#rtl = primary.rtl
         this.#anchor = anchor ?? 0
+        this.#anchorAt = null
     }
     #contCancelTimers() {
         if (this.#idleHandle != null) cancelIdle(this.#idleHandle)
@@ -2097,7 +2198,7 @@ export class Paginator extends HTMLElement {
     }
 
     // ---- navigation ----
-    async #contGoTo({ index, anchor, select }) {
+    async #contGoTo({ index, anchor, select, focus }) {
         const reason = select ? 'selection' : 'navigation'
         const first = this.#slots[0]
         const last = this.#slots.at(-1)
@@ -2107,11 +2208,11 @@ export class Paginator extends HTMLElement {
         if (near) {
             const slot = await this.#contEnsureSlot(index)
             if (this.#mode !== 'cont') return
-            if (slot) return this.#contScrollTo(slot, anchor, reason, true)
+            if (slot) return this.#contScrollTo(slot, anchor, reason, focus?.behavior !== 'auto', focus)
         }
-        return this.#contRebuild({ index, anchor, select })
+        return this.#contRebuild({ index, anchor, select, focus })
     }
-    async #contRebuild({ index, anchor, select }) {
+    async #contRebuild({ index, anchor, select, focus }) {
         this.#contCancelTimers()
         for (const slot of [...this.#slots]) this.#contUnload(slot)
         this.#cAnchor = null
@@ -2132,11 +2233,14 @@ export class Paginator extends HTMLElement {
             return
         }
         this.#contSetPrimary(slot, false)
-        await this.#contScrollTo(slot, anchor, select ? 'selection' : 'navigation', false)
+        await this.#contScrollTo(slot, anchor, select ? 'selection' : 'navigation', false, focus)
         if (hasFocus) this.focusView()
         this.#contIdlePrefetch()
     }
-    async #contScrollTo(slot, anchor, reason, smooth) {
+    // `place` (LightRead reading focus): { at } puts a Range / element target `at` px below the
+    // viewport top instead of one margin; with `stop` (scrollToRange) the caller already chose
+    // the motion, the glide yields to the reader and a superseded call does nothing more
+    async #contScrollTo(slot, anchor, reason, smooth, place) {
         const doc = slot.view.document
         const resolved = (typeof anchor === 'function' ? anchor(doc) : anchor) ?? 0
         this.#anchor = resolved
@@ -2153,7 +2257,8 @@ export class Paginator extends HTMLElement {
         } else {
             const rect = firstRect(uncollapse(resolved) ?? resolved)
             // same as upstream scrolled mode: the target line starts one margin below the top
-            if (rect) target = this.#contentTop(slot, st, ctTop) + rect.top - this.#margin
+            const at = Number.isFinite(place?.at) ? place.at : this.#margin
+            if (rect) target = this.#contentTop(slot, st, ctTop) + rect.top - at
             if (resolved?.startContainer) range = resolved
             else if (resolved?.nodeType === 1) {
                 range = doc.createRange()
@@ -2170,7 +2275,12 @@ export class Paginator extends HTMLElement {
             }))
         }
         const distance = Math.abs(target - st)
-        if (smooth && distance > 1 && distance <= 3 * size && this.hasAttribute('animated'))
+        if (place?.stop) {
+            if (smooth && distance > 1) {
+                const done = await this.#contAnimate(st, target, place.duration, easeInOutQuad, place.stop)
+                if (!done) return // the reader took over, or a newer call did
+            } else if (distance >= 0.5) this.#setScroll(target)
+        } else if (smooth && distance > 1 && distance <= 3 * size && this.hasAttribute('animated'))
             await this.#contAnimate(st, target)
         else this.#setScroll(target)
         if (slot.dead || this.#mode !== 'cont') return
@@ -2196,10 +2306,12 @@ export class Paginator extends HTMLElement {
         if (!slot.committed) this.#contCommit(slot)
         return this.#contScrollTo(slot, anchor, select ? 'selection' : 'navigation', false)
     }
-    async #contAnimate(from, to) {
+    async #contAnimate(from, to, duration = 300, ease = easeOutQuad, stop = null) {
         this.#animating = true
         try {
-            await animate(from, to, 300, easeOutQuad, x => this.#setScroll(x))
+            if (!stop) return await animate(from, to, duration, ease, x => this.#setScroll(x))
+            const ct = this.#container
+            return await glide(from, to, duration, ease, () => ct.scrollTop, x => this.#setScroll(x), stop)
         } finally {
             this.#animating = false
             this.#lastUserScrollAt = performance.now()

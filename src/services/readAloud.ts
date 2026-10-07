@@ -73,7 +73,7 @@ export function splitSentences(text: string, lang = 'zh'): Span[] {
   }
   const out: Span[] = []
   for (const s of merged) {
-    for (const piece of softSplit(text, s)) {
+    for (const piece of softSplit(text, s, lang)) {
       const trimmed = trimSpan(text, piece)
       if (trimmed.end > trimmed.start && SPEAKABLE.test(text.slice(trimmed.start, trimmed.end))) out.push(trimmed)
     }
@@ -81,24 +81,90 @@ export function splitSentences(text: string, lang = 'zh'): Span[] {
   return out
 }
 
-function softSplit(text: string, s: Span): Span[] {
+function softSplit(text: string, s: Span, lang = 'zh'): Span[] {
   if (s.end - s.start <= MAX_SENTENCE) return [s]
   const out: Span[] = []
   let start = s.start
   while (s.end - start > MAX_SENTENCE) {
-    const window = text.slice(start, start + MAX_SENTENCE)
-    let cut = -1
-    SOFT_BREAK.lastIndex = 0
-    for (let m = SOFT_BREAK.exec(window); m; m = SOFT_BREAK.exec(window)) {
-      // 不在太靠前的位置切, 避免切出两三个字的碎句
-      if (m.index >= MAX_SENTENCE / 3) cut = m.index + 1
-    }
-    if (cut < 0) cut = MAX_SENTENCE
-    out.push({ start, end: start + cut })
-    start += cut
+    const cut = softCut(text, start, s.end, lang)
+    out.push({ start, end: cut })
+    start = cut
   }
   out.push({ start, end: s.end })
   return out
+}
+
+/** 拉丁 / 西里尔 / 希腊字母、数字及其附加符号: 两个这样的字符之间不能切 (会把一个词或数字切成两半) */
+const WORD_CHAR = /[\p{L}\p{N}\p{M}]/u
+const CJK_CHAR = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u
+/** 词内连接符: don't、well-known、3.14、1,000、12:30 两边都是字母或数字时不切 */
+const JOINER = /['’\-.,:·]/
+
+function isWordChar(ch: string | undefined): boolean {
+  return !!ch && WORD_CHAR.test(ch) && !CJK_CHAR.test(ch)
+}
+
+/** 在 i 处切开 (text[i-1] | text[i]) 会不会把一个西文词或数字切开 */
+function insideWord(text: string, i: number): boolean {
+  const a = text[i - 1]
+  const b = text[i]
+  if (isWordChar(a) && isWordChar(b)) return true
+  // 切点紧挨词内连接符: 「1,|000」「don'|t」「3.|14」
+  if (b && JOINER.test(b) && isWordChar(a) && isWordChar(text[i + 1])) return true
+  if (a && JOINER.test(a) && isWordChar(text[i - 2]) && isWordChar(b)) return true
+  return false
+}
+
+const wordSegmenters = new Map<string, Intl.Segmenter | null>()
+function wordSegmenter(lang: string): Intl.Segmenter | null {
+  if (!wordSegmenters.has(lang)) {
+    let seg: Intl.Segmenter | null = null
+    try { seg = new Intl.Segmenter(lang || 'zh', { granularity: 'word' }) } catch { /* 旧环境: 只按字符判断 */ }
+    wordSegmenters.set(lang, seg)
+  }
+  return wordSegmenters.get(lang)!
+}
+
+/**
+ * 长句 [start, end) 的下一个切点 (绝对偏移)。在 [start + MAX/3, start + MAX] 窗口里从后往前挑:
+ * 1. 软断点标点 (逗号、分号、顿号…) 之后, 数字里的「1,000」「12:30」不算;
+ * 2. 空白处 (西文的词间);
+ * 3. 分词边界 (Intl.Segmenter 词级, 中文按词), 且不在西文词或数字中间;
+ * 窗口里都没有 (一长串没有空格的西文 / 网址): 往后找第一个不在词中间的位置, 宁可这句长一点也不把词切断。
+ */
+function softCut(text: string, start: number, end: number, lang: string): number {
+  const lo = start + Math.ceil(MAX_SENTENCE / 3)
+  const hi = Math.min(end, start + MAX_SENTENCE)
+  const window = text.slice(start, hi)
+  // 1. 软断点
+  let cut = -1
+  SOFT_BREAK.lastIndex = 0
+  for (let m = SOFT_BREAK.exec(window); m; m = SOFT_BREAK.exec(window)) {
+    const at = start + m.index + 1
+    // 不在太靠前的位置切, 避免切出两三个字的碎句
+    if (at >= lo && !insideWord(text, at - 1) && !insideWord(text, at)) cut = at
+  }
+  if (cut > 0) return cut
+  // 2. 空白: 切在空白之后, 下一句从词首开始
+  for (let i = hi; i >= lo; i--) {
+    if (/\s/.test(text[i - 1]) && !/\s/.test(text[i] ?? '')) return i
+  }
+  // 3. 分词边界 (多取一截, 让窗口末尾的词完整)
+  const seg = wordSegmenter(lang)
+  if (seg) {
+    let best = -1
+    for (const w of seg.segment(text.slice(start, Math.min(end, hi + 24)))) {
+      const at = start + w.index
+      if (at > hi) break
+      if (at >= lo && !insideWord(text, at)) best = at
+    }
+    if (best > 0) return best
+  } else {
+    for (let i = hi; i >= lo; i--) if (!insideWord(text, i)) return i
+  }
+  // 4. 窗口里没有能切的地方: 往后找第一个词边界
+  for (let i = hi + 1; i < end; i++) if (!insideWord(text, i)) return i
+  return end
 }
 
 function trimSpan(text: string, s: Span): Span {

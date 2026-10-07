@@ -90,6 +90,10 @@ export interface ReadingModePrefs {
     enabled: boolean
     style: 'auto' | 'alternate' | 'fixation'
     strength: 'light' | 'normal'
+    /** 着色强度 0.4–1 (默认五档 柔和 … 最强, 可拖动微调); 取代 strength */
+    intensity: number
+    /** 着色颜色 (精选配色之一) */
+    color: 'teal' | 'indigo' | 'amber' | 'rose' | 'forest'
   }
   /** 大字: 预设开关; custom 为在大字模式里手动调过的值 (下次开启沿用) */
   largeText: { enabled: boolean; size: 'large' | 'xlarge'; custom: Record<string, unknown> }
@@ -315,7 +319,7 @@ const defaults: SettingsState = {
       pageDwellMs: 800,
     },
     lyric: { lines: 1, others: 'dim', anchor: 0.4, driver: 'pace', scale: 1.2 },
-    wordGuide: { enabled: false, style: 'auto', strength: 'light' },
+    wordGuide: { enabled: false, style: 'auto', strength: 'normal', intensity: 0.7, color: 'teal' },
     largeText: { enabled: false, size: 'large', custom: {} },
     eink: { enabled: false, suggestDismissed: false },
     immersive: { enabled: false, hideFooter: false },

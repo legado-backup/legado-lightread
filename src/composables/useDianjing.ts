@@ -87,6 +87,8 @@ export interface UseDianjingOptions {
   openAi?: (prompt: string) => void
   /** 弹卡 / 打开面板前收起其他浮层 */
   beforeOverlay?: () => void
+  /** 跳到一句 (CFI): 宿主按阅读焦点放置 (滚动模式落在屏幕 38% 处); 不给则用 view.goTo */
+  goToText?: (cfi: string) => Promise<unknown>
 }
 
 export interface DjCardState {
@@ -425,7 +427,10 @@ export function useDianjing(opts: UseDianjingOptions) {
     let target: string | number = pos.section
     try { if (range) target = v.getCFI(pos.section, range) } catch { /* 退回分节 */ }
     pendingFlash = pos
-    try { await v.goTo(target) } catch { pendingFlash = null }
+    try {
+      if (typeof target === 'string' && opts.goToText) await opts.goToText(target)
+      else await v.goTo(target)
+    } catch { pendingFlash = null }
   }
 
   /** 当前节内上一个 / 下一个要句 */

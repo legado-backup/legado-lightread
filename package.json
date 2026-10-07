@@ -1,7 +1,7 @@
 {
   "name": "lightread",
   "private": true,
-  "version": "1.13.0",
+  "version": "1.13.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -45,6 +45,8 @@
     "test:reader-pages": "node --experimental-strip-types --test scripts/test-reader-pages.mjs",
     "test:tts": "node --experimental-strip-types --test scripts/test-tts.mjs",
     "test:reading-modes": "node --experimental-strip-types --test scripts/test-reading-modes.mjs",
+    "test:reading-focus": "node --experimental-strip-types --test scripts/test-reading-focus.mjs",
+    "test:zh-segment": "node --experimental-strip-types --test scripts/test-zh-segment.mjs",
     "e2e:sync": "node scripts/e2e-sync.mjs",
     "e2e:account": "node scripts/e2e-account.mjs",
     "e2e:transfer": "node scripts/e2e-transfer.mjs",

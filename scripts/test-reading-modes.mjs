@@ -835,3 +835,36 @@ test('打字声合成兜底: 每个音色都能生成, 结果确定、无 NaN、
   }
   assert.equal(synthHit('pen', 44100, seeded(3)).length, Math.round(44100 * 0.1))
 })
+
+// ---- 自动翻页 / 滚动速度档位 (services/autoReadSpeed.ts) ----
+import { AUTO_SPEED_LEVELS, autoSpeedIndex, stepAutoSpeed, autoSpeedKey } from '../src/services/autoReadSpeed.ts'
+
+test('自动速度: 五档从慢到快, 默认 15 秒为「适中」', () => {
+  assert.deepEqual(AUTO_SPEED_LEVELS.map(l => l.level), ['verySlow', 'slow', 'medium', 'fast', 'veryFast'])
+  for (let i = 1; i < AUTO_SPEED_LEVELS.length; i++) assert.ok(AUTO_SPEED_LEVELS[i].seconds < AUTO_SPEED_LEVELS[i - 1].seconds)
+  assert.equal(autoSpeedKey(15), 'reader.speedMedium')
+})
+
+test('自动速度: 旧的任意秒数显示为最接近的一档, 快慢一档按档位走且到头不动', () => {
+  assert.equal(autoSpeedKey(60), 'reader.speedVerySlow')
+  assert.equal(autoSpeedKey(3), 'reader.speedVeryFast')
+  assert.equal(autoSpeedKey(12), 'reader.speedFast')
+  assert.equal(autoSpeedIndex(25), 0, '与很慢 / 慢等距时取较慢的一档')
+  assert.equal(stepAutoSpeed(15, 1), 10)
+  assert.equal(stepAutoSpeed(15, -1), 20)
+  assert.equal(stepAutoSpeed(6, 1), 6)
+  assert.equal(stepAutoSpeed(30, -1), 30)
+  assert.equal(stepAutoSpeed(12, -1), 15, '旧值 12 (≈快) 慢一档到适中')
+})
+
+import { speedPosition, secondsAtPosition } from '../src/services/autoReadSpeed.ts'
+test('自动速度滑动条: 位置与秒数互换, 档位处取整档, 两档之间平滑', () => {
+  assert.equal(secondsAtPosition(0), 30)
+  assert.equal(secondsAtPosition(2), 15)
+  assert.equal(secondsAtPosition(4), 6)
+  const mid = secondsAtPosition(2.5)
+  assert.ok(mid < 15 && mid > 10, `适中与快之间: ${mid}`)
+  for (const s of [30, 24, 15, 12.3, 10, 7, 6]) assert.ok(Math.abs(secondsAtPosition(speedPosition(s)) - s) < 0.15, `往返 ${s}`)
+  assert.equal(speedPosition(60), 0)
+  assert.equal(speedPosition(3), 4)
+})

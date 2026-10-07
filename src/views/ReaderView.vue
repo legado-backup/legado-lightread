@@ -7,7 +7,7 @@ import { useSettings } from '../stores/settings'
 import { useLibrary } from '../stores/library'
 import { isTextLike } from '../services/format'
 import { convertToEpub, TEXT_EPUB_LAYOUT } from '../services/textToEpub'
-import { getReaderCSS, resolveReaderColors, resolveReaderTheme, HIGHLIGHT_COLORS } from '../services/readerTheme'
+import { getReaderCSS, resolveReaderColors, resolveReaderTheme, HIGHLIGHT_COLORS, listenMarkStyle, type ListenMarkStyle } from '../services/readerTheme'
 import { resolvedTheme } from '../services/appearance'
 import { setPageBarsDark, setSystemBarsHidden, setKeepScreenOn } from '../services/systemBars'
 import { injectFontIntoDoc, resolveFontFamily } from '../services/fonts'
@@ -15,13 +15,16 @@ import { isTauri } from '../storage/types'
 import { listVoicesSorted, warmUpSpeech, resetEdgeFailure } from '../services/tts'
 import { ListenPlayer, type ListenFeed } from '../services/listenPlayer'
 import { SentenceCursor, loadListenBookmark, saveListenBookmark, agoBucket, type CursorPos, type ListenBookmark } from '../services/readAloud'
+import { readingArea, followTarget, jumpLine, isOnScreen, followHeld, scrollMotion, type Area } from '../services/readingFocus'
 import { EDGE_VOICES, edgeAvailable, playAudio } from '../services/edgeTts'
 import { KOKORO_VOICES, DEFAULT_KOKORO_SID, kokoroVoiceLabel } from '../services/kokoroVoices'
 import { localPack, localTtsSynthesize, refreshLocalPack } from '../services/localTts'
 import LocalTtsPack from '../components/LocalTtsPack.vue'
+import LevelSlider from '../components/LevelSlider.vue'
 import { useReadingTimer } from '../composables/useReadingTimer'
 import { usePortraitView } from '../composables/usePortraitView'
 import { effectiveReaderLayout, portraitSpacing } from '../services/portraitLayout'
+import { autoSpeedKey, stepAutoSpeed } from '../services/autoReadSpeed'
 import { toast } from '../services/toast'
 import { t } from '../i18n'
 import { searchBook, type SearchHit } from '../services/bookSearch'
@@ -814,12 +817,9 @@ function resumeAutoRead() {
   runAutoEngine()
 }
 
-/** 速度 (秒/页、秒/屏) 微调: 越慢步子越大; 3–60 秒 */
+/** 快一档 (dir = 1) / 慢一档 (dir = -1): 很慢 … 很快 五档, 见 services/autoReadSpeed */
 function adjustAutoSpeed(dir: 1 | -1) {
-  const s = settings.autoReadSeconds
-  const step = s > 20 ? 5 : s > 10 ? 2 : 1
-  // dir = 1 为加快 (秒数变小)
-  settings.autoReadSeconds = Math.min(60, Math.max(3, s - dir * step))
+  settings.autoReadSeconds = stepAutoSpeed(settings.autoReadSeconds, dir)
 }
 
 // ---- 滚动模式的匀速滚动 ----
@@ -1132,7 +1132,13 @@ let listenChain: Promise<void> = Promise.resolve()
 let lastSentenceStart: { key: string; at: number; pausedBefore: number } | null = null
 
 const listenPlayer = new ListenPlayer({
-  onSentenceStart: key => { listenChain = listenChain.then(() => onListenSentence(key)).catch(() => {}) },
+  onSentenceStart: key => {
+    // 定时到了句子边界 (听完本章 / 系统语音读完这句): 下一句一开口就停, 不读半句
+    if (sleepStopsBefore(key)) sleepPause()
+    // 定时器在后台 / 熄屏时可能被节流: 每句开头也对一下表
+    else if (sleepAt.value && !sleepFading.value && Date.now() >= sleepAt.value - SLEEP_FADE_SECONDS * 1000) void sleepNow()
+    listenChain = listenChain.then(() => onListenSentence(key)).catch(() => {})
+  },
   onEnd: reason => {
     ttsBuffering.value = false
     if (reason === 'error') toast(t('tts.error'), 'error')
@@ -1267,14 +1273,147 @@ function listenRange(key = currentListenKey.value): Range | null {
  * 听书时没法划线、写想法、「从这里听」。
  */
 const TTS_MARK = 'lr-tts-sentence'
-const TTS_MARK_COLOR = '#4f7cff'
-function highlightListen(range: Range, scroll = true) {
+/** 朗读句标记随正文主题取色 (墨水屏为下划线), 句内文字对比度 ≥ 4.5:1, 见 readerTheme.LISTEN_MARKS */
+const listenMark = computed(() => listenMarkStyle(settings.reader.theme, appDark.value, lateModes.value?.readerStyle.value))
+const SVG_NS = 'http://www.w3.org/2000/svg'
+/** overlayer 绘制函数: 色块 (按主题透明度) 或下划线; rects 是 foliate 给出的行框 */
+function drawListenMark(rects: Array<{ left: number; top: number; width: number; height: number }>, opts: { mark: ListenMarkStyle; padding?: number }) {
+  const { mark, padding = 0 } = opts
+  const g = document.createElementNS(SVG_NS, 'g')
+  g.setAttribute('fill', mark.color)
+  g.style.opacity = String(mark.opacity)
+  for (const r of rects) {
+    const el = document.createElementNS(SVG_NS, 'rect')
+    if (mark.underline) {
+      const thick = Math.max(2, Math.round(r.height * 0.09))
+      el.setAttribute('x', String(r.left))
+      el.setAttribute('y', String(r.top + r.height - thick / 2))
+      el.setAttribute('width', String(r.width))
+      el.setAttribute('height', String(thick))
+    } else {
+      el.setAttribute('x', String(r.left - padding))
+      el.setAttribute('y', String(r.top - padding))
+      el.setAttribute('width', String(r.width + padding * 2))
+      el.setAttribute('height', String(r.height + padding * 2))
+    }
+    g.append(el)
+  }
+  return g
+}
+/**
+ * 画朗读高亮并让视图跟上。scroll: true = 跟随 (在舒适区就不动, 读者刚滑过就先不抢);
+ * 'force' = 读者主动要看这句 (跳句 / 回到朗读位置): 不管刚才滑没滑过, 不在舒适区就挪过来
+ */
+function highlightListen(range: Range, scroll: boolean | 'force' = true) {
   clearListenHighlight()
   const doc = range.startContainer.ownerDocument
   const target = view.renderer.getContents?.()?.find((c: any) => c.doc === doc)
-  try { target?.overlayer?.add(TTS_MARK, range, Overlayer.highlight, { color: TTS_MARK_COLOR, padding: 1 }) } catch { /* 叠层未就绪 */ }
-  if (scroll) view.renderer.scrollToAnchor?.(range)
+  try { target?.overlayer?.add(TTS_MARK, range, drawListenMark, { mark: listenMark.value, padding: 1 }) } catch { /* 叠层未就绪 */ }
+  if (scroll) followText(range, scroll === 'force')
 }
+
+// ---- 阅读焦点 (services/readingFocus.ts): 程序把视图移到一段文字时, 落在可读区 38% 的焦点线,
+// 不贴顶边、不钻到顶栏下面; 跟随时在 25%–65% 舒适区里就不动。只管滚动模式, 翻页模式照旧翻到目标所在页 ----
+const prefersReducedMotion = () => {
+  try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches } catch { return false }
+}
+/** 滚动模式且渲染器支持阅读焦点 (fork 的 rangeBox / scrollToRange) */
+function focusFlow(): boolean {
+  const r = view?.renderer
+  return !!r && effectiveFlow.value === 'scrolled' && !!r.scrolled && !view.isFixedLayout && typeof r.scrollToRange === 'function'
+}
+/**
+ * 可读区: 渲染器视口减去此刻盖在正文上的东西 — 显示中的顶栏 / 底栏, 手机上的听书抽屉。
+ * 工具栏有 0.25s 的位移过渡, 用 offsetTop/offsetHeight (不受 transform 影响) 量它们停稳后的位置
+ */
+function focusArea(): Area {
+  const r = view.renderer
+  const host: DOMRect = r.getBoundingClientRect()
+  const viewport = Number(r.size) || host.height
+  const shell = container.value?.closest('.reader') as HTMLElement | null
+  let insetTop = 0
+  let insetBottom = 0
+  if (shell && barsVisible.value) {
+    const top0 = shell.getBoundingClientRect().top
+    const bar = (sel: string) => shell.querySelector<HTMLElement>(`:scope > ${sel}`)
+    const head = bar('.bar.top')
+    const foot = bar('.bar.bottom')
+    if (head) insetTop = top0 + head.offsetTop + head.offsetHeight - host.top
+    if (foot) insetBottom = host.top + viewport - (top0 + foot.offsetTop)
+  }
+  const sheet = ttsPanel.value ? shell?.querySelector<HTMLElement>(':scope > .tts-panel') : null
+  if (sheet) {
+    // 只有铺满宽度、贴着底边的抽屉才算遮挡 (桌面上的听书面板是右上角的小卡片)
+    const rect = sheet.getBoundingClientRect()
+    if (rect.width >= host.width * 0.9 && rect.bottom >= host.bottom - 2) insetBottom = Math.max(insetBottom, host.bottom - rect.top)
+  }
+  return readingArea(viewport, insetTop, insetBottom)
+}
+/** 一次性跳转的落点 (相对视口顶边 px) */
+const focusJumpOptions = () => ({ at: jumpLine(focusArea()), behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+
+/** 跟随一段文字 (听书当前句): 在舒适区就不动, 否则平稳挪到焦点线; 读者 4 秒内滑过则不抢 (force 除外) */
+function followText(range: Range, force = false) {
+  const r = view?.renderer
+  if (!r) return
+  if (!focusFlow()) {
+    // 翻页模式: 翻到这句所在的页 (原行为)
+    r.scrollToAnchor?.(range)
+    return
+  }
+  if (!force && followHeld(listenSteerAt, performance.now())) return
+  const box = r.rangeBox(range)
+  if (!box) {
+    r.scrollToAnchor?.(range)
+    return
+  }
+  const at = followTarget(box, focusArea())
+  if (at == null) return
+  const motion = scrollMotion(box.top - at, box.viewport, prefersReducedMotion())
+  void r.scrollToRange(range, { at, ...motion })
+}
+
+/**
+ * 跳到书里的一段文字 (搜索结果、划线、点睛要句、听书断点): 滚动模式下目标首行落在焦点线, 近处平滑滚过去。
+ * 书签 / 续读 / 「回到第 N 页」记的是当时屏幕顶上那一行, 照旧顶端对齐还原屏幕 — 若也挪到焦点线,
+ * 每打开一次记下的位置就往前退一截。章节 / 目录跳转也照旧, 章首在顶上。
+ */
+async function goToText(target: string) {
+  if (!view) return
+  if (!focusFlow()) return view.goTo(target)
+  const resolved = view.resolveNavigation(target)
+  if (!resolved) return view.goTo(target)
+  await view.renderer.goTo({ ...resolved, focus: focusJumpOptions() })
+  try { view.history?.pushState?.(target) } catch { /* 历史记录只用于前进后退 */ }
+}
+
+/**
+ * 听书时读者自己滑动 / 拖滚动条: 4 秒内不自动跟随; 停手后若朗读句已滑出屏幕, 转为「回到朗读位置」;
+ * 滑回来、朗读句又出现在屏上, 就接着跟。只在滚动模式下 (翻页模式的手动翻页本来就会转为「回到朗读位置」)
+ */
+let listenSteerAt = -Infinity
+let steerCheckTimer: ReturnType<typeof setTimeout> | undefined
+function noteReaderSteer() {
+  if (ttsState.value === 'stopped' || !focusFlow()) return
+  listenSteerAt = performance.now()
+  clearTimeout(steerCheckTimer)
+  steerCheckTimer = setTimeout(checkListenOnScreen, 450)
+}
+function checkListenOnScreen() {
+  if (ttsState.value === 'stopped' || !focusFlow() || !currentListenKey.value) return
+  const range = listenRange()
+  const box = range ? view.renderer.rangeBox(range) : null
+  const onScreen = !!box && isOnScreen(box, box.viewport)
+  if (!onScreen) listenDetached.value = true
+  else if (listenDetached.value) listenDetached.value = false
+}
+
+// 换正文主题 / 开关墨水屏: 朗读句标记跟着换色, 不挪视图
+watch(listenMark, () => {
+  if (ttsState.value === 'stopped' || listenDetached.value) return
+  const range = listenRange()
+  if (range) highlightListen(range, false)
+})
 
 function clearListenHighlight() {
   for (const c of view?.renderer?.getContents?.() ?? []) {
@@ -1288,9 +1427,10 @@ async function onListenSentence(key: string) {
   currentListenKey.value = key
   const { index } = parseKey(key)
   if (!listenDetached.value) {
-    // 朗读进入下一分节: 翻过去 (跨章连续滚动时它多半已预载在下方, 直接滚过去, 不重新加载)
-    if (!loadedContent(index)) {
-      try { await view.renderer.goTo({ index }) } catch { /* 留在原处, 继续读 */ }
+    // 朗读进入下一分节: 翻过去 (跨章连续滚动时它多半已预载在下方, 直接滚过去, 不重新加载);
+    // 滚动模式下直接把这句放到焦点线, 不先停在章首再挪一次。读者刚滑过 (4 秒内) 就不去拽
+    if (!loadedContent(index) && !(focusFlow() && followHeld(listenSteerAt, performance.now()))) {
+      await goToListenSection(index, parseKey(key).pos)
     }
     const range = listenRange(key)
     if (range) {
@@ -1400,7 +1540,7 @@ async function startTTS(from: ListenFrom = 'auto') {
     if (hit) {
       index = hit.index
       pos = hit.pos
-      if (displayedContent()?.index !== index) await view.goTo(listenBookmark.value!.cfi).catch(() => {})
+      if (displayedContent()?.index !== index) await goToText(listenBookmark.value!.cfi).catch(() => {})
     } else return startTTS('page')
   } else {
     const visible: Range | undefined = typeof from === 'object' ? undefined : view.lastLocation?.range
@@ -1426,6 +1566,8 @@ async function startTTS(from: ListenFrom = 'auto') {
   lastSentenceStart = null
   localStutters = 0
   localTooSlow.value = false
+  restartOnResume = false
+  reanchorSleep()
   ttsState.value = 'playing'
   listenPlayer.play(makeFeed(index!, pos))
   setupMediaSession()
@@ -1445,7 +1587,11 @@ function resumeTTS() {
   ttsState.value = 'playing'
   if (pausedAt) pausedTotal += performance.now() - pausedAt
   pausedAt = 0
-  listenPlayer.resume()
+  // 定时淡出停下的 / 暂停时改了语速音色: 从这一句开头重读, 不接着半句
+  if (restartOnResume && currentListenKey.value) {
+    restartOnResume = false
+    restartCurrentSentence()
+  } else listenPlayer.resume()
   modes.setFollowPaused(false)
   updateMediaSession()
 }
@@ -1457,7 +1603,19 @@ function stopTTS() {
   finishListenSession()
 }
 
+/** 从当前朗读句的开头重新合成、播放 (换了语速 / 音色, 或定时停止后继续) */
+function restartCurrentSentence() {
+  const key = currentListenKey.value
+  if (!key || ttsState.value === 'stopped') return
+  const { index, pos } = parseKey(key)
+  lastSentenceStart = null
+  listenPlayer.play(makeFeed(index, pos))
+}
+/** 下次「继续」时从当前句开头读 */
+let restartOnResume = false
+
 function finishListenSession() {
+  restartOnResume = false
   ttsState.value = 'stopped'
   ttsBuffering.value = false
   listenDetached.value = false
@@ -1493,11 +1651,14 @@ async function skipListen(kind: 'sentence' | 'paragraph', dir: 1 | -1) {
   if (!moved) return
   skipTarget = { index, pos: c.pos }
   listenDetached.value = false
+  restartOnResume = false
+  reanchorSleep()
   const nextKey = `${index}:${c.pos.block}:${c.pos.sentence}`
   currentListenKey.value = nextKey
-  if (!loadedContent(index)) await view.renderer.goTo({ index }).catch(() => {})
+  listenSteerAt = -Infinity
+  if (!loadedContent(index)) await goToListenSection(index, c.pos)
   const range = listenRange(nextKey)
-  if (range) highlightListen(range)
+  if (range) highlightListen(range, 'force')
   clearTimeout(skipTimer)
   skipTimer = setTimeout(() => {
     const target = skipTarget
@@ -1514,10 +1675,25 @@ async function returnToListening() {
   listenDetached.value = false
   const key = currentListenKey.value
   if (!key) return
-  const { index } = parseKey(key)
-  if (!loadedContent(index)) await view.renderer.goTo({ index }).catch(() => {})
+  const { index, pos } = parseKey(key)
+  listenSteerAt = -Infinity
+  if (!loadedContent(index)) await goToListenSection(index, pos)
   const range = listenRange(key)
-  if (range) highlightListen(range)
+  if (range) highlightListen(range, 'force')
+}
+
+/** 朗读句所在分节没在屏上: 打开它; 滚动模式下顺带把这句放到焦点线 (翻页模式照旧打开章首, 随后翻到句子所在页) */
+async function goToListenSection(index: number, pos: CursorPos) {
+  const target: Record<string, unknown> = { index }
+  if (focusFlow()) {
+    target.anchor = (doc: Document) => {
+      const c = cursorForDoc(doc)
+      c.pos = pos
+      return c.current() ?? 0
+    }
+    target.focus = focusJumpOptions()
+  }
+  try { await view.renderer.goTo(target) } catch { /* 留在原处, 继续读 */ }
 }
 
 /** 从朗读中翻到 / 跳到的这一页重新开始读 */
@@ -1540,51 +1716,180 @@ function listenFromSelection() {
 // 听书出声时压低背景音
 watch(ttsState, s => ambient.duck(s === 'playing'), { immediate: true })
 
-// 换音色 / 倍速 / 引擎: 已合成的预读作废, 从下一句起按新设置
+// 换音色 / 倍速 / 引擎: 从正在读的这一句开头按新设置重读 (拖语速滑条时停手 0.4 秒再重读一次);
+// 暂停中改的, 继续时从这句开头读
+let settingsRestartTimer: ReturnType<typeof setTimeout> | undefined
 watch(() => [settings.ttsEngine, settings.ttsRate, settings.edgeVoice, settings.localVoiceId, settings.ttsVoice], () => {
-  if (ttsState.value !== 'stopped') listenPlayer.invalidate()
+  if (ttsState.value === 'stopped') return
+  clearTimeout(settingsRestartTimer)
+  if (ttsState.value === 'paused') {
+    restartOnResume = true
+    return
+  }
+  // 先作废预合成, 免得等待期间读到旧设置的下一块
+  listenPlayer.invalidate()
+  settingsRestartTimer = setTimeout(() => {
+    if (ttsState.value === 'playing') restartCurrentSentence()
+  }, 400)
 })
 
-// ---- 定时关闭: 15 / 30 / 60 / 90 分钟, 或听完本章 ----
-type SleepMode = 0 | 15 | 30 | 60 | 90 | 'chapter'
+/** 语速显示: 1.0× / 1.25× / 0.75× (用乘号, 不用字母 x) */
+function rateText(rate: number): string {
+  const r = Math.round(rate * 100) / 100
+  return `${Number.isInteger(r * 10) ? r.toFixed(1) : r.toFixed(2)}×`
+}
+/** 语速档位: 1.0× 标「正常」; 其余两档之间可以拖 (步长 0.05) */
+const RATE_STOPS = [0.75, 1, 1.25, 1.5, 2]
+const rateStops = computed(() => RATE_STOPS.map(v => ({ value: v, label: v === 1 ? t('tts.rateNormal') : rateText(v) })))
+
+// ---- 定时关闭: 15 / 30 分钟、1 小时, 或听完本章 ----
+// 到点前 3 秒开始淡出, 到点停在暂停 (不是停止, 进度和断点都在), Toast 可一键「再听 15 分钟」。
+// 系统语音调不了音量: 读完这句再停。只在本次听书内有效, 不记住 (默认「不定时」)
+type SleepMode = 0 | 15 | 30 | 60 | 'chapter'
+const SLEEP_CHOICES: Array<{ mode: SleepMode; key: string }> = [
+  { mode: 0, key: 'tts.sleepOff' },
+  { mode: 15, key: 'tts.sleep15' },
+  { mode: 30, key: 'tts.sleep30' },
+  { mode: 60, key: 'tts.sleep60' },
+  { mode: 'chapter', key: 'tts.sleepChapter' },
+]
+const SLEEP_FADE_SECONDS = 3
+/** 系统语音等句末最多等这么久 (一句再长也该读完了), 到了直接停 */
+const SLEEP_SENTENCE_WAIT_MS = 20000
 const sleepMode = ref<SleepMode>(0)
 const sleepAt = ref(0)
+/** 正在淡出 (最后 3 秒) */
+const sleepFading = ref(false)
 let sleepTimer: ReturnType<typeof setTimeout> | undefined
 let sleepChapter: string | undefined
+/** 「听完本章」开始时朗读所在分节; 读进不是新章开头的续篇分节 (被拆开的长章) 时跟着更新 */
+let sleepSection: number | undefined
+/** 读完这一句就停 (系统语音的定时到点) */
+let sleepAtSentenceEnd = false
 
 function setSleep(mode: SleepMode) {
   clearTimeout(sleepTimer)
   sleepMode.value = mode
   sleepAt.value = 0
   sleepChapter = undefined
+  sleepSection = undefined
+  sleepAtSentenceEnd = false
   if (typeof mode === 'number' && mode > 0) {
     sleepAt.value = Date.now() + mode * 60000
-    sleepTimer = setTimeout(() => sleepNow(), mode * 60000)
-  } else if (mode === 'chapter') {
+    sleepTimer = setTimeout(() => void sleepNow(), mode * 60000 - SLEEP_FADE_SECONDS * 1000)
+  } else if (mode === 'chapter' && currentListenKey.value && ttsState.value !== 'stopped') {
     sleepChapter = currentTocHref.value ?? chapterLabel.value
+    sleepSection = parseKey(currentListenKey.value).index
   }
+  // 还没开始听: 从听到的第一句所在的章算起 (sleepStopsBefore 里补上)
 }
 
-function sleepNow() {
+/** 读者换了朗读位置 (开始 / 从这里听 / 跳句): 「听完本章」改为听完新位置所在的这一章 */
+function reanchorSleep() {
+  sleepSection = undefined
+  sleepChapter = undefined
+}
+
+/** 点定时徽标: 取消定时 */
+function cancelSleep() {
+  if (!sleepMode.value) return
+  setSleep(0)
+  toast(t('tts.sleepCancelled'))
+}
+
+/** 时长定时到点: 淡出后暂停; 系统语音则等这句读完 */
+async function sleepNow() {
   setSleep(0)
   // 听书定时到点, 背景音跟着慢慢淡出
   if (ambient.state.playing) ambient.fadeOutAndStop(30)
-  if (ttsState.value === 'playing') {
-    pauseTTS()
-    toast(t('tts.sleepDone'))
+  if (ttsState.value !== 'playing') return
+  sleepFading.value = true
+  const result = await listenPlayer.fadeOut(SLEEP_FADE_SECONDS)
+  sleepFading.value = false
+  if (result === 'done') sleepPause()
+  else if (result === 'unsupported' && ttsState.value === 'playing') {
+    sleepAtSentenceEnd = true
+    sleepTimer = setTimeout(() => {
+      if (sleepAtSentenceEnd && ttsState.value === 'playing') sleepPause()
+      sleepAtSentenceEnd = false
+    }, SLEEP_SENTENCE_WAIT_MS)
   }
 }
 
+/** 分节 → 是否是目录里某一章的开头 (算一次; 目录为空时每个分节都算新章) */
+let chapterStartCache: Set<number> | null = null
+function isChapterStart(index: number): boolean {
+  if (!chapterStartCache) {
+    const set = new Set<number>()
+    const walk = (items: any[] | undefined) => {
+      for (const item of items ?? []) {
+        try {
+          const r = item?.href ? view?.book?.resolveHref?.(item.href) : null
+          if (typeof r?.index === 'number') set.add(r.index)
+        } catch { /* 无法解析的目录项 */ }
+        walk(item?.subitems)
+      }
+    }
+    walk(view?.book?.toc)
+    chapterStartCache = set
+  }
+  return !chapterStartCache.size || chapterStartCache.has(index)
+}
+
+/** 某句开始出声时: 是否该在它开口前停下 (听完本章 / 系统语音的句末) */
+function sleepStopsBefore(key: string): boolean {
+  if (ttsState.value !== 'playing') return false
+  if (sleepAtSentenceEnd) return true
+  if (sleepMode.value !== 'chapter') return false
+  const { index } = parseKey(key)
+  if (sleepSection == null) {
+    sleepSection = index
+    sleepChapter = currentTocHref.value ?? chapterLabel.value
+    return false
+  }
+  if (index === sleepSection) return false
+  if (isChapterStart(index)) return true
+  sleepSection = index
+  return false
+}
+
+/** 定时停下: 暂停 (不是停止), 下次继续从这一句开头读; 提示可以再听 15 分钟 */
+function sleepPause() {
+  const byChapter = sleepMode.value === 'chapter'
+  setSleep(0)
+  // 时长定时在 sleepNow 里已让背景音淡出; 听完本章在这里
+  if (byChapter && ambient.state.playing) ambient.fadeOutAndStop(30)
+  if (ttsState.value !== 'playing') return
+  pauseTTS()
+  restartOnResume = true
+  toast(t('tts.sleepDone'), 'info', 8000, {
+    label: t('tts.sleepMore'),
+    run: () => {
+      resumeTTS()
+      setSleep(15)
+    },
+  })
+}
+
+// 同一分节里换了章 (一个文件里有好几章): 视图跟着朗读进入新章时停下, 继续时从新章这句开头读
 watch([currentTocHref, chapterLabel], () => {
-  if (sleepMode.value !== 'chapter' || ttsState.value !== 'playing' || listenDetached.value) return
-  if ((currentTocHref.value ?? chapterLabel.value) !== sleepChapter) sleepNow()
+  if (sleepMode.value !== 'chapter' || ttsState.value !== 'playing' || listenDetached.value || sleepChapter === undefined) return
+  if ((currentTocHref.value ?? chapterLabel.value) !== sleepChapter) sleepPause()
 })
 
+/** 定时徽标: 「23:40 停止」/「听完本章停止」 */
 const sleepText = computed(() => {
   if (sleepMode.value === 'chapter') return t('tts.sleepAfterChapter')
   if (!sleepAt.value) return ''
   const d = new Date(sleepAt.value)
   return t('tts.sleepAtClock', { clock: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` })
+})
+/** 胶囊上的短写: 「23:40」/「本章完」 */
+const sleepShort = computed(() => {
+  if (sleepMode.value === 'chapter') return t('tts.sleepChapterShort')
+  if (!sleepAt.value) return ''
+  const d = new Date(sleepAt.value)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 })
 
 // ---- 系统媒体控制: 锁屏 / 耳机键 / 键盘媒体键 ----
@@ -1753,6 +2058,12 @@ function onSectionLoad(e: CustomEvent) {
 
   // 自动滚动中拨滚轮 / 触控板: 暂缓一会儿再接着滚, 不和用户抢
   doc.addEventListener('wheel', () => { if (autoReading.value) holdAutoScroll(1500) }, { passive: true })
+  // 听书时读者自己滑动正文: 暂不跟随朗读句 (见 noteReaderSteer)
+  doc.addEventListener('wheel', noteReaderSteer, { passive: true })
+  doc.addEventListener('touchmove', noteReaderSteer, { passive: true })
+  doc.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (/^(ArrowUp|ArrowDown|PageUp|PageDown|Home|End| )$/.test(e.key)) noteReaderSteer()
+  })
 
   // 指针/触摸引发的 focusin 会让 foliate 回滚到旧锚点 (表现为翻页弹回), 拦掉;
   // 键盘 Tab 导航的 focusin 不受影响
@@ -1988,7 +2299,9 @@ async function gotoAnnotation(a: AnnotationRec) {
   panel.value = 'none'
   interruptTTSForReposition()
   await untilLoaded()
-  view?.goTo(a.cfi).catch(() => toast(t('reader.cantGotoAnnotation'), 'error'))
+  // 划线 / 想法: 落在焦点线; 书签记的是当时的屏幕顶, 照旧顶端对齐还原那一屏
+  const go = a.kind === 'bookmark' ? view?.goTo(a.cfi) : goToText(a.cfi)
+  go?.catch(() => toast(t('reader.cantGotoAnnotation'), 'error'))
 }
 
 async function runSearch() {
@@ -2023,7 +2336,33 @@ function toggleSearchOpt(key: 'caseSensitive' | 'wholeWord' | 'regex') {
 function gotoSearchHit(hit: SearchHit) {
   panel.value = 'none'
   interruptTTSForReposition()
-  view?.goTo(hit.cfi).catch(() => toast(t('reader.cantGoto'), 'error'))
+  goToText(hit.cfi).then(() => flashText(hit.cfi), () => toast(t('reader.cantGoto'), 'error'))
+}
+
+/**
+ * 跳到搜索结果后把命中的字短暂标出来 (约 2 秒淡出), 眼睛不用满屏找。
+ * 与朗读句同一套主题色 (墨水屏为下划线); 减少动态效果时不渐隐, 到时直接撤下
+ */
+const FLASH_MARK = 'lr-search-flash'
+let flashTimer: ReturnType<typeof setTimeout> | undefined
+function flashText(cfi: string) {
+  try {
+    const resolved = view?.resolveNavigation?.(cfi)
+    const shown = resolved ? loadedContent(resolved.index) : null
+    const range = shown && typeof resolved.anchor === 'function' ? resolved.anchor(shown.doc) : null
+    if (!shown || !isRange(range)) return
+    const overlayer = (view.renderer.getContents?.() ?? []).find((c: any) => c.doc === shown.doc)?.overlayer
+    if (!overlayer) return
+    clearTimeout(flashTimer)
+    const still = prefersReducedMotion()
+    overlayer.add(FLASH_MARK, range, (rects: any[], opts: any) => {
+      const g = drawListenMark(rects, opts)
+      // 停留 0.8 秒后 1.2 秒渐隐 (redraw 时重新开始, 不影响撤下的时间)
+      if (!still) try { g.animate([{ opacity: g.style.opacity }, { opacity: g.style.opacity, offset: 0.4 }, { opacity: 0 }], { duration: 2000, fill: 'forwards' }) } catch { /* 无 Web Animations: 到时直接撤下 */ }
+      return g
+    }, { mark: listenMark.value, padding: 1 })
+    flashTimer = setTimeout(() => { try { overlayer.remove(FLASH_MARK) } catch { /* 分节已卸载 */ } }, still ? 1500 : 2000)
+  } catch { /* 定位失败: 不标也能看 */ }
 }
 
 function closeSearch() {
@@ -2223,6 +2562,7 @@ lateModes.value = modes
 // ---- 点睛阅读 (docs/dianjing-reading.md) ----
 const dj = useDianjing({
   getView: () => view,
+  goToText: cfi => goToText(cfi),
   bookId,
   getMeta: () => meta.value && {
     title: meta.value.title,
@@ -2359,6 +2699,10 @@ onMounted(async () => {
     view.addEventListener('click', onMarginClick)
     view.addEventListener('touchstart', onMarginTouchStart, { passive: true })
     view.addEventListener('touchmove', onMarginTouchMove, { passive: true })
+    // 正文两侧留白处滚轮 / 滑动、鼠标拖滚动条 (滚动容器在渲染器的 shadow DOM 里, 事件落在 foliate-view 上)
+    view.addEventListener('wheel', noteReaderSteer, { passive: true })
+    view.addEventListener('touchmove', noteReaderSteer, { passive: true })
+    view.addEventListener('pointerdown', (e: PointerEvent) => { if (e.pointerType === 'mouse') noteReaderSteer() })
     view.addEventListener('load', onSectionLoad)
     view.addEventListener('create-overlay', () => drawStoredAnnotations())
     view.addEventListener('draw-annotation', (e: CustomEvent) => {
@@ -2469,6 +2813,8 @@ onBeforeUnmount(() => {
         <button class="tts-chip-main" :title="t('tts.expandPanel')" @click="openTTSPanel">
           <span class="tts-mini-dot" :class="{ paused: ttsState === 'paused' }" />
           <span class="tts-chip-text">{{ ttsBuffering ? t('tts.buffering') : listenEta ? humanTime(listenEta.chapter) : (ttsState === 'playing' ? t('tts.reading') : t('tts.paused')) }}</span>
+          <span v-if="settings.ttsRate !== 1" class="tts-chip-rate">{{ rateText(settings.ttsRate) }}</span>
+          <span v-if="sleepShort" class="tts-chip-sleep" :title="sleepText"><svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M12 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12zm0 1.5a1 1 0 0 1 1 1v3.09l2.2 1.27a1 1 0 0 1-1 1.73l-2.7-1.56A1 1 0 0 1 11 12V8.5a1 1 0 0 1 1-1z"/></svg>{{ sleepShort }}</span>
         </button>
         <button v-if="listenDetached" class="tts-mini-btn" :title="t('tts.backToListening')" :aria-label="t('tts.backToListening')" @click="returnToListening"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2a1 1 0 0 1 1 1v1.06A8 8 0 0 1 19.94 11H21a1 1 0 1 1 0 2h-1.06A8 8 0 0 1 13 19.94V21a1 1 0 1 1-2 0v-1.06A8 8 0 0 1 4.06 13H3a1 1 0 1 1 0-2h1.06A8 8 0 0 1 11 4.06V3a1 1 0 0 1 1-1zm0 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12zm0 3a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/></svg></button>
         <button
@@ -2692,7 +3038,7 @@ onBeforeUnmount(() => {
       :progress="typewriterProgress"
       :solid="effectiveFlow === 'scrolled'"
       :auto-state="autoReading ? (autoPaused ? 'paused' : 'running') : null"
-      :auto-speed-text="t(effectiveFlow === 'scrolled' ? 'reader.secPerScreen' : 'reader.secPerPage', { n: settings.autoReadSeconds })"
+      :auto-speed-text="t(autoSpeedKey(settings.autoReadSeconds))"
       @auto-toggle="autoPaused ? resumeAutoRead() : pauseAutoRead()"
       @auto-speed="adjustAutoSpeed"
       @auto-stop="stopAutoRead"
@@ -2766,6 +3112,17 @@ onBeforeUnmount(() => {
         <template v-if="ttsBuffering">{{ t('tts.buffering') }}</template>
         <template v-else>{{ ttsState === 'playing' ? t('tts.reading') : t('tts.paused') }}<template v-if="listenEta"> · <span class="tts-mini-eta">{{ chapterEtaText }}</span></template></template>
       </span>
+      <span v-if="settings.ttsRate !== 1" class="tts-mini-rate">{{ rateText(settings.ttsRate) }}</span>
+      <!-- 定时: 一眼看到几点停; 点按打开面板更改或取消 -->
+      <button
+        v-if="sleepShort"
+        class="tts-mini-sleep"
+        :class="{ fading: sleepFading }"
+        :title="t('tts.sleepChangeHint', { text: sleepText })"
+        :aria-label="t('tts.sleepChangeHint', { text: sleepText })"
+        @pointerdown.stop
+        @click.stop="openTTSPanel"
+      ><svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M12 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12zm0 1.5a1 1 0 0 1 1 1v3.09l2.2 1.27a1 1 0 0 1-1 1.73l-2.7-1.56A1 1 0 0 1 11 12V8.5a1 1 0 0 1 1-1z"/></svg>{{ sleepShort }}</button>
       <button
         class="tts-mini-btn"
         :title="ttsState === 'playing' ? t('common.pause') : t('common.resume')"
@@ -2793,7 +3150,16 @@ onBeforeUnmount(() => {
       <div class="tts-head">
         <strong>{{ t('tts.title') }}</strong>
         <span v-if="ttsBuffering" class="tts-buffering">{{ t('tts.buffering') }}</span>
-        <span v-else-if="sleepText" class="tts-sleep-badge">{{ sleepText }}</span>
+        <!-- 定时开着: 「23:40 停止」, 点一下取消 -->
+        <button
+          v-if="sleepText"
+          type="button"
+          class="tts-sleep-badge"
+          :class="{ fading: sleepFading }"
+          :title="t('tts.sleepCancel')"
+          :aria-label="`${sleepText}，${t('tts.sleepCancel')}`"
+          @click="cancelSleep"
+        ><svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M12 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12zm0 1.5a1 1 0 0 1 1 1v3.09l2.2 1.27a1 1 0 0 1-1 1.73l-2.7-1.56A1 1 0 0 1 11 12V8.5a1 1 0 0 1 1-1z"/></svg>{{ sleepText }}<svg class="tts-sleep-x" viewBox="0 0 24 24" width="10" height="10" aria-hidden="true"><path fill="currentColor" d="M6.7 5.3 12 10.6l5.3-5.3a1 1 0 1 1 1.4 1.4L13.4 12l5.3 5.3a1 1 0 0 1-1.4 1.4L12 13.4l-5.3 5.3a1 1 0 0 1-1.4-1.4l5.3-5.3-5.3-5.3a1 1 0 0 1 1.4-1.4z"/></svg></button>
         <span style="flex: 1" />
         <button v-if="ttsState !== 'stopped'" class="btn btn-sm" @click="stopTTS"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></svg>{{ t('common.stop') }}</button>
         <button class="icon-btn" :title="t('tts.collapseHint')" :aria-label="t('tts.collapse')" @click="ttsPanel = false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M5.3 8.3a1 1 0 0 1 1.4 0L12 13.6l5.3-5.3a1 1 0 1 1 1.4 1.4l-6 6a1 1 0 0 1-1.4 0l-6-6a1 1 0 0 1 0-1.4z"/></svg></button>
@@ -2821,7 +3187,7 @@ onBeforeUnmount(() => {
         <p v-if="!pace.samples" class="tts-progress-hint">{{ t('tts.etaLearning') }}</p>
       </div>
 
-      <!-- 离线合成跟不上: 推荐在线模型 -->
+      <!-- 离线合成跟不上: 推荐在线语音 -->
       <div v-if="localTooSlow && settings.ttsEngine === 'local'" class="tts-notice">
         <span class="tts-notice-text">{{ t('tts.localSlow') }}</span>
         <button class="btn btn-sm btn-primary" @click="switchToOnline">{{ t('tts.switchToOnline') }}</button>
@@ -2861,17 +3227,15 @@ onBeforeUnmount(() => {
         {{ bookmarkOnPage ? t('tts.startFromBookmark') : t('tts.startFromPage') }} · {{ t('tts.selectHint') }}
       </p>
 
-      <div class="tts-row">
+      <div class="tts-row tts-rate-row">
         <label>{{ t('tts.rate') }}</label>
-        <input v-model.number="settings.ttsRate" type="range" min="0.5" max="2" step="0.1" :aria-label="t('tts.rate')" />
-        <span class="tts-value">{{ settings.ttsRate.toFixed(1) }}x</span>
+        <LevelSlider v-model="settings.ttsRate" :min="0.5" :max="2" :step="0.05" :stops="rateStops" :label="t('tts.rate')" />
+        <span class="tts-value">{{ rateText(settings.ttsRate) }}</span>
       </div>
-      <div class="tts-row">
+      <div class="tts-row tts-row-stacked">
         <label>{{ t('tts.sleep') }}</label>
-        <div class="seg" style="flex: 1">
-          <button :class="{ active: sleepMode === 0 }" @click="setSleep(0)">{{ t('tts.sleepOff') }}</button>
-          <button v-for="m in ([15, 30, 60, 90] as const)" :key="m" :class="{ active: sleepMode === m }" @click="setSleep(m)">{{ m }}</button>
-          <button :class="{ active: sleepMode === 'chapter' }" @click="setSleep('chapter')">{{ t('tts.sleepChapter') }}</button>
+        <div class="seg">
+          <button v-for="c in SLEEP_CHOICES" :key="c.mode" :class="{ active: sleepMode === c.mode }" @click="setSleep(c.mode)">{{ t(c.key) }}</button>
         </div>
       </div>
       <div v-if="edgeAvailable()" class="tts-row">
@@ -2907,7 +3271,6 @@ onBeforeUnmount(() => {
       </div>
       <p class="tts-hint">
         {{ !edgeAvailable() ? t('tts.hintSystem') : settings.ttsEngine === 'edge' ? t('tts.hintEdge') : settings.ttsEngine === 'local' ? t('tts.hintLocal') : t('tts.hintSystem') }}
-        {{ t('tts.hintApply') }}
       </p>
     </div>
 
@@ -3559,6 +3922,9 @@ onBeforeUnmount(() => {
   50% { opacity: 0.4; transform: scale(0.75); }
 }
 .tts-mini-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 12px;
   color: var(--text-2);
 }
@@ -3581,6 +3947,28 @@ onBeforeUnmount(() => {
 .tts-mini-eta {
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
+}
+.tts-mini-rate {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.tts-mini-sleep {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--brand-soft);
+  color: var(--brand);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
 }
 .ambient-btn {
   position: relative;
@@ -3612,8 +4000,33 @@ onBeforeUnmount(() => {
   font-variant-numeric: tabular-nums;
 }
 .tts-sleep-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
   background: var(--brand-soft);
   color: var(--brand);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tts-sleep-badge:hover {
+  background: var(--brand-light);
+}
+.tts-sleep-badge:focus-visible,
+.tts-mini-sleep:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+.tts-sleep-x {
+  opacity: 0.7;
+}
+/* 最后 3 秒淡出时徽标跟着变淡 */
+.tts-sleep-badge.fading,
+.tts-mini-sleep.fading {
+  opacity: 0.55;
+  transition: opacity 3s linear;
 }
 .tts-notice {
   display: flex;
@@ -3780,6 +4193,13 @@ onBeforeUnmount(() => {
 .tts-chip .tts-mini-btn {
   background: var(--card);
 }
+.tts-chip-rate,
+.tts-chip-sleep {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 600;
+}
 .tts-progress-hint {
   margin: 0;
   color: var(--text-3);
@@ -3820,8 +4240,40 @@ onBeforeUnmount(() => {
 .tts-value {
   font-size: 12px;
   color: var(--text-3);
-  width: 36px;
+  width: 40px;
+  flex-shrink: 0;
   text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* 语速: 档位名在滑条下方, 标签和数值对齐滑条那一行 */
+.tts-rate-row {
+  align-items: flex-start;
+}
+.tts-rate-row label,
+.tts-rate-row .tts-value {
+  line-height: 22px;
+}
+.tts-rate-row :deep(.level-slider) {
+  padding: 0 10px;
+}
+/* 定时关闭: 选项带单位, 标签放上面, 选项占满一行 */
+.tts-row-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.tts-row-stacked label {
+  width: auto;
+}
+.tts-row-stacked .seg {
+  flex: none;
+}
+/* 触屏上 LevelSlider 的滑条更高 (32px) */
+@media (hover: none) {
+  .tts-rate-row label,
+  .tts-rate-row .tts-value {
+    line-height: 32px;
+  }
 }
 .tts-hint {
   font-size: 12px;
@@ -4000,6 +4452,16 @@ onBeforeUnmount(() => {
   /* 手机页眉留白较窄 (见 applyPrefs 的 margin) */
   .tts-mini {
     --head-band: 36px;
+    /* 剩余时间很长时省略, 定时和按钮始终在 */
+    max-width: calc(100% - 16px);
+  }
+  /* 顶栏放不下: 语速只在胶囊和面板上显示, 定时留着 */
+  .tts-chip-rate {
+    display: none;
+  }
+  .tts-chip-main {
+    gap: 4px;
+    padding: 0 4px;
   }
   .reader {
     --footer-h: 112px;

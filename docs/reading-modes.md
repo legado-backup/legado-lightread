@@ -308,6 +308,8 @@ start(fromRange):
 
 本机 Node 24 实测 `Intl.Segmenter('zh', {granularity:'word'})` 的输出：`他|慢慢地|走进|了|图书|馆|，|翻开|一本|关于|人工|智能|的|书`，「图书馆」「人工智能」被切开。对策：① 只为长度 ≥2 的词着色；② 用一张小型合并词表（常见三字、四字词，约 2 万条，gzip 后约 100KB，按需懒加载）做最长匹配合并；③ 默认关闭并标注「实验」。如果效果仍然不可靠，宁可不上线（Pan 2024：错误边界有害）。
 
+**现状（2026-10-07 接入，调研见 `docs/research/zh-segmentation-for-word-guide.md`）**：中文按自带词表切分（`readingModes/zhSegment.ts`，jieba 式 DAG 最短路径，不猜新词），另一个词典词跨过边界的地方不上色；词表 `src/data/zh-lexicon.txt`（约 6.6 万词，约 230 KB gzip）在第一次遇到中文段落时才下载，下载完之前用 ICU + 2,617 个三四字常用词的合并表（`zhMergeWords.ts`）。只给多字词上色，单字、数字、标点、夹在中文里的西文词不上色也不占交替序号，交替序号每段从头开始。词表由 `scripts/build-zh-lexicon.mjs` 从 jieba 词典（MIT，Copyright (c) 2013 Sun Junyi）和 DeepSeek-R1 分词器词表（MIT，Copyright (c) 2023 DeepSeek）生成，许可全文见 `src/data/zh-lexicon.README.md`。
+
 ## 6. 分期计划
 
 | 期 | 内容 | 验收 |

@@ -130,6 +130,8 @@ export const SETTINGS_SYNC_SPEC: SettingsSpec = {
       enabled: SYNC,
       style: SYNC,
       strength: SYNC,
+      intensity: SYNC,
+      color: SYNC,
     },
     /** 大字 / 墨水屏是预设开关, 与本机的预设快照 (presets) 配套, 按设备 */
     largeText: LOCAL,

@@ -104,6 +104,8 @@ export class ListenPlayer {
 
   // ---- Web Audio 时间线 ----
   private ctx: AudioContext | null = null
+  /** 所有块经过的总音量 (定时关闭的淡出只动它, 不碰各块的响度对齐) */
+  private master: GainNode | null = null
   private webAudioOff = false
   private clips: Clip[] = []
   private clipSeq = 0
@@ -123,6 +125,10 @@ export class ListenPlayer {
   // ---- 系统语音 ----
   private systemActive = false
 
+  // ---- 定时关闭的淡出 ----
+  /** 淡出开始时刻 (performance.now) 与时长; <audio> 回退按它逐步调音量 */
+  private fade: { from: number; ms: number; timer: ReturnType<typeof setInterval> } | null = null
+
   constructor(cb: ListenCallbacks) {
     this.cb = cb
     this.ticker = new MarkTicker(key => this.cb.onSentenceStart(key))
@@ -135,6 +141,8 @@ export class ListenPlayer {
   /** 停掉当前播放, 从 feed 的第一句开始; 应在用户手势内调用 (解锁音频) */
   play(feed: ListenFeed): void {
     this.halt()
+    // 浏览器的系统语音暂停后, cancel 不会解除暂停 (Chrome): 新排的句子会一直静音, 先恢复
+    try { if (typeof speechSynthesis !== 'undefined' && speechSynthesis.paused) speechSynthesis.resume() } catch { /* 无系统语音 */ }
     const session = this.session
     this.active = true
     this.source = new SentenceSource(feed)
@@ -156,6 +164,7 @@ export class ListenPlayer {
 
   resume(): void {
     if (!this.active || !this.paused) return
+    this.restoreVolume()
     this.paused = false
     this.ctx?.resume().catch(() => {})
     this.element?.play().catch(() => {})
@@ -169,6 +178,65 @@ export class ListenPlayer {
     if (!this.active) return
     this.halt(true)
     this.cb.onEnd('stopped')
+  }
+
+  /**
+   * 定时关闭: seconds 秒内把音量渐弱到 0, 然后暂停 (继续播放时音量复原)。
+   * - 'done': 已淡出并暂停;
+   * - 'unsupported': 正在用系统语音 (没法调音量), 什么也没做, 由调用方在句末暂停;
+   * - 'cancelled': 淡出中被暂停 / 停止 / 换句, 音量已复原。
+   */
+  async fadeOut(seconds = 3): Promise<'done' | 'unsupported' | 'cancelled'> {
+    if (!this.active || this.paused) return 'cancelled'
+    if (this.systemActive && !this.clips.length && !this.element) return 'unsupported'
+    const session = this.session
+    this.restoreVolume()
+    const ms = Math.max(0, seconds * 1000)
+    if (this.ctx && this.master) {
+      const g = this.master.gain
+      const now = this.ctx.currentTime
+      try {
+        g.cancelScheduledValues(now)
+        g.setValueAtTime(1, now)
+        g.linearRampToValueAtTime(0, now + seconds)
+      } catch { g.value = 0 }
+    }
+    const from = performance.now()
+    // <audio> 回退 (含淡出途中才换上的块) 没有增益节点, 按时间调 volume
+    const timer = setInterval(() => {
+      if (this.element) this.element.volume = this.fadeVolume()
+    }, 80)
+    this.fade = { from, ms, timer }
+    if (this.element) this.element.volume = this.fadeVolume()
+    await sleep(ms)
+    if (session !== this.session || !this.active || this.paused || this.fade?.timer !== timer) {
+      if (this.fade?.timer === timer) this.restoreVolume()
+      return 'cancelled'
+    }
+    this.pause()
+    return 'done'
+  }
+
+  private fadeVolume(): number {
+    if (!this.fade) return 1
+    return Math.max(0, Math.min(1, 1 - (performance.now() - this.fade.from) / Math.max(1, this.fade.ms)))
+  }
+
+  /** 撤销淡出, 音量回到原样 */
+  private restoreVolume() {
+    if (this.fade) {
+      clearInterval(this.fade.timer)
+      this.fade = null
+    }
+    if (this.ctx && this.master) {
+      const g = this.master.gain
+      try {
+        g.cancelScheduledValues(this.ctx.currentTime)
+        g.setValueAtTime(1, this.ctx.currentTime)
+      } catch { /* 旧实现 */ }
+      g.value = 1
+    }
+    if (this.element) this.element.volume = 1
   }
 
   /** 音色 / 倍速 / 引擎变了: 正在播放的这一块读完后, 后续按新设置重新合成 */
@@ -196,6 +264,7 @@ export class ListenPlayer {
    */
   private halt(release = false) {
     this.session++
+    this.restoreVolume()
     this.active = false
     this.paused = false
     this.invalidateHook = null
@@ -234,6 +303,12 @@ export class ListenPlayer {
       } else {
         this.webAudioOff = true
       }
+    }
+    if (this.ctx && !this.master) {
+      try {
+        this.master = this.ctx.createGain()
+        this.master.connect(this.ctx.destination)
+      } catch { this.master = null }
     }
     if (this.ctx) {
       // 上次解码失败可能只是个别坏数据, 新会话再试 Web Audio
@@ -412,7 +487,7 @@ export class ListenPlayer {
     const gain = ctx.createGain()
     gain.gain.value = gainValue
     src.connect(gain)
-    gain.connect(ctx.destination)
+    gain.connect(this.master ?? ctx.destination)
     src.start(at)
     // 未在用户手势内恢复 (或被系统打断) 时时间线不走, 再试一次
     if (ctx.state === 'suspended' && !this.paused) ctx.resume().catch(() => {})
@@ -465,6 +540,7 @@ export class ListenPlayer {
     return new Promise<void>((resolve, reject) => {
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
+      if (this.fade) audio.volume = this.fadeVolume()
       this.element = audio
       const clock = () => audio.currentTime
       let marked = false

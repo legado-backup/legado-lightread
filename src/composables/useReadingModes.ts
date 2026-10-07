@@ -123,6 +123,7 @@ import {
   reminderDue as isReminderDue,
 } from '../services/readingModes/eyeCare'
 import { WordGuideLayer } from '../services/readingModes/wordGuideLayer'
+import { guideIntensity } from '../services/readingModes/wordGuideIntensity'
 
 /** 「带读」分段: 自动翻页 / 打字机 / 歌词 / 听书 */
 export type ReadingModeTab = 'auto' | 'typewriter' | 'lyric' | 'tts'
@@ -936,9 +937,9 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   const forceSingleColumn = computed(() => largeTextOn.value || lyricActive.value)
 
   /** 传给 getReaderCSS / resolveReaderColors 的附加样式 */
-  const readerStyle = computed<ReaderModeStyle>(() => ({ eink: einkActive.value, largeText: largeTextOn.value }))
+  const readerStyle = computed<ReaderModeStyle>(() => ({ eink: einkActive.value, largeText: largeTextOn.value, wordGuideIntensity: guideIntensity(settings.readingMode.wordGuide), wordGuideColor: settings.readingMode.wordGuide.color }))
   /** 影响排版 / 样式的模式状态: 阅读器 watch 它来重新 applyPrefs */
-  const renderKey = computed(() => `${einkActive.value ? 1 : 0}${largeTextOn.value ? 1 : 0}${forceSingleColumn.value ? 1 : 0}`)
+  const renderKey = computed(() => `${einkActive.value ? 1 : 0}${largeTextOn.value ? 1 : 0}${forceSingleColumn.value ? 1 : 0}|${guideIntensity(settings.readingMode.wordGuide).toFixed(2)}|${settings.readingMode.wordGuide.color ?? ''}`)
   /** 阅读器根元素的类名 (样式在 ReadingModeLayer.vue 里) */
   const shellClass = computed(() => ({
     'lr-eink': einkActive.value,
