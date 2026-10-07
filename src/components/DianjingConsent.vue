@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 首次开启点睛阅读的同意说明 (§6.7 / 计划 Q7): 说明正文会分段发给哪个服务, 结果只存在本机。
- * 两个选项: 仅本书 / 所有书。
+ * 两个选项: 仅本书 / 所有书。这是点睛阅读智能版的同意; 不想联网的读者可以一步「先用基础版」。
  */
 import { computed, onMounted, ref } from 'vue'
 import { t } from '../i18n'
@@ -36,6 +36,10 @@ onMounted(() => first.value?.focus())
       <p class="dj-consent-body">{{ t('dianjing.consentBody', { service }) }}</p>
       <p v-if="ollama" class="dj-consent-note">{{ t('dianjing.consentOllama') }}</p>
       <p class="dj-consent-note">{{ t('dianjing.consentNote') }}</p>
+      <p class="dj-consent-basic">
+        {{ t('dianjing.consentBasic') }}
+        <button type="button" class="dj-consent-link" @click="props.dj.switchToBasic()">{{ t('dianjing.useBasic') }}</button>
+      </p>
       <div class="dj-consent-actions">
         <button type="button" class="btn btn-ghost" @click="props.dj.cancelConsent()">{{ t('dianjing.consentCancel') }}</button>
         <button type="button" class="btn" @click="props.dj.consent('all')">{{ t('dianjing.consentAll') }}</button>
@@ -63,6 +67,32 @@ onMounted(() => first.value?.focus())
   gap: var(--space-2);
   flex-wrap: wrap;
   margin-top: var(--space-4);
+}
+.dj-consent-basic {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.dj-consent-link {
+  padding: 4px 2px;
+  border: none;
+  background: none;
+  color: var(--brand);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dj-consent-link:hover {
+  text-decoration: underline;
+}
+.dj-consent-link:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--ring);
 }
 @media (max-width: 600px) {
   .dj-consent-actions {

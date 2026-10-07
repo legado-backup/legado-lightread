@@ -1,66 +1,74 @@
 /**
- * 自动翻页 / 自动滚动的速度档位。读者只需要「快一点 / 慢一点」, 不需要换算「几秒一屏」;
- * 底层仍存 settings.autoReadSeconds (秒/屏, 翻页时即秒/页), 老数据与多端同步不变,
- * 不在档位上的旧值显示为最接近的一档。
+ * 自动翻页 / 自动滚动的速度: 1–100 档 (1 最慢, 100 最快), 刻度上标 极慢 … 很快。
+ * 读者只需要「快一点 / 慢一点」, 不需要换算「几秒一屏」; 底层仍存 settings.autoReadSeconds
+ * (秒/屏, 翻页时即秒/页), 老数据与多端同步不变, 旧值落在最接近的那一档。
  */
-export type AutoSpeedLevel = 'verySlow' | 'slow' | 'medium' | 'fast' | 'veryFast'
+export type AutoSpeedLevel = 'slowest' | 'verySlow' | 'slow' | 'medium' | 'fast' | 'veryFast' | 'fastest'
 
-export const AUTO_SPEED_LEVELS: ReadonlyArray<{ level: AutoSpeedLevel; seconds: number; key: string }> = [
-  { level: 'verySlow', seconds: 30, key: 'reader.speedVerySlow' },
-  { level: 'slow', seconds: 20, key: 'reader.speedSlow' },
-  { level: 'medium', seconds: 15, key: 'reader.speedMedium' },
-  { level: 'fast', seconds: 10, key: 'reader.speedFast' },
-  { level: 'veryFast', seconds: 6, key: 'reader.speedVeryFast' },
+/** 档位总数 */
+export const AUTO_SPEED_STEPS = 100
+
+/**
+ * 有名字的刻度: 所在档位 + 对应秒数; 两端留足余地 (极慢约 5 分钟一屏, 极快 3 秒一屏), 默认「适中」在正中间。
+ * 相邻刻度之间按秒数的对数插值, 每一档的快慢变化感受一致。
+ */
+export const AUTO_SPEED_LEVELS: ReadonlyArray<{ level: AutoSpeedLevel; position: number; seconds: number; key: string }> = [
+  { level: 'slowest', position: 1, seconds: 300, key: 'reader.speedSlowest' },
+  { level: 'verySlow', position: 17, seconds: 90, key: 'reader.speedVerySlow' },
+  { level: 'slow', position: 33, seconds: 40, key: 'reader.speedSlow' },
+  { level: 'medium', position: 50, seconds: 15, key: 'reader.speedMedium' },
+  { level: 'fast', position: 67, seconds: 9, key: 'reader.speedFast' },
+  { level: 'veryFast', position: 83, seconds: 5, key: 'reader.speedVeryFast' },
+  { level: 'fastest', position: 100, seconds: 3, key: 'reader.speedFastest' },
 ]
 
-/** 秒数对应的档位下标 (最接近的一档; 同样接近时取较慢的一档) */
-export function autoSpeedIndex(seconds: number): number {
-  let best = 2
-  let bestDist = Infinity
-  AUTO_SPEED_LEVELS.forEach((l, i) => {
-    const d = Math.abs(l.seconds - seconds)
-    if (d < bestDist) {
-      best = i
-      bestDist = d
+const L = AUTO_SPEED_LEVELS
+
+/** 秒数 → 档位 (1–100 的整数) */
+export function speedPosition(seconds: number): number {
+  if (!(seconds > 0)) return 50
+  if (seconds >= L[0].seconds) return L[0].position
+  if (seconds <= L[L.length - 1].seconds) return L[L.length - 1].position
+  for (let i = 0; i < L.length - 1; i++) {
+    const a = L[i]
+    const b = L[i + 1]
+    if (seconds <= a.seconds && seconds >= b.seconds) {
+      const f = Math.log(a.seconds / seconds) / Math.log(a.seconds / b.seconds)
+      return Math.round(a.position + f * (b.position - a.position))
     }
+  }
+  return 50
+}
+
+/** 档位 → 秒数; 正好在刻度上时取刻度的整秒数, 其余保留一位小数 */
+export function secondsAtPosition(pos: number): number {
+  const p = Math.min(L[L.length - 1].position, Math.max(L[0].position, Math.round(pos)))
+  const exact = L.find(l => l.position === p)
+  if (exact) return exact.seconds
+  let i = 0
+  while (i < L.length - 2 && p > L[i + 1].position) i++
+  const a = L[i]
+  const b = L[i + 1]
+  const f = (p - a.position) / (b.position - a.position)
+  return Math.round(a.seconds * Math.pow(b.seconds / a.seconds, f) * 10) / 10
+}
+
+/** 秒数对应的最近刻度下标 (按档位距离) */
+export function autoSpeedIndex(seconds: number): number {
+  const p = speedPosition(seconds)
+  let best = 0
+  L.forEach((l, i) => {
+    if (Math.abs(l.position - p) < Math.abs(L[best].position - p)) best = i
   })
   return best
 }
 
-/** 快一档 (dir = 1) / 慢一档 (dir = -1) 后的秒数; 已到头时不变 */
-export function stepAutoSpeed(seconds: number, dir: 1 | -1): number {
-  const i = Math.min(AUTO_SPEED_LEVELS.length - 1, Math.max(0, autoSpeedIndex(seconds) + dir))
-  return AUTO_SPEED_LEVELS[i].seconds
-}
-
-/** 档位名的 i18n key */
+/** 刻度名的 i18n key (两刻度之间时取近的那个) */
 export function autoSpeedKey(seconds: number): string {
-  return AUTO_SPEED_LEVELS[autoSpeedIndex(seconds)].key
+  return L[autoSpeedIndex(seconds)].key
 }
 
-/**
- * 滑动条位置 (0 = 很慢 … 4 = 很快, 可停在两档之间) 与秒数互换: 相邻两档之间按秒数的对数插值,
- * 拖动时快慢变化均匀。
- */
-export function speedPosition(seconds: number): number {
-  const L = AUTO_SPEED_LEVELS
-  if (seconds >= L[0].seconds) return 0
-  if (seconds <= L[L.length - 1].seconds) return L.length - 1
-  for (let i = 0; i < L.length - 1; i++) {
-    const a = L[i].seconds
-    const b = L[i + 1].seconds
-    if (seconds <= a && seconds >= b) return i + Math.log(a / seconds) / Math.log(a / b)
-  }
-  return 2
-}
-
-export function secondsAtPosition(pos: number): number {
-  const L = AUTO_SPEED_LEVELS
-  const p = Math.min(L.length - 1, Math.max(0, pos))
-  const i = Math.min(L.length - 2, Math.floor(p))
-  const a = L[i].seconds
-  const b = L[i + 1].seconds
-  const s = a * Math.pow(b / a, p - i)
-  // 停在档位上时取整档的秒数, 其余保留一位小数
-  return Math.abs(p - Math.round(p)) < 0.02 ? L[Math.round(p)].seconds : Math.round(s * 10) / 10
+/** 快一点 (dir = 1) / 慢一点 (dir = -1): 每次 5 档, 到头不动 */
+export function stepAutoSpeed(seconds: number, dir: 1 | -1, step = 5): number {
+  return secondsAtPosition(speedPosition(seconds) + dir * step)
 }

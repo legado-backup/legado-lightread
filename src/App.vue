@@ -16,10 +16,12 @@ import { requestAutoSync, startAutoSync } from './services/sync'
 import { startTransferPolling, transferState } from './services/transfer'
 import {
   canInAppInstall,
+  downloadErrorMessage,
   downloadInstaller,
+  installWithPrompt,
   openDownload,
-  openInstaller,
   pickRecommendedDownload,
+  watchPendingInstall,
   watchUpdateAvailability,
   type UpdateInfo,
 } from './services/updater'
@@ -34,6 +36,7 @@ let stopSync: (() => void) | undefined
 let stopTransfer: (() => void) | undefined
 let stopTransferWatch: (() => void) | undefined
 let stopUpdateChecks: (() => void) | undefined
+let stopPendingInstall: (() => void) | undefined
 
 const updateInfo = ref<UpdateInfo | null>(null)
 const updateBusy = ref(false)
@@ -58,17 +61,8 @@ const sidebarUpdateTitle = computed(() => t(sidebarDownload.value ? 'update.side
 async function handleSidebarUpdate() {
   if (updateBusy.value || !updateInfo.value) return
 
-  if (downloadedInstaller.value) {
-    try {
-      await openInstaller(downloadedInstaller.value)
-    } catch (e: any) {
-      toast(t('update.openFailed', { msg: e?.message ?? e }), 'error', 6000)
-    }
-    return
-  }
-
   const download = sidebarDownload.value
-  if (!download || !canInAppInstall()) {
+  if (!downloadedInstaller.value && (!download || !canInAppInstall())) {
     try {
       await openDownload(download?.url ?? updateInfo.value.pageUrl)
       toast(t(download ? 'update.browserDownloadStarted' : 'update.platformPending'), download ? 'success' : 'info', 6000)
@@ -78,22 +72,30 @@ async function handleSidebarUpdate() {
     return
   }
 
-  updateBusy.value = true
-  updateProgress.value = null
-  try {
-    const encodedName = download.url.split('?')[0].split('/').pop() ?? 'LightRead-installer'
-    const fileName = decodeURIComponent(encodedName)
-    const path = await downloadInstaller(download.url, fileName, progress => {
-      updateProgress.value = progress.fraction
-    })
-    downloadedInstaller.value = path
-    toast(t('update.downloadDoneOpening'), 'success')
-    await openInstaller(path)
-  } catch (e: any) {
-    toast(t('update.downloadFailed', { msg: e?.message ?? e }), 'error', 6000)
-  } finally {
-    updateBusy.value = false
+  if (!downloadedInstaller.value && download) {
+    updateBusy.value = true
     updateProgress.value = null
+    try {
+      const encodedName = download.url.split('?')[0].split('/').pop() ?? 'LightRead-installer'
+      const fileName = decodeURIComponent(encodedName)
+      downloadedInstaller.value = await downloadInstaller(download.url, fileName, progress => {
+        updateProgress.value = progress.fraction
+      })
+    } catch (e) {
+      toast(downloadErrorMessage(e), 'error', 10_000, { label: t('update.retry'), run: () => { void handleSidebarUpdate() } })
+      return
+    } finally {
+      updateBusy.value = false
+      updateProgress.value = null
+    }
+  }
+
+  try {
+    await installWithPrompt(downloadedInstaller.value)
+  } catch (e: any) {
+    // 安装包不见了等: 下次点击重新下载
+    downloadedInstaller.value = ''
+    toast(e?.message || t('update.openFailed'), 'error', 6000)
   }
 }
 
@@ -103,6 +105,8 @@ onMounted(async () => {
     if (info.version !== updateInfo.value?.version) downloadedInstaller.value = ''
     updateInfo.value = info
   })
+  // 安卓: 去开「安装未知应用」回来后接着安装
+  stopPendingInstall = watchPendingInstall()
   if (isTauri()) stopExternalOpen = await startExternalOpen(router)
   // 多端同步: 启动一次、切到后台、每 5 分钟 (未开启自动同步时引擎自己跳过)
   stopSync = startAutoSync()
@@ -130,6 +134,7 @@ onBeforeUnmount(() => {
   stopTransferWatch?.()
   stopTransfer?.()
   stopUpdateChecks?.()
+  stopPendingInstall?.()
 })
 // 阅读页全屏沉浸, 隐藏侧栏
 const immersive = computed(() => String(route.path).startsWith('/read'))

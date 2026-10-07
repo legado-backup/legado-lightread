@@ -150,7 +150,7 @@ try {
   await hume.filter({ hasText: 'Early Modern Texts' }).first().getByRole('button', { name: '浏览器下载 EPUB' }).click()
   assert.match((await page.evaluate(() => window.__openedBooks)).at(-1), /^https:\/\/www\.earlymoderntexts\.com\/assets\/mobile\/hume\d+\.epub$/)
   await hume.filter({ hasText: 'Standard Ebooks' }).first().getByRole('button', { name: '下载 EPUB', exact: true }).click()
-  await page.getByText(/成功导入 1 本|已导入 1 本/).first().waitFor({ timeout: 15000 })
+  await page.getByText(/成功导入 1 本|已导入 1 本|已添加 1 本/).first().waitFor({ timeout: 15000 })
   assert.deepEqual(philosophyDownloads.map(d => d.proxied), [false])
   assert.match(philosophyDownloads[0].url, /^https:\/\/standardebooks\.org\/ebooks\/david-hume\/an-enquiry-concerning-human-understanding\/downloads\/.+\.epub\?source=download$/)
 
@@ -165,9 +165,9 @@ try {
   await bnu.getByText(/分 2 卷/).waitFor()
   assert.match(await textbooks.locator('.gh-item').first().innerText(), /数学七年级上册[\s\S]*人教版/)
   // 上一次导入的提示消失后再点, 免得把旧提示当成这次的结果
-  await page.getByText(/成功导入 1 本|已导入 1 本/).first().waitFor({ state: 'detached', timeout: 15000 })
+  await page.getByText(/成功导入 1 本|已导入 1 本|已添加 1 本/).first().waitFor({ state: 'detached', timeout: 15000 })
   await bnu.getByRole('button', { name: '下载到藏书' }).click()
-  await page.getByText(/成功导入 1 本|已导入 1 本/).first().waitFor({ timeout: 20000 })
+  await page.getByText(/成功导入 1 本|已导入 1 本|已添加 1 本/).first().waitFor({ timeout: 20000 })
   assert.deepEqual(textbookDownloads, [1, 2], 'parts are downloaded in order')
 
   // 研辞问典: 本地索引搜索, 网页版无代理时只给「查看原站」, 不请求原站
@@ -177,7 +177,7 @@ try {
   const qzw = wendian.locator('.gh-item').filter({ hasText: '千字文' }).first()
   await qzw.waitFor()
   assert.match(await qzw.innerText(), /周興嗣/)
-  assert.equal(await qzw.getByRole('button', { name: '导入', exact: true }).count(), 0, 'web without proxy cannot import')
+  assert.equal(await qzw.getByRole('button', { name: '下载到藏书', exact: true }).count(), 0, 'web without proxy cannot import')
   await qzw.getByRole('button', { name: '查看原站' }).click()
   assert.equal((await page.evaluate(() => window.__openedBooks)).at(-1), 'https://wendian.dicomp.net/mengxue/book.php?book=%E5%8D%83%E5%AD%97%E6%96%87&var=%E5%8D%97%E5%8C%97%E6%9C%9D')
   await search.fill('论语')
@@ -208,20 +208,20 @@ try {
   await page.getByRole('button', { name: '搜索', exact: true }).click()
   await page.getByRole('button', { name: '查看下载格式' }).click()
   await page.getByRole('button', { name: '下载 TXT', exact: true }).click()
-  await page.getByText(/成功导入 1 本|已导入 1 本/).first().waitFor({ timeout: 15000 })
+  await page.getByText(/成功导入 1 本|已导入 1 本|已添加 1 本/).first().waitFor({ timeout: 15000 })
   // marxists.org 经代理下载并导入
   await search.fill("Hegel's Logic")
   await page.getByRole('button', { name: '搜索', exact: true }).click()
   await page.locator('.uni-group').filter({ hasText: '哲学文库 ·' }).locator('.gh-item').filter({ hasText: "Hegel's Logic" }).first()
     .getByRole('button', { name: '下载 EPUB', exact: true }).click()
-  await page.waitForFunction(() => document.body.innerText.match(/成功导入 1 本|已导入 1 本/g)?.length >= 1)
+  await page.waitForFunction(() => document.body.innerText.match(/成功导入 1 本|已导入 1 本|已添加 1 本/g)?.length >= 1)
   await page.waitForTimeout(500)
   assert.ok(philosophyDownloads.some(d => d.proxied && d.url === 'https://www.marxists.org/ebooks/hegel/hegels-logic.epub'), 'marxists.org download goes through the configured proxy')
   // 研辞问典经代理导入: 只取这一页 → 生成 EPUB → 打开阅读
   await search.fill('三归五戒慈心厌离功德经')
   await page.getByRole('button', { name: '搜索', exact: true }).click()
   const sutra = page.locator('.uni-group').filter({ hasText: '研辞问典 ·' }).locator('.gh-item').filter({ hasText: '三归五戒慈心厌离功德经' }).first()
-  await sutra.getByRole('button', { name: '导入', exact: true }).click()
+  await sutra.getByRole('button', { name: '下载到藏书', exact: true }).click()
   await page.waitForSelector('foliate-view', { timeout: 20000 })
   await page.waitForFunction(() => {
     const view = document.querySelector('foliate-view')
@@ -229,6 +229,8 @@ try {
     return !!doc?.body?.textContent?.includes('三归五戒慈心厌离功德经')
   }, null, { timeout: 20000 })
   assert.deepEqual(wendianRequests, [{ url: 'https://wendian.dicomp.net/ancient/detail.php?id=1171', proxied: true }])
+  // 刚打开时阅读器还在恢复初始位置, 等它稳定再点目录 (真实读者不会在打开后零点几秒内跳转)
+  await page.waitForTimeout(1200)
   await page.click('button[title="目录"]')
   await page.locator('.toc-item').filter({ hasText: '三归五戒慈心厌离功德经' }).first().waitFor({ timeout: 5000 })
   await page.locator('.toc-item').filter({ hasText: '三归五戒慈心厌离功德经' }).first().click()

@@ -92,7 +92,7 @@ await context.route('**/__upload_e2e/**', async route => {
 const dialog = page.getByRole('dialog', { name: '添加到私人书库' })
 async function openUpload() {
   await page.locator('.import-caret').click()
-  await page.getByRole('menuitem', { name: '加入私人云端书库' }).click()
+  await page.getByRole('menuitem', { name: '加入私人书库' }).click()
   await dialog.waitFor()
 }
 async function closeUpload() { await dialog.getByRole('button', { name: '关闭', exact: true }).click() }
@@ -204,7 +204,7 @@ try {
   await noOverflow('mobile-library')
   await page.getByPlaceholder('搜索书名 / 作者 / 标签').fill(title)
   await page.waitForFunction(() => document.querySelectorAll('.book-card').length === 1)
-  await page.getByRole('button', { name: '将此书单加入云端', exact: true }).click()
+  await page.getByRole('button', { name: '上传此书单', exact: true }).click()
   await page.waitForFunction(() => document.querySelectorAll('.upload-pending li').length === 4)
   await closeUpload()
   await page.getByPlaceholder('搜索书名 / 作者 / 标签').fill('')
@@ -222,7 +222,7 @@ try {
   const epubCard = page.locator('.book-card').filter({ hasText: title })
   await page.setViewportSize({ width: 1280, height: 900 })
   await epubCard.hover()
-  await epubCard.getByRole('button', { name: '加入私人云端书库', exact: true }).click()
+  await epubCard.getByRole('button', { name: '加入私人书库', exact: true }).click()
   await dialog.locator('.upload-pending li').waitFor()
   assert.equal(await dialog.locator('.upload-pending li').count(), 1)
   assert.match(await dialog.locator('.upload-pending li').innerText(), new RegExp(title))

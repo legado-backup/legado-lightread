@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { watch } from 'vue'
 import { startSettingsTracking } from '../services/sync/settingsTracker.ts'
 import { isTauri } from '../storage/types.ts'
+import { migrateLevel, normalizeLevel, type DjLevel } from '../services/dianjing/level.ts'
 
 export interface ReaderPrefs {
   fontSize: number
@@ -85,7 +86,7 @@ export interface PresetRecordPrefs {
 export interface ReadingModePrefs {
   typewriter: TypewriterPrefs
   lyric: LyricPrefs
-  /** 仿生阅读 (实验, 默认关): 西文词首强调 / 中文分词交替着色 */
+  /** 点睛阅读基础版 (按词分色; 默认关): 西文词首强调 / 中文分词交替着色。enabled 只在 dianjing.level 为 basic 时生效 */
   wordGuide: {
     enabled: boolean
     style: 'auto' | 'alternate' | 'fixation'
@@ -118,7 +119,7 @@ export interface FeaturePrefs {
 }
 
 /** 结构版本: 修正历史默认值时递增 */
-const SETTINGS_VERSION = 12
+const SETTINGS_VERSION = 14
 
 /** v3 时代曾并入用户设置的内置书库 (v4 起社区清单独立远程拉取, 此表仅供迁移清理) */
 const BUILTIN_BOOK_REPOS = [
@@ -152,9 +153,14 @@ export interface AmbientPrefs {
   pauseWhenHidden: boolean
 }
 
-/** 点睛阅读 (docs/dianjing-reading.md §4.1); 默认关, 首次开启需同意 */
+/**
+ * 点睛阅读 (docs/dianjing-reading.md §4.1, services/dianjing/level.ts): 两个版本——
+ * 基础版 (按词分色, 不联网; 开关即 readingMode.wordGuide.enabled) 与智能版 (AI, 下面这些字段; 首次开启需同意)。
+ */
 export interface DianjingPrefs {
-  /** 「所有书开启」后的全局开关 (perBook 未设置的书跟随它) */
+  /** 选的版本 (默认基础版); 「点睛阅读开着」= 这个版本开着 */
+  level: DjLevel
+  /** 智能版: 「所有书开启」后的全局开关 (perBook 未设置的书跟随它) */
   enabled: boolean
   /** 已同意「所有书开启」 */
   consentAll: boolean
@@ -296,6 +302,7 @@ const defaults: SettingsState = {
   webdavSyncFiles: true,
   dailyGoalMinutes: 30,
   dianjing: {
+    level: 'basic',
     enabled: false,
     consentAll: false,
     perBook: {},
@@ -319,7 +326,7 @@ const defaults: SettingsState = {
       pageDwellMs: 800,
     },
     lyric: { lines: 1, others: 'dim', anchor: 0.4, driver: 'pace', scale: 1.2 },
-    wordGuide: { enabled: false, style: 'auto', strength: 'normal', intensity: 0.7, color: 'teal' },
+    wordGuide: { enabled: false, style: 'auto', strength: 'normal', intensity: 0.7, color: 'rose' },
     largeText: { enabled: false, size: 'large', custom: {} },
     eink: { enabled: false, suggestDismissed: false },
     immersive: { enabled: false, hideFooter: false },
@@ -458,6 +465,17 @@ function load(): SettingsState {
       merged.aiBaseUrl = defaults.aiBaseUrl
       merged.aiModel = defaults.aiModel
     }
+    // v13: 分明阅读 (原仿生阅读) 默认色改为玫瑰; v1.13.1 写入的旧默认 teal 视为未显式选择, 一并迁入。
+    if ((saved.version ?? 1) < 13 && (saved.readingMode?.wordGuide?.color ?? 'teal') === 'teal') {
+      merged.readingMode.wordGuide.color = 'rose'
+    }
+    // v14: 按词着色并入点睛阅读成为基础版, 原点睛阅读为智能版; 按旧存档里在用的功能选版本 (services/dianjing/level.ts)
+    if ((saved.version ?? 1) < 14 && saved.dianjing?.level == null) {
+      const m = migrateLevel(saved)
+      merged.dianjing.level = m.level
+      merged.readingMode.wordGuide.enabled = m.wordGuideEnabled
+    }
+    merged.dianjing.level = normalizeLevel(merged.dianjing.level)
     merged.version = SETTINGS_VERSION
     return merged
   } catch {

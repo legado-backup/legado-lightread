@@ -4,7 +4,8 @@
  *
  * 模式 (一个名字一个模式): 场景 = 夜读 / 护眼 / 墨水屏 / 大字 / 沉浸 (一键套用一组排版值, 关闭恢复;
  * 值本身只在「排版」面板里调, 见 docs/reader-panels.md);
- * 带读 = 自动翻页 / 打字机 / 歌词 / 听书 (同一时刻只运行一个; 听书可以驱动歌词); 实验 = 仿生阅读。
+ * 带读 = 自动翻页 / 打字机 / 歌词 / 听书 (同一时刻只运行一个; 听书可以驱动歌词);
+ * 按词着色 = 点睛阅读基础版 (开关在点睛阅读里, 绘制在这里)。
  *
  * ## 接线清单 (ReaderView.vue)
  *
@@ -25,10 +26,9 @@
  *   refreshMarginals: updateMarginals,
  *   onReminder: () => { stopAutoRead() },           // 休息提醒出现时 (打字机 / 歌词已自动暂停)
  *   onLyricSeek: range => listenFromRange(range),   // 跟听书时点了另一行: 听书从那一句读 (复用「从这里听」)
- *   isDianjingActive: () => dj.active.value,        // 点睛开启时仿生阅读自动让位 (wordGuideActive=false, 面板提示); 点睛关掉后自动恢复
- *   onWordGuideEnabled: () => { if (dj.active.value) dj.toggle() },   // 用户开仿生阅读: 后开的生效, 关掉点睛
  * })
- * (useDianjing 的 onExclusive 可留空: 点睛开启时这里已自动让位, 不必改仿生阅读的设置。)
+ * (按词着色是点睛阅读的基础版: 开关由 useDianjing 统一管理 (传入 basic: { isOn, set, supported }),
+ *  这里只在 settings.dianjing.level 为 basic 时绘制, 与智能版天然互斥。)
  * ```
  *
  * 1. applyPrefs():
@@ -124,6 +124,7 @@ import {
 } from '../services/readingModes/eyeCare'
 import { WordGuideLayer } from '../services/readingModes/wordGuideLayer'
 import { guideIntensity } from '../services/readingModes/wordGuideIntensity'
+import { normalizeLevel } from '../services/dianjing/level'
 
 /** 「带读」分段: 自动翻页 / 打字机 / 歌词 / 听书 */
 export type ReadingModeTab = 'auto' | 'typewriter' | 'lyric' | 'tts'
@@ -161,10 +162,6 @@ export interface UseReadingModesOptions {
   onReminder?: () => void
   /** 跟听书时点了另一行: 阅读器让听书从这一行所在的句子开始读 */
   onLyricSeek?: (range: Range) => void
-  /** 点睛阅读是否开启 (与仿生阅读互斥, 点睛优先) */
-  isDianjingActive?: () => boolean
-  /** 用户开启了仿生阅读: 阅读器关闭点睛阅读 */
-  onWordGuideEnabled?: () => void
 }
 
 const REDUCED_DEFAULT_KEY = 'lightread-reading-mode-reduced-default'
@@ -185,7 +182,7 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   const typewriterActive = computed(() => typewriterState.value !== 'idle')
   /** 书的主文字: 决定速度单位 (字/分 或 词/分) */
   const bookScript = ref<Script>('cjk')
-  /** 固定版式 (漫画、PDF 式 EPUB) 不支持打字机 / 歌词 / 仿生阅读 */
+  /** 固定版式 (漫画、PDF 式 EPUB) 不支持打字机 / 歌词 / 按词着色 */
   const supported = ref(true)
   const reducedMotion = ref(false)
 
@@ -949,15 +946,13 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   const largeUi = largeTextOn
 
   // =====================================================================
-  // 仿生阅读 (实验)
+  // 按词着色 = 点睛阅读基础版 (开关见 useDianjing; 只在选了基础版时绘制)
   // =====================================================================
 
-  const dianjingOn = computed(() => !!opts.isDianjingActive?.())
-  /** Highlight API 可用 (旧 WebView 不提供仿生阅读) */
+  /** Highlight API 可用 (旧 WebView 画不了按词着色) */
   const wordGuideSupported = ref(true)
-  const wordGuideActive = computed(() => !!settings.readingMode.wordGuide.enabled && !dianjingOn.value && supported.value)
-  /** 已开启但被点睛阅读压住 (点睛优先) */
-  const wordGuideBlocked = computed(() => !!settings.readingMode.wordGuide.enabled && dianjingOn.value)
+  const wordGuideActive = computed(() => !!settings.readingMode.wordGuide.enabled
+    && normalizeLevel(settings.dianjing.level) === 'basic' && supported.value)
   /** 每个分节文档一层 (跨章连续滚动时上下预载的邻章也要着色; 单章渲染时只留当前文档) */
   const wgLayers = new Map<Document, WordGuideLayer>()
   function disposeWordGuides(keep?: ReadonlySet<Document>) {
@@ -1025,11 +1020,10 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     }
   }
 
+  /** 基础版开关 (由 useDianjing 调用; 选版本在那里) */
   function setWordGuide(on: boolean) {
     settings.readingMode.wordGuide.enabled = on
-    if (on) opts.onWordGuideEnabled?.()
   }
-  function toggleWordGuide() { setWordGuide(!settings.readingMode.wordGuide.enabled) }
 
   watch(wordGuideActive, () => syncWordGuide())
   watch(
@@ -1465,12 +1459,10 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     returnToCurrentLine,
     followRange,
     setFollowPaused,
-    // ---- 仿生阅读 ----
+    // ---- 按词着色 (点睛阅读基础版) ----
     wordGuideActive,
-    wordGuideBlocked,
     wordGuideSupported,
     setWordGuide,
-    toggleWordGuide,
     // ---- 休息提醒 ----
     reminderDue,
     dismissReminder,

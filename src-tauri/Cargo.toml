@@ -1,6 +1,6 @@
 [package]
 name = "lightread"
-version = "1.13.1"
+version = "1.14.0"
 description = "LightRead 轻阅 — 开源本地阅读器"
 authors = ["云中江树"]
 license = "AGPL-3.0-or-later"
@@ -33,7 +33,7 @@ futures-util = "0.3.32"
 sha2 = "0.10.9"
 uuid = { version = "1.20.0", features = ["v4"] }
 libc = "0.2"
-tokio = { version = "1.52.3", features = ["macros", "rt", "sync"] }
+tokio = { version = "1.52.3", features = ["macros", "rt", "sync", "time"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 fontdb = "0.23"
 

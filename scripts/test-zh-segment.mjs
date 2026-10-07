@@ -244,3 +244,9 @@ test('速度: 每万字 < 15 ms (含歧义检查与着色规则)', () => {
   console.log(`# guideSpans with lexicon: ${median.toFixed(2)} ms / 10k chars (limit ${limit})`)
   assert.ok(median < limit, `${median.toFixed(2)} ms`)
 })
+
+test('西文词不吞后面的汉字: 「阿Q的名字」', async () => {
+  const { splitRuns } = await import('../src/services/readingModes/zhSegment.ts')
+  const runs = splitRuns('阿Q的名字，iPhone手机')
+  assert.deepEqual(runs.map(r => [r.text, r.kind]), [['阿', 'han'], ['Q', 'latin'], ['的名字', 'han'], ['，', 'punct'], ['iPhone', 'latin'], ['手机', 'han']])
+})

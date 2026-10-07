@@ -13,7 +13,7 @@ export const PING_ENDPOINT = 'https://sync.jiangshu.ai/v1/ping'
 const ID_KEY = 'lightread-install-id'
 const SENT_KEY = 'lightread-ping-sent'
 
-import { beijingDay, detectPlatform, needsPing, type PingBody } from './usageStatsCore'
+import { beijingDay, detectPlatform, isTestEnvironment, needsPing, type PingBody } from './usageStatsCore'
 export { beijingDay, detectPlatform, needsPing, type PingBody, type StatsPlatform } from './usageStatsCore'
 
 function store(): Storage | null {
@@ -52,6 +52,7 @@ export function resetInstallId(): string {
 export async function pingUsage(reader = false): Promise<void> {
   const settings = useSettings()
   if (!settings.usageStats) return
+  if (isTestEnvironment(navigator, location.hostname, isTauri())) return
   const s = store()
   const day = beijingDay()
   if (!needsPing(s?.getItem(SENT_KEY) ?? null, day, reader)) return

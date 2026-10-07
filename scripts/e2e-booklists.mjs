@@ -124,7 +124,7 @@ try {
   const order = await page.evaluate(() => [...document.querySelectorAll('.uni-section, .curated-section, .cat-section h2')]
     .map(el => el.classList.contains('uni-section') ? 'uni' : el.classList.contains('curated-section') ? 'curated' : el.textContent))
   assert.deepEqual(order.slice(0, 3), ['uni', 'curated', '书单推荐'])
-  assert.equal(order[3], '书库与目录', 'curated section sits right before the sources section')
+  assert.equal(order[3], '书源', 'curated section sits right before the sources section')
   await shot(page, 'catalog-desktop-light')
 
   // ---- 打开书单详情 ----
@@ -147,7 +147,7 @@ try {
   assert.equal(searches.at(-1), `${BOOK.title} ${BOOK.author}`, 'search query is title + author')
   await shot(page, 'curated-find-desktop-light')
   await found.getByRole('button', { name: '下载 EPUB', exact: true }).first().click()
-  await page.getByText(/成功导入 1 本/).first().waitFor({ timeout: 15000 })
+  await page.getByText(/成功导入 1 本|已添加 1 本/).first().waitFor({ timeout: 15000 })
   await row.getByText('已在藏书', { exact: true }).waitFor()
   await row.getByRole('button', { name: '打开', exact: true }).waitFor()
   await page.locator('.curated-meta').getByText('已在藏书 1 本').waitFor()
@@ -236,7 +236,7 @@ try {
   await other.page.setInputFiles('input[type=file][multiple]', {
     name: 'walden.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(epubBytes('Walden; or, Life in the Woods', 'Thoreau, Henry David')),
   })
-  await other.page.getByText(/成功导入 1 本/).first().waitFor({ timeout: 15000 })
+  await other.page.getByText(/成功导入 1 本|已添加 1 本/).first().waitFor({ timeout: 15000 })
   await other.page.locator('.book-card').filter({ hasText: 'Walden' }).waitFor()
   await other.page.waitForFunction(n => document.querySelectorAll('.wanted-card').length === n, list.books.length)
   assert.equal(await otherPanel.locator('.wanted-card').filter({ hasText: 'Walden' }).count(), 0, 'imported book auto-linked')

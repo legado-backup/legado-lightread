@@ -4,10 +4,14 @@
  *  - GitHub 不通或超时时自动改用 GitCode 国内镜像 (docs/gitcode-mirror.md); 镜像未开通时行为与以前一致
  *  - 桌面端经 Rust HTTP (支持代理), Web 端直接 fetch (GitHub / GitCode API 均允许 CORS)
  *  - 结果缓存 6 小时, 避免每次打开设置页都请求
+ *  - 应用内下载安装: 桌面在内存里下载后写入「下载」文件夹; 安卓由 Rust 流式写入应用缓存
+ *    (src-tauri/src/app_update.rs), 校验后经 MainActivity 的 window.LightReadUpdater 拉起系统安装器
+ *  - 网页版下载安装包前快速探测 GitHub, 慢或不通就打开 GitCode 镜像
  */
 import { isTauri } from '../storage/types'
-import { fetchRemote } from './net'
+import { fetchRemote, remoteProxy } from './net'
 import { t } from '../i18n'
+import { toast } from './toast'
 
 const REPO = 'yzfly/LightRead'
 export const RELEASES_URL = `https://github.com/${REPO}/releases`
@@ -26,12 +30,14 @@ const CHECKSUM_FILE = 'SHA256SUMS'
 /**
  * 下载源时限 (毫秒)。GitHub 先快速试一次, 不通就换镜像; 镜像也不可用 (例如尚未开通)
  * 时再给 GitHub 一次与以前相同的耐心时限, 不让慢速但能用的 GitHub 连接变得更差。
- * connect: 元数据请求的整体时限 / 下载等到响应头的时限; stall: 下载中多久收不到新数据算卡住。
+ * connect: 元数据请求的整体时限 / 下载等到响应头的时限; stall: 下载中多久收不到新数据算卡住;
+ * minRate / rateWindow: 只用于第一次 GitHub 下载 — 国内常见「连得上但只有几十 KB/s」,
+ * 开始 rateWindow 后平均速度低于 minRate (字节/秒) 就换 GitCode。0 表示不限。
  */
 export const SOURCE_TIMEOUTS = {
-  primary: { connect: 8_000, stall: 15_000 },
-  mirror: { connect: 15_000, stall: 30_000 },
-  patient: { connect: 30_000, stall: 60_000 },
+  primary: { connect: 8_000, stall: 15_000, minRate: 256 * 1024, rateWindow: 10_000 },
+  mirror: { connect: 15_000, stall: 30_000, minRate: 0, rateWindow: 0 },
+  patient: { connect: 30_000, stall: 60_000, minRate: 0, rateWindow: 0 },
 } as const
 
 export const CURRENT_VERSION = __APP_VERSION__
@@ -192,22 +198,31 @@ export function parseReleaseDownloadUrl(url: string): { source: ReleaseSource; t
 
 /**
  * 同一安装包的下载尝试顺序: GitHub 快速 → GitCode → GitHub 耐心;
- * 元数据已来自 GitCode (GitHub 不通) 时先走镜像。其他地址只按原样下载。
+ * 元数据已来自 GitCode, 或最近一次检查更新时 GitHub 不通, 就先走镜像。其他地址只按原样下载。
  */
-export function downloadPlan(url: string): Array<{ url: string; source: ReleaseSource | null; connect: number; stall: number }> {
+export interface DownloadStep {
+  url: string
+  source: ReleaseSource | null
+  connect: number
+  stall: number
+  minRate: number
+  rateWindow: number
+}
+
+export function downloadPlan(url: string): DownloadStep[] {
   const { primary, mirror, patient } = SOURCE_TIMEOUTS
   const parsed = parseReleaseDownloadUrl(url)
   if (!parsed) return [{ url, source: null, ...patient }]
   const github = `${GITHUB_DOWNLOAD_BASE}${encodeURIComponent(parsed.tag)}/${encodeURIComponent(parsed.name)}`
   const gitcode = mirrorDownloadUrl(parsed.tag, parsed.name)
-  return parsed.source === 'github'
+  return parsed.source === 'github' && !githubUnreachable()
     ? [
         { url, source: 'github', ...primary },
         { url: gitcode, source: 'gitcode', ...mirror },
         { url, source: 'github', ...patient },
       ]
     : [
-        { url, source: 'gitcode', ...mirror },
+        { url: gitcode, source: 'gitcode', ...mirror },
         { url: github, source: 'github', ...patient },
       ]
 }
@@ -357,20 +372,71 @@ export function pickRecommendedDownload(assets: ReleaseAsset[], ua = navigator.u
   return pickDownloads(assets, ua).find(item => item.recommended) ?? null
 }
 
-/** 桌面端交给系统浏览器下载, Web 端新开标签页 */
+/** 网页版: 安装包下载前探测 GitHub 的时限; 超过就改开 GitCode 镜像 */
+export const WEB_PROBE_MS = 3_500
+
+/** 桌面 / 安卓应用交给系统浏览器打开, Web 端新开标签页 */
 export async function openDownload(link: string) {
   // GitHub 不通时, 发布页与安装包链接改开 GitCode 镜像
-  const url = (githubUnreachable() && mirrorLinkFor(link)) || link
+  const known = (githubUnreachable() && mirrorLinkFor(link)) || link
   if (isTauri()) {
     const { openUrl } = await import('@tauri-apps/plugin-opener')
-    await openUrl(url)
-  } else {
+    await openUrl(known)
+    return
+  }
+  const mirror = mirrorLinkFor(link)
+  if (known !== link || !mirror || !parseReleaseDownloadUrl(link)) {
+    window.open(known, '_blank', 'noopener')
+    return
+  }
+  // 网页版安装包: 先在点击当下打开空白页 (之后再开会被拦截), 再用几秒探测 GitHub,
+  // 连得上就用 GitHub, 慢或不通就用 GitCode, 方便国内手机下载。
+  const win = window.open('', '_blank')
+  const url = await probeReachable(link, WEB_PROBE_MS) ? link : mirror
+  if (!win) {
     window.open(url, '_blank', 'noopener')
+    return
+  }
+  try {
+    win.opener = null
+    win.location.href = url
+  } catch { /* 页面已被关闭 */ }
+}
+
+/** 跨域 no-cors 请求在收到响应头时即算连通, 随后立即中止, 不下载正文 */
+async function probeReachable(url: string, ms: number): Promise<boolean> {
+  const controller = new AbortController()
+  try {
+    await deadline(
+      fetch(url, { mode: 'no-cors', cache: 'no-store', redirect: 'follow', signal: controller.signal }),
+      ms,
+      () => controller.abort(),
+    )
+    return true
+  } catch {
+    return false
+  } finally {
+    controller.abort()
   }
 }
 
-/** 桌面端支持应用内下载安装 (Android 的 Tauri 无法直接拉起安装器, 走浏览器) */
-export const canInAppInstall = () => isTauri() && !/Android/i.test(navigator.userAgent)
+interface AndroidUpdaterBridge {
+  canInstall(): boolean
+  openInstallPermission(): void
+  /** ok / permission / missing / error */
+  install(name: string): string
+}
+
+const isAndroid = () => /Android/i.test(navigator.userAgent)
+
+/** 安卓应用里 MainActivity 注入的安装桥; 其他平台 (含手机浏览器) 为 null */
+function androidUpdater(): AndroidUpdaterBridge | null {
+  if (!isTauri() || !isAndroid()) return null
+  return (globalThis as { LightReadUpdater?: AndroidUpdaterBridge }).LightReadUpdater ?? null
+}
+
+/** 支持应用内下载安装: 桌面端, 以及带安装桥的安卓应用 */
+export const canInAppInstall = () => isTauri() && (!isAndroid() || androidUpdater() !== null)
 
 export interface DownloadProgress {
   /** 0-1, 无 content-length 时为 null */
@@ -379,15 +445,25 @@ export interface DownloadProgress {
   totalMB: string
 }
 
+function toProgress(received: number, total: number): DownloadProgress {
+  return {
+    fraction: total ? received / total : null,
+    receivedMB: (received / 1048576).toFixed(1),
+    totalMB: total ? (total / 1048576).toFixed(0) : '?',
+  }
+}
+
 /**
- * 应用内下载安装包到系统下载文件夹 (桌面端)。
- * 经 Rust 原生 HTTP 下载, 自动使用设置页配置的网络代理; GitHub 连不上或卡住时换 GitCode 镜像。
+ * 应用内下载安装包: GitHub 连不上或卡住时换 GitCode 镜像, 下载后按 SHA256SUMS 校验。
+ * 桌面端经 Rust 原生 HTTP 下载到系统下载文件夹 (自动使用设置页配置的网络代理);
+ * 安卓由 Rust 流式写入应用缓存, 返回的路径交给 openInstaller。
  */
 export async function downloadInstaller(
   url: string,
   fileName: string,
   onProgress: (p: DownloadProgress) => void,
 ): Promise<string> {
+  if (androidUpdater()) return downloadApk(url, fileName, onProgress)
   const data = await downloadVerified(url, onProgress)
   const { downloadDir, join } = await import('@tauri-apps/api/path')
   const { writeFile } = await import('@tauri-apps/plugin-fs')
@@ -396,30 +472,72 @@ export async function downloadInstaller(
   return path
 }
 
+/** 正在进行的安卓下载: 侧栏与设置页同时点「更新」时共用一次下载 (Rust 端只有一个缓存文件) */
+let apkInFlight: { url: string; listeners: Set<(p: DownloadProgress) => void>; done: Promise<string> } | null = null
+
+/** 安卓: 按 downloadPlan 逐个源下载到缓存 (.part), 校验通过才改名成 .apk */
+function downloadApk(url: string, fileName: string, onProgress: (p: DownloadProgress) => void): Promise<string> {
+  if (apkInFlight?.url === url) {
+    apkInFlight.listeners.add(onProgress)
+    return apkInFlight.done
+  }
+  const listeners = new Set([onProgress])
+  const done = downloadApkOnce(url, fileName, p => listeners.forEach(fn => fn(p)))
+  const entry = { url, listeners, done }
+  apkInFlight = entry
+  const release = () => { if (apkInFlight === entry) apkInFlight = null }
+  done.then(release, release)
+  return done
+}
+
+async function downloadApkOnce(url: string, fileName: string, onProgress: (p: DownloadProgress) => void): Promise<string> {
+  const { invoke, Channel } = await import('@tauri-apps/api/core')
+  const proxy = remoteProxy() || null
+  const result = await firstSuccess(downloadPlan(url).map(step => async () => {
+    const channel = new Channel<{ received: number; total: number }>()
+    channel.onmessage = p => onProgress(toProgress(p.received, p.total))
+    const done = await invoke<{ sha256: string; size: number }>('update_download', {
+      url: step.url, fileName, connectMs: step.connect, stallMs: step.stall,
+      minRate: step.minRate || null, rateWindowMs: step.rateWindow || null, proxy, onProgress: channel,
+    })
+    return { url: step.url, sha256: done.sha256 }
+  }))
+  try {
+    await verifyDownload(result.url, async () => result.sha256)
+  } catch (e) {
+    await invoke('update_finish', { fileName, accept: false }).catch(() => {})
+    throw e
+  }
+  const path = await invoke<string | null>('update_finish', { fileName, accept: true })
+  if (!path) throw new Error(t('update.downloadFailed'))
+  return path
+}
+
 /** 按 downloadPlan 依次下载, 再用 SHA256SUMS 校验; 镜像下载必须校验通过 */
 export async function downloadVerified(url: string, onProgress: (p: DownloadProgress) => void): Promise<Uint8Array> {
   const result = await firstSuccess(downloadPlan(url).map(step => async () => ({
     url: step.url,
-    data: await downloadOnce(step.url, step.connect, step.stall, onProgress),
+    data: await downloadOnce(step, onProgress),
   })))
-  const asset = parseReleaseDownloadUrl(result.url)
-  if (!asset) return result.data
+  await verifyDownload(result.url, () => sha256Hex(result.data))
+  return result.data
+}
+
+/** 与 SHA256SUMS 比对; 不一致或镜像包取不到校验值时抛 IntegrityError (不再换源) */
+async function verifyDownload(url: string, digest: () => Promise<string>): Promise<void> {
+  const asset = parseReleaseDownloadUrl(url)
+  if (!asset) return
   const expected = (await loadChecksums(asset.tag))?.get(asset.name)
   if (!expected) {
     // 旧行为: GitHub 直连不强制校验; 第三方镜像没有校验值则拒绝
     if (asset.source === 'gitcode') throw new IntegrityError(t('update.checksumUnavailable'))
-    return result.data
+    return
   }
-  if (await sha256Hex(result.data) !== expected) throw new IntegrityError(t('update.checksumMismatch'))
-  return result.data
+  if (await digest() !== expected) throw new IntegrityError(t('update.checksumMismatch'))
 }
 
-async function downloadOnce(
-  url: string,
-  connectMs: number,
-  stallMs: number,
-  onProgress: (p: DownloadProgress) => void,
-): Promise<Uint8Array> {
+async function downloadOnce(step: DownloadStep, onProgress: (p: DownloadProgress) => void): Promise<Uint8Array> {
+  const { url, connect: connectMs, stall: stallMs, minRate, rateWindow } = step
   const controller = new AbortController()
   const res = await deadline(
     fetchRemote(url, undefined, { headers: { accept: 'application/octet-stream' }, signal: controller.signal }),
@@ -429,14 +547,12 @@ async function downloadOnce(
   const total = Number(res.headers.get('content-length') ?? 0)
   const chunks: Uint8Array[] = []
   let received = 0
-  const report = () => onProgress({
-    fraction: total ? received / total : null,
-    receivedMB: (received / 1048576).toFixed(1),
-    totalMB: total ? (total / 1048576).toFixed(0) : '?',
-  })
+  const report = () => onProgress(toProgress(received, total))
   report()
   const reader = res.body?.getReader?.()
   if (reader) {
+    const started = Date.now()
+    let rateChecked = !minRate
     for (;;) {
       const { done, value } = await deadline(reader.read(), stallMs, () => {
         controller.abort()
@@ -446,6 +562,15 @@ async function downloadOnce(
       chunks.push(value)
       received += value.length
       report()
+      const elapsed = Date.now() - started
+      if (!rateChecked && elapsed >= rateWindow) {
+        rateChecked = true
+        if (!(total && received >= total) && received < minRate * elapsed / 1000) {
+          controller.abort()
+          void reader.cancel().catch(() => {})
+          throw new Error(t('update.timeout'))
+        }
+      }
     }
   } else {
     const buf = new Uint8Array(await deadline(res.arrayBuffer(), stallMs * 10, () => controller.abort()))
@@ -464,7 +589,7 @@ async function downloadOnce(
   return data
 }
 
-/** 优先取 GitHub 上的校验清单 (信任锚), 不通再取镜像上的 */
+/** 优先取 GitHub 上的校验清单 (信任锚), 不通再取镜像上的; 最近 GitHub 不通时先取镜像, 免得多等 */
 async function loadChecksums(tag: string): Promise<Map<string, string> | null> {
   const { primary, mirror } = SOURCE_TIMEOUTS
   const fetchSums = async (url: string, ms: number) => {
@@ -479,10 +604,9 @@ async function loadChecksums(tag: string): Promise<Map<string, string> | null> {
     return sums
   }
   try {
-    return await firstSuccess([
-      () => fetchSums(`${GITHUB_DOWNLOAD_BASE}${encodeURIComponent(tag)}/${CHECKSUM_FILE}`, primary.connect),
-      () => fetchSums(mirrorDownloadUrl(tag, CHECKSUM_FILE), mirror.connect),
-    ])
+    const github = () => fetchSums(`${GITHUB_DOWNLOAD_BASE}${encodeURIComponent(tag)}/${CHECKSUM_FILE}`, primary.connect)
+    const gitcode = () => fetchSums(mirrorDownloadUrl(tag, CHECKSUM_FILE), mirror.connect)
+    return await firstSuccess(githubUnreachable() ? [gitcode, github] : [github, gitcode])
   } catch {
     return null
   }
@@ -493,10 +617,100 @@ async function sha256Hex(data: Uint8Array): Promise<string> {
   return Array.from(digest, b => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** 打开已下载的安装包 (macOS 挂载 dmg, Windows 运行安装器) */
-export async function openInstaller(path: string) {
+export type InstallResult = 'opened' | 'needs-permission'
+
+/**
+ * 打开已下载的安装包: macOS 挂载 dmg, Windows 运行安装器;
+ * 安卓拉起系统安装器, 没开「安装未知应用」时返回 needs-permission (回到前台后自动接着装)。
+ */
+export async function openInstaller(path: string): Promise<InstallResult> {
+  const bridge = androidUpdater()
+  if (bridge) return installApk(bridge, path)
   const { openPath } = await import('@tauri-apps/plugin-opener')
   await openPath(path)
+  return 'opened'
+}
+
+const PENDING_KEY = 'lightread-update-pending-install'
+/** 去设置页开权限后多久内回来仍自动接着安装 */
+const PENDING_TTL = 30 * 60_000
+
+function installApk(bridge: AndroidUpdaterBridge, path: string): InstallResult {
+  const name = path.split(/[\\/]/).pop() ?? ''
+  const status = bridge.install(name)
+  if (status === 'permission') {
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify({ path, at: Date.now() })) } catch { /* 只影响自动接着装 */ }
+    return 'needs-permission'
+  }
+  clearPendingInstall()
+  if (status === 'ok') return 'opened'
+  throw new Error(t(status === 'missing' ? 'update.installerMissing' : 'update.openFailed'))
+}
+
+function clearPendingInstall() {
+  try { localStorage.removeItem(PENDING_KEY) } catch { /* ignore */ }
+}
+
+/** 是否已允许本应用安装应用 (非安卓恒为 true) */
+export function installPermissionGranted(): boolean {
+  const bridge = androidUpdater()
+  return !bridge || bridge.canInstall()
+}
+
+/** 打开本应用的「安装未知应用」设置页 (安卓) */
+export function openInstallPermission() {
+  androidUpdater()?.openInstallPermission()
+}
+
+/** 有待安装的包且已允许安装时打开安装器; 返回是否已打开 */
+export function resumePendingInstall(): boolean {
+  const bridge = androidUpdater()
+  if (!bridge) return false
+  let pending: { path?: string; at?: number } | null = null
+  try { pending = JSON.parse(localStorage.getItem(PENDING_KEY) ?? 'null') } catch { /* 损坏 */ }
+  if (!pending?.path || !(Number(pending.at) > Date.now() - PENDING_TTL)) {
+    if (pending) clearPendingInstall()
+    return false
+  }
+  if (!bridge.canInstall()) return false
+  try {
+    return installApk(bridge, pending.path) === 'opened'
+  } catch {
+    return false
+  }
+}
+
+/** 安卓: 用户从设置页开完权限回到轻阅 (或被系统重启) 后, 自动接着打开安装 */
+export function watchPendingInstall(): () => void {
+  if (!androidUpdater()) return () => {}
+  const check = () => {
+    if (document.visibilityState !== 'hidden' && resumePendingInstall()) {
+      toast(t('update.downloadDoneOpening'), 'success')
+    }
+  }
+  document.addEventListener('visibilitychange', check)
+  window.addEventListener('focus', check)
+  check()
+  return () => {
+    document.removeEventListener('visibilitychange', check)
+    window.removeEventListener('focus', check)
+  }
+}
+
+/** 打开安装并提示; 安卓没开安装权限时给一句话 + 「去开启」 */
+export async function installWithPrompt(path: string): Promise<void> {
+  if (await openInstaller(path) === 'opened') {
+    toast(t('update.downloadDoneOpening'), 'success')
+  } else {
+    toast(t('update.needInstallPermission'), 'info', 20_000, { label: t('update.allowInstall'), run: openInstallPermission })
+  }
+}
+
+/** 下载失败的提示语: 校验不过说明安装包已删除, 其余统一建议换网络重试 (原始错误只进控制台) */
+export function downloadErrorMessage(e: unknown): string {
+  if (e instanceof IntegrityError) return e.message
+  console.warn('[updater] download failed:', e)
+  return t('update.downloadFailed')
 }
 
 /** 复制下载链接, 便于换到浏览器或其他工具下载 */

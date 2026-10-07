@@ -214,11 +214,11 @@ try {
   assert(await B.locator('.xfer-item.out').count() === 0, 'B 收到的不应显示为已发送')
   ok('B 在藏书页收到「收到来自…的 N 条」提醒, 点「查看」打开互传页')
 
-  await B.locator('.xfer-item[data-kind="link"]').getByRole('button', { name: '下载入库' }).waitFor()
+  await B.locator('.xfer-item[data-kind="link"]').getByRole('button', { name: '下载到藏书' }).waitFor()
   await B.locator('.xfer-item', { hasText: TEXT }).getByRole('button', { name: '复制' }).waitFor()
   await shot(B, 'desktop-light-received')
 
-  await B.locator('.xfer-item[data-kind="file"]').getByRole('button', { name: '导入并打开' }).click()
+  await B.locator('.xfer-item[data-kind="file"]').getByRole('button', { name: '添加并打开' }).click()
   await B.waitForURL(/#\/read\//, { timeout: 20000 })
   const books = await listBooks(B)
   assert(books.length === 1 && books[0].title === BOOK_TITLE, `B 书库应有《${BOOK_TITLE}》: ${JSON.stringify(books.map(b => b.title))}`)
@@ -264,7 +264,7 @@ try {
   await shot(C, 'phone-light-drop-received')
   await C.getByRole('textbox', { name: '取件码' }).fill('000000')
   await C.getByRole('button', { name: '取件', exact: true }).click()
-  await C.locator('.toast', { hasText: '没有找到' }).waitFor({ timeout: 10000 })
+  await C.locator('.toast', { hasText: '没找到内容' }).waitFor({ timeout: 10000 })
   ok('未登录的手机 C 打开分享链接直接取件; 错码提示「没有找到」')
 
   // ---------------- WebDAV ----------------

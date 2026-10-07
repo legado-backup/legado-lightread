@@ -277,6 +277,12 @@ jobs:
           DST=src-tauri/gen/android/app/src/main/java/com/yzfly/lightread/MainActivity.kt
           test -f "$DST"
           cp src-tauri/android/MainActivity.kt "$DST"
+          # 应用内更新: 清单补 REQUEST_INSTALL_PACKAGES, 确认 FileProvider 可共享缓存目录
+          # (修补旧 tag 时该版本没有这个脚本, 也没有应用内安装, 跳过)
+          if [ -f scripts/patch-android-project.mjs ]; then
+            node scripts/patch-android-project.mjs src-tauri/gen/android
+            grep -q 'android.permission.REQUEST_INSTALL_PACKAGES' src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          fi
 
       # 固定签名: 每个版本的 APK 签名一致, 手机上才能直接覆盖升级 (保留藏书与进度)。
       # 不允许退回 runner 临时密钥；历史随机签名安装需另行备份/迁移。

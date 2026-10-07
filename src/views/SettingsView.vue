@@ -20,7 +20,7 @@ import { toast } from '../services/toast'
 import {
   CURRENT_VERSION, RELEASES_URL, REPO_URL, ISSUES_URL,
   checkUpdate, pickDownloads, openDownload, canInAppInstall,
-  downloadInstaller, openInstaller, copyLink,
+  downloadInstaller, installWithPrompt, downloadErrorMessage, openInstallPermission, installPermissionGranted, copyLink,
   type UpdateInfo, type DownloadOption,
 } from '../services/updater'
 import { t } from '../i18n'
@@ -663,9 +663,20 @@ async function download(url: string) {
   }
 }
 
-// ---- 应用内下载安装 (桌面端, 走已配置的网络代理) ----
+// ---- 应用内下载安装 (桌面端与安卓应用, 走已配置的网络代理) ----
 const installing = ref('')
 const installedPath = ref('')
+/** 安卓应用: 安装包存在应用缓存里, 不展示路径, 只给「安装」按钮 */
+const isAndroidApp = isTauri() && isAndroid
+/** 安卓: 等用户允许轻阅安装应用 (从设置页回来时重新判断) */
+const needsInstallPermission = ref(false)
+const refreshInstallPermission = () => {
+  if (needsInstallPermission.value && document.visibilityState !== 'hidden') {
+    needsInstallPermission.value = !installPermissionGranted()
+  }
+}
+document.addEventListener('visibilitychange', refreshInstallPermission)
+onBeforeUnmount(() => document.removeEventListener('visibilitychange', refreshInstallPermission))
 
 async function downloadOption(d: DownloadOption) {
   if (!canInAppInstall()) {
@@ -675,20 +686,33 @@ async function downloadOption(d: DownloadOption) {
   if (installing.value) return
   installing.value = t('common.connecting')
   installedPath.value = ''
+  needsInstallPermission.value = false
   try {
     const fileName = decodeURIComponent(d.url.split('/').pop() ?? 'LightRead-installer')
-    const path = await downloadInstaller(d.url, fileName, p => {
+    installedPath.value = await downloadInstaller(d.url, fileName, p => {
       installing.value = p.fraction != null
         ? t('update.downloadingPct', { pct: (p.fraction * 100).toFixed(0), received: p.receivedMB, total: p.totalMB })
         : t('update.downloadingMB', { received: p.receivedMB })
     })
+  } catch (e) {
+    toast(downloadErrorMessage(e), 'error', 10_000, { label: t('update.retry'), run: () => { void downloadOption(d) } })
+    return
+  } finally {
     installing.value = ''
-    installedPath.value = path
-    toast(t('update.downloadDoneOpening'), 'success')
-    await openInstaller(path)
+  }
+  await installDownloaded()
+}
+
+async function installDownloaded() {
+  if (!installedPath.value) return
+  try {
+    await installWithPrompt(installedPath.value)
+    // 已打开安装 (或回到前台后由 App 自动接着装); 没开权限时卡片上留一个「去开启」
+    needsInstallPermission.value = !installPermissionGranted()
   } catch (e: any) {
-    installing.value = ''
-    toast(t('update.downloadFailed', { msg: e?.message ?? e }), 'error', 6000)
+    installedPath.value = ''
+    needsInstallPermission.value = false
+    toast(e?.message || t('update.openFailed'), 'error', 6000)
   }
 }
 
@@ -1379,11 +1403,23 @@ const APPEARANCE_OPTIONS = [
           {{ installing }}
           <span v-if="settings.httpProxy" class="install-hint">{{ t('update.viaProxy', { proxy: settings.httpProxy }) }}</span>
         </div>
+        <div v-else-if="installedPath && isAndroidApp" class="install-done" role="status">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm4.2 5.3a1 1 0 0 1 0 1.4l-4.9 4.9a1 1 0 0 1-1.4 0l-2.1-2.1a1 1 0 1 1 1.4-1.4l1.4 1.4 4.2-4.2a1 1 0 0 1 1.4 0z"/></svg>
+          <template v-if="needsInstallPermission">
+            {{ t('update.needInstallPermission') }}
+            <button class="btn btn-sm btn-primary" @click="openInstallPermission()">{{ t('update.allowInstall') }}</button>
+          </template>
+          <template v-else>
+            {{ t('update.readyToInstall') }}
+            <button class="btn btn-sm" @click="installDownloaded()">{{ t('update.install') }}</button>
+          </template>
+        </div>
         <div v-else-if="installedPath" class="install-done">
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm4.2 5.3a1 1 0 0 1 0 1.4l-4.9 4.9a1 1 0 0 1-1.4 0l-2.1-2.1a1 1 0 1 1 1.4-1.4l1.4 1.4 4.2-4.2a1 1 0 0 1 1.4 0z"/></svg>
           {{ t('update.downloadedTo') }} <code>{{ installedPath }}</code>
-          <button class="btn btn-sm" @click="openInstaller(installedPath)">{{ t('update.openInstaller') }}</button>
+          <button class="btn btn-sm" @click="installDownloaded()">{{ t('update.openInstaller') }}</button>
         </div>
+        <p v-else-if="canInAppInstall() && isAndroidApp" class="install-tip">{{ t('update.installTipAndroid') }}</p>
         <p v-else-if="canInAppInstall()" class="install-tip">
           {{ t('update.installTipMain') }}{{ settings.httpProxy ? t('update.installTipProxied') : t('update.installTipNoProxy') }}{{ t('update.installTipEnd') }}
         </p>

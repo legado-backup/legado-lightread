@@ -21,7 +21,9 @@ GitHub Release 公开后，自动把同一版本的全部安装包同步到 GitC
 
   具体规则：
   - **只采用带 `SHA256SUMS` 的 GitCode 版本**。仍然比较版本号，按平台挑选安装包，下载地址统一拼成 `https://gitcode.com/langgpt/LightRead/releases/download/<tag>/<文件名>`。
-  - **应用内下载**：8 秒内连不上，或下载中途 15 秒没有新数据，就换下一个源。
+  - **应用内下载**：8 秒内连不上，或下载中途 15 秒没有新数据，就换下一个源。国内常见 GitHub「连得上但只有几十 KB/s」，所以第一次 GitHub 下载开始 10 秒后平均速度不到 256 KB/s 也换 GitCode（之后的 GitCode 和耐心重试不限速度）。最近一次检查更新只能靠 GitCode 完成时，下载和校验清单都先走 GitCode。
+  - **安卓应用**：不再跳到浏览器，在应用里下载 APK。下载由 Rust 流式写入应用缓存 `cache/updates/`（`src-tauri/src/app_update.rs`），同样按上面的顺序换源、按 `SHA256SUMS` 校验；校验通过才改名为 `.apk`，再由 `MainActivity` 的 `window.LightReadUpdater` 经 FileProvider 拉起系统安装器。没开「安装未知应用」时提示「需要允许轻阅安装应用」并给「去开启」，从设置页回来（30 分钟内）自动接着安装。清单里的 `REQUEST_INSTALL_PACKAGES` 由 `scripts/patch-android-project.mjs` 在 `tauri android init` 之后补上（CI 的「写入 MainActivity」一步会运行它）。已装上的安装包在下次启动时删除。
+  - **网页版**（手机浏览器 / PWA）：点安装包链接时先打开空白页，再用 3.5 秒探测 GitHub；连得上就用 GitHub，慢或不通就打开 GitCode 上的同一个文件。
   - **校验**：从 GitCode 下载的文件必须通过 `SHA256SUMS` 校验，优先用 GitHub 上的清单，取不到时才用 GitCode 上的；取不到清单就拒绝安装。从 GitHub 直接下载时，能取到清单就校验，取不到就照旧安装。
   - 如果最近一次检查更新只能靠 GitCode 完成，「发布页」「下载」链接会改为打开 GitCode。
 

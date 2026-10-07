@@ -836,35 +836,63 @@ test('打字声合成兜底: 每个音色都能生成, 结果确定、无 NaN、
   assert.equal(synthHit('pen', 44100, seeded(3)).length, Math.round(44100 * 0.1))
 })
 
-// ---- 自动翻页 / 滚动速度档位 (services/autoReadSpeed.ts) ----
-import { AUTO_SPEED_LEVELS, autoSpeedIndex, stepAutoSpeed, autoSpeedKey } from '../src/services/autoReadSpeed.ts'
+// ---- 自动翻页 / 滚动速度: 1–100 档 (services/autoReadSpeed.ts) ----
+import { AUTO_SPEED_LEVELS, AUTO_SPEED_STEPS, autoSpeedKey, stepAutoSpeed, speedPosition, secondsAtPosition } from '../src/services/autoReadSpeed.ts'
 
-test('自动速度: 五档从慢到快, 默认 15 秒为「适中」', () => {
-  assert.deepEqual(AUTO_SPEED_LEVELS.map(l => l.level), ['verySlow', 'slow', 'medium', 'fast', 'veryFast'])
+test('自动速度: 100 档, 刻度从极慢到极快, 默认 15 秒落在正中间「适中」', () => {
+  assert.equal(AUTO_SPEED_STEPS, 100)
+  assert.deepEqual(AUTO_SPEED_LEVELS.map(l => l.level), ['slowest', 'verySlow', 'slow', 'medium', 'fast', 'veryFast', 'fastest'])
+  assert.equal(AUTO_SPEED_LEVELS[0].position, 1)
+  assert.equal(AUTO_SPEED_LEVELS.at(-1).position, 100)
   for (let i = 1; i < AUTO_SPEED_LEVELS.length; i++) assert.ok(AUTO_SPEED_LEVELS[i].seconds < AUTO_SPEED_LEVELS[i - 1].seconds)
+  assert.ok(AUTO_SPEED_LEVELS[0].seconds >= 5 * 60, '极慢比旧版「很慢」(30 秒) 慢得多')
+  assert.ok(AUTO_SPEED_LEVELS.at(-1).seconds <= 3, '极快留足余地')
+  assert.equal(speedPosition(15), 50)
   assert.equal(autoSpeedKey(15), 'reader.speedMedium')
 })
 
-test('自动速度: 旧的任意秒数显示为最接近的一档, 快慢一档按档位走且到头不动', () => {
-  assert.equal(autoSpeedKey(60), 'reader.speedVerySlow')
-  assert.equal(autoSpeedKey(3), 'reader.speedVeryFast')
-  assert.equal(autoSpeedKey(12), 'reader.speedFast')
-  assert.equal(autoSpeedIndex(25), 0, '与很慢 / 慢等距时取较慢的一档')
-  assert.equal(stepAutoSpeed(15, 1), 10)
-  assert.equal(stepAutoSpeed(15, -1), 20)
-  assert.equal(stepAutoSpeed(6, 1), 6)
-  assert.equal(stepAutoSpeed(30, -1), 30)
-  assert.equal(stepAutoSpeed(12, -1), 15, '旧值 12 (≈快) 慢一档到适中')
+test('自动速度: 每一档都比上一档快, 档位与秒数往返稳定', () => {
+  let prev = Infinity
+  for (let p = 1; p <= 100; p++) {
+    const s = secondsAtPosition(p)
+    assert.ok(s < prev, `第 ${p} 档应比第 ${p - 1} 档快`)
+    prev = s
+    assert.equal(speedPosition(s), p, `往返 ${p}`)
+  }
+  assert.equal(secondsAtPosition(0), secondsAtPosition(1))
+  assert.equal(secondsAtPosition(500), secondsAtPosition(100))
 })
 
-import { speedPosition, secondsAtPosition } from '../src/services/autoReadSpeed.ts'
-test('自动速度滑动条: 位置与秒数互换, 档位处取整档, 两档之间平滑', () => {
-  assert.equal(secondsAtPosition(0), 30)
-  assert.equal(secondsAtPosition(2), 15)
-  assert.equal(secondsAtPosition(4), 6)
-  const mid = secondsAtPosition(2.5)
-  assert.ok(mid < 15 && mid > 10, `适中与快之间: ${mid}`)
-  for (const s of [30, 24, 15, 12.3, 10, 7, 6]) assert.ok(Math.abs(secondsAtPosition(speedPosition(s)) - s) < 0.15, `往返 ${s}`)
-  assert.equal(speedPosition(60), 0)
-  assert.equal(speedPosition(3), 4)
+test('自动速度: 旧秒数落到最近档位, 快慢一点每次 5 档且到头不动', () => {
+  assert.equal(autoSpeedKey(40), 'reader.speedSlow')
+  assert.equal(autoSpeedKey(600), 'reader.speedSlowest')
+  assert.equal(autoSpeedKey(2), 'reader.speedFastest')
+  assert.equal(speedPosition(stepAutoSpeed(15, 1)), 55)
+  assert.equal(speedPosition(stepAutoSpeed(15, -1)), 45)
+  assert.equal(stepAutoSpeed(3, 1), 3)
+  assert.equal(stepAutoSpeed(300, -1), 300)
+})
+
+// ---- 按词着色 = 点睛阅读基础版 (开关与版本见 services/dianjing/level.ts, 面板见 DianjingToggle.vue) ----
+import zhDict from '../src/i18n/zh.ts'
+import enDict from '../src/i18n/en.ts'
+
+test('点睛阅读两个版本的文案: 中英都有; 界面里不再出现旧名、实验分组和「读不快」之类的说明', () => {
+  for (const key of ['dianjing.title', 'dianjing.subtitle', 'dianjing.levelBasic', 'dianjing.levelSmart', 'dianjing.basicDesc',
+    'dianjing.basicNote', 'dianjing.smartDesc', 'dianjing.useBasic', 'dianjing.basicUnsupported', 'readingMode.guideStrength', 'readingMode.guideColor']) {
+    assert.ok(zhDict[key], `zh missing ${key}`)
+    assert.ok(enDict[key], `en missing ${key}`)
+  }
+  assert.equal(zhDict['dianjing.subtitle'], '让重点自己浮出来')
+  assert.equal(zhDict['dianjing.levelBasic'], '基础')
+  assert.equal(zhDict['dianjing.levelSmart'], '智能')
+  for (const key of ['readingMode.groupLab', 'readingMode.lab', 'readingMode.modeWordGuide', 'readingMode.wordGuideHint', 'readingMode.wordGuideBlocked']) {
+    assert.ok(!(key in zhDict) && !(key in enDict), `${key} 应已删除`)
+  }
+  const zhText = Object.values(zhDict).join('\n')
+  const enText = Object.values(enDict).join('\n')
+  for (const w of ['仿生', '分明阅读', '词彩', '读得更快', '拿不准']) assert.ok(!zhText.includes(w), `zh 界面文案不应出现「${w}」`)
+  for (const w of ['Bionic', 'Clear Words', 'Word guide']) assert.ok(!enText.includes(w), `en 界面文案不应出现「${w}」`)
+  const panel = readFileSync(new URL('../src/components/ReadingModePanel.vue', import.meta.url), 'utf8')
+  assert.doesNotMatch(panel, /wordGuide\.enabled|setWordGuide|groupLab/, '阅读模式面板里不再有单独的按词着色开关')
 })

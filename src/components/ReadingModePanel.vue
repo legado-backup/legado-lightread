@@ -1,14 +1,11 @@
 <script setup lang="ts">
-import { AUTO_SPEED_LEVELS, speedPosition, secondsAtPosition } from '../services/autoReadSpeed'
+import { AUTO_SPEED_LEVELS, AUTO_SPEED_STEPS, speedPosition, secondsAtPosition } from '../services/autoReadSpeed'
 import LevelSlider from './LevelSlider.vue'
-import { GUIDE_COLORS, WORD_GUIDE_MIN, WORD_GUIDE_STOPS, guideAccent, guideIntensity } from '../services/readingModes/wordGuideIntensity'
-import { READER_THEMES, resolveReaderTheme } from '../services/readerTheme'
-import { resolvedTheme } from '../services/appearance'
 /**
  * 「阅读模式」面板 (docs/reader-panels.md §3.2): 书页怎么动、怎么带你读。桌面为顶栏下的浮层卡片, 手机为底部抽屉
  * (遮罩由 ReaderView 的 sheet-scrim 提供)。自上而下:
- *   #top 插槽 (点睛阅读开关) → 运行进度 → 场景 (夜读 / 护眼 / 墨水屏 / 大字 / 沉浸)
- *   → 带读 [自动翻页 | 打字机 | 歌词 | 听书] (同一时间只运行一个) → 实验 (仿生阅读)。
+ *   #top 插槽 (点睛阅读: 总开关 + 基础 / 智能, 见 DianjingToggle) → 运行进度 → 场景 (夜读 / 护眼 / 墨水屏 / 大字 / 沉浸)
+ *   → 带读 [自动翻页 | 打字机 | 歌词 | 听书] (同一时间只运行一个)。
  * 场景是开关卡片: 一键套用一组「排版」里的值 (记快照, 关闭写回), 自己不保存也不提供这些值的控件;
  * 点卡片角上的 ⓘ 展开「会调整什么」、场景自己的选项 (定时、休息提醒、大 / 特大…) 和「在排版里微调」。
  * 自动翻页沿用 ReaderView 的实现 (props/emits), 容器保留 .auto-panel 类名供 e2e 使用。
@@ -49,8 +46,6 @@ const emit = defineEmits<{
 }>()
 
 const settings = useSettings()
-/** 色块按当前正文主题显示实际颜色 (夜间用亮色) */
-const swatchTheme = computed(() => resolveReaderTheme(settings.reader.theme, resolvedTheme.value === 'dark'))
 const tw = computed(() => settings.readingMode.typewriter)
 const ly = computed(() => settings.readingMode.lyric)
 const eye = computed(() => settings.readingMode.eyeCare)
@@ -394,10 +389,11 @@ function onSpeedInput(e: Event) {
           <span class="rm-label">{{ t('reader.speed') }}</span>
           <LevelSlider
             :model-value="speedPosition(autoReadSeconds)"
-            :min="0"
-            :max="AUTO_SPEED_LEVELS.length - 1"
-            :step="0.05"
-            :stops="AUTO_SPEED_LEVELS.map((l, i) => ({ value: i, label: t(l.key) }))"
+            :min="1"
+            :max="AUTO_SPEED_STEPS"
+            :step="1"
+            :stops="AUTO_SPEED_LEVELS.map(l => ({ value: l.position, label: t(l.key) }))"
+            :value-text="String(speedPosition(autoReadSeconds))"
             :label="t('reader.speed')"
             @update:model-value="emit('update:autoReadSeconds', secondsAtPosition($event))"
           />
@@ -695,119 +691,10 @@ function onSpeedInput(e: Event) {
       <p class="rm-hint">{{ t('readingMode.guideExclusive') }}</p>
     </section>
 
-    <!-- 实验: 仿生阅读 -->
-    <section class="rm-group" :aria-label="t('readingMode.groupLab')">
-      <h3 class="rm-group-title">{{ t('readingMode.groupLab') }}</h3>
-      <label class="rm-toggle">
-        <span class="rm-lab-name">
-          {{ t('readingMode.modeWordGuide') }}
-          <span class="rm-badge">{{ t('readingMode.lab') }}</span>
-        </span>
-        <span class="rm-switch">
-          <input
-            type="checkbox"
-            role="switch"
-            :checked="settings.readingMode.wordGuide.enabled"
-            :aria-checked="settings.readingMode.wordGuide.enabled"
-            :disabled="!supported || !modes.wordGuideSupported.value"
-            @change="modes.setWordGuide(($event.target as HTMLInputElement).checked)"
-          />
-          <span class="rm-switch-track" aria-hidden="true"></span>
-        </span>
-      </label>
-      <p class="rm-hint">{{ t('readingMode.wordGuideHint') }}</p>
-      <p v-if="modes.wordGuideBlocked.value" class="rm-note" role="note">{{ t('readingMode.wordGuideBlocked') }}</p>
-      <p v-else-if="!modes.wordGuideSupported.value" class="rm-note" role="note">{{ t('readingMode.wordGuideUnsupported') }}</p>
-      <div v-if="settings.readingMode.wordGuide.enabled" class="rm-row">
-        <span class="rm-label">{{ t('readingMode.guideStrength') }}</span>
-        <LevelSlider
-          :model-value="guideIntensity(settings.readingMode.wordGuide)"
-          :min="WORD_GUIDE_MIN"
-          :max="1"
-          :step="0.01"
-          :stops="WORD_GUIDE_STOPS.map(s => ({ value: s.value, label: t(s.key) }))"
-          :label="t('readingMode.guideStrength')"
-          @update:model-value="settings.readingMode.wordGuide.intensity = $event"
-        />
-      </div>
-      <div v-if="settings.readingMode.wordGuide.enabled" class="rm-row">
-        <span class="rm-label">{{ t('readingMode.guideColor') }}</span>
-        <div class="rm-swatches" role="radiogroup" :aria-label="t('readingMode.guideColor')">
-          <button
-            v-for="c in GUIDE_COLORS"
-            :key="c.id"
-            type="button"
-            role="radio"
-            class="rm-swatch"
-            :class="{ active: (settings.readingMode.wordGuide.color ?? 'teal') === c.id }"
-            :aria-checked="(settings.readingMode.wordGuide.color ?? 'teal') === c.id"
-            :title="t(c.key)"
-            :aria-label="t(c.key)"
-            :style="{ '--sw': guideAccent(c.id, swatchTheme), '--swbg': READER_THEMES[swatchTheme].bg }"
-            @click="settings.readingMode.wordGuide.color = c.id"
-          >
-            <span class="rm-swatch-dot" aria-hidden="true">文</span>
-            <span class="rm-swatch-name">{{ t(c.key) }}</span>
-          </button>
-        </div>
-      </div>
-    </section>
   </section>
 </template>
 
 <style scoped>
-/* 仿生阅读配色: 色块里的「文」字用当前正文主题下的实际颜色 */
-.rm-swatches {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.rm-swatch {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--text-3);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.rm-swatch-dot {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--swbg, var(--card));
-  color: var(--sw);
-  font-size: 16px;
-  font-weight: 600;
-  transition: box-shadow var(--dur) var(--ease);
-}
-.rm-swatch.active {
-  color: var(--text);
-  font-weight: 600;
-}
-.rm-swatch.active .rm-swatch-dot {
-  border-color: var(--sw);
-  box-shadow: 0 0 0 2px var(--sw);
-}
-.rm-swatch:focus-visible {
-  outline: none;
-}
-.rm-swatch:focus-visible .rm-swatch-dot {
-  box-shadow: var(--ring);
-}
-@media (hover: none) {
-  .rm-swatch-dot {
-    width: 40px;
-    height: 40px;
-  }
-}
 .rm-sound {
   display: flex;
   flex-direction: column;
@@ -1386,19 +1273,6 @@ function onSpeedInput(e: Event) {
   height: 6px;
   border-radius: 50%;
   background: var(--success);
-}
-.rm-lab-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.rm-badge {
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-  background: var(--warning-soft);
-  color: var(--warning);
-  font-size: 11px;
-  font-weight: 600;
 }
 @media (pointer: coarse) {
   .rm-card-info {

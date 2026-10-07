@@ -14,6 +14,8 @@ const props = defineProps<{
   stops: Array<{ value: number; label: string }>
   /** 无障碍名称 (读屏读出「速度：适中」) */
   label: string
+  /** 滑动条右侧显示的当前值 (如第几档); 不传则不显示 */
+  valueText?: string
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: number] }>()
 
@@ -44,9 +46,10 @@ function onInput(e: Event) {
       :step="step ?? 0.01"
       :value="modelValue"
       :aria-label="label"
-      :aria-valuetext="stops[nearest].label"
+      :aria-valuetext="valueText ? `${valueText} · ${stops[nearest].label}` : stops[nearest].label"
       @input="onInput"
     />
+    <span v-if="valueText" class="ls-value" aria-hidden="true">{{ valueText }}</span>
     <div class="ls-stops">
       <button
         v-for="(s, i) in stops"
@@ -71,6 +74,21 @@ function onInput(e: Event) {
   flex: 1;
   min-width: 0;
   padding: 0 14px;
+}
+.level-slider:has(.ls-value) {
+  padding-right: 44px;
+}
+.ls-value {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 36px;
+  line-height: 22px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
 }
 .ls-range {
   display: block;

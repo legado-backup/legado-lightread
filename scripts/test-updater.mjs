@@ -3,13 +3,21 @@ import { registerHooks } from 'node:module'
 import { after, beforeEach, test } from 'node:test'
 import { createHash } from 'node:crypto'
 
-const state = { calls: [], fetcher: null, storage: new Map(), native: true, opened: [], written: [] }
+const state = {
+  calls: [], fetcher: null, storage: new Map(), native: true, opened: [], written: [],
+  invokes: [], invoker: null, toasts: [], proxy: '',
+}
 globalThis.__updaterTest = state
 globalThis.__APP_VERSION__ = '1.3.0'
 const updaterUrl = new URL('../src/services/updater.ts', import.meta.url).href
 const modules = {
   '../storage/types': 'export const isTauri = () => globalThis.__updaterTest.native',
-  './net': 'export const fetchRemote = (...args) => { globalThis.__updaterTest.calls.push(args); return globalThis.__updaterTest.fetcher(...args) }',
+  './net': 'export const fetchRemote = (...args) => { globalThis.__updaterTest.calls.push(args); return globalThis.__updaterTest.fetcher(...args) }; export const remoteProxy = () => globalThis.__updaterTest.proxy',
+  './toast': 'export const toast = (...args) => { globalThis.__updaterTest.toasts.push(args) }',
+  '@tauri-apps/api/core': [
+    'export class Channel { onmessage = () => {} }',
+    'export const invoke = async (cmd, args) => { const s = globalThis.__updaterTest; s.invokes.push([cmd, args]); return s.invoker(cmd, args) }',
+  ].join('; '),
   '../i18n': 'export const t = key => key',
   '@tauri-apps/plugin-opener': 'export const openUrl = async url => { globalThis.__updaterTest.opened.push(url) }',
   '@tauri-apps/api/path': 'export const downloadDir = async () => "/dl"; export const join = async (...parts) => parts.join("/")',
@@ -26,7 +34,8 @@ const hook = registerHooks({
 const {
   checkUpdate, pickRecommendedDownload, watchUpdateAvailability, canInAppInstall, openDownload, downloadInstaller,
   mirrorDownloadUrl, parseReleaseDownloadUrl, mirrorLinkFor, downloadPlan, parseSha256Sums, parseMirrorReleases,
-  githubUnreachable, SOURCE_TIMEOUTS, RELEASES_URL, MIRROR_RELEASES_URL,
+  githubUnreachable, SOURCE_TIMEOUTS, RELEASES_URL, MIRROR_RELEASES_URL, WEB_PROBE_MS,
+  openInstaller, resumePendingInstall, installPermissionGranted, installWithPrompt, downloadErrorMessage,
 } = await import(updaterUrl)
 // 更新器在下载/打开链接时才动态导入 Tauri 插件, 钩子需保留到测试结束 (只拦截 updater.ts 的导入)。
 after(() => hook.deregister())
@@ -49,6 +58,11 @@ beforeEach(() => {
   state.calls.length = 0
   state.opened.length = 0
   state.written.length = 0
+  state.invokes.length = 0
+  state.toasts.length = 0
+  state.invoker = null
+  state.proxy = ''
+  delete globalThis.LightReadUpdater
   state.storage.clear()
   state.native = true
   state.fetcher = async () => ({ json: async () => release() })
@@ -56,6 +70,7 @@ beforeEach(() => {
   globalThis.localStorage = {
     getItem: key => state.storage.get(key) ?? null,
     setItem: (key, value) => state.storage.set(key, value),
+    removeItem: key => state.storage.delete(key),
   }
   globalThis.document = Object.assign(new EventTarget(), { visibilityState: 'visible' })
   globalThis.window = new EventTarget()
@@ -413,4 +428,210 @@ test('a GitHub download that stops making progress switches to the mirror', asyn
   assert.equal(path, '/dl/app.dmg')
   assert.equal(cancelled, true)
   assert.deepEqual([...state.written[0].data], [...bytes])
+})
+
+// ---- 安卓应用内下载安装 / 网页版选源 ----
+
+const APK = 'LightRead_v1.4.0_android_arm64.apk'
+const ANDROID_SHA = 'a'.repeat(64)
+const fakeBridge = ({ allowed = true, status } = {}) => {
+  const bridge = {
+    allowed, installs: [], settingsOpened: 0,
+    canInstall() { return this.allowed },
+    openInstallPermission() { this.settingsOpened++ },
+    install(name) { this.installs.push(name); return status ?? (this.allowed ? 'ok' : 'permission') },
+  }
+  globalThis.LightReadUpdater = bridge
+  return bridge
+}
+const nativeDownloads = ({ fail = [], sha256 = ANDROID_SHA } = {}) => async (cmd, args) => {
+  if (cmd === 'update_download') {
+    if (fail.some(re => re.test(args.url))) throw 'timeout: 连接超时'
+    args.onProgress.onmessage({ received: 50, total: 100 })
+    args.onProgress.onmessage({ received: 100, total: 100 })
+    return { sha256, size: 100 }
+  }
+  if (cmd === 'update_finish') return args.accept ? `/cache/updates/${args.fileName}` : null
+  throw new Error(`unexpected command ${cmd}`)
+}
+const downloadsOf = () => state.invokes.filter(([cmd]) => cmd === 'update_download').map(([, a]) => a)
+const finishesOf = () => state.invokes.filter(([cmd]) => cmd === 'update_finish').map(([, a]) => a.accept)
+
+test('in-app install is offered on desktop and in the Android app, but not in phone browsers', () => {
+  assert.equal(canInAppInstall(), false) // Android UA, 没有安装桥 (旧壳)
+  fakeBridge()
+  assert.equal(canInAppInstall(), true)
+  state.native = false
+  assert.equal(canInAppInstall(), false)
+  state.native = true
+  delete globalThis.LightReadUpdater
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' } })
+  assert.equal(canInAppInstall(), true)
+})
+
+test('Android downloads natively, falls back to GitCode, verifies SHA256SUMS, then opens the installer', async () => {
+  const bridge = fakeBridge()
+  state.proxy = 'socks5://127.0.0.1:1080'
+  state.invoker = nativeDownloads({ fail: [/^https:\/\/github\.com\//] })
+  state.fetcher = route([
+    [/^https:\/\/github\.com\/.*\/SHA256SUMS$/, async () => { throw new Error('github down') }],
+    [/^https:\/\/gitcode\.com\/.*\/SHA256SUMS$/, async () => text(`${ANDROID_SHA}  ${APK}\n`)],
+  ])
+  const progress = []
+  const path = await downloadInstaller(`${GH_DL}/v1.4.0/${APK}`, APK, p => progress.push(p))
+  assert.equal(path, `/cache/updates/${APK}`)
+  assert.deepEqual(downloadsOf().map(a => [a.url, a.connectMs, a.stallMs, a.fileName, a.proxy]), [
+    [`${GH_DL}/v1.4.0/${APK}`, 8_000, 15_000, APK, 'socks5://127.0.0.1:1080'],
+    [`${GC_DL}/v1.4.0/${APK}`, 15_000, 30_000, APK, 'socks5://127.0.0.1:1080'],
+  ])
+  // 只有第一次 GitHub 尝试带「起步太慢」规则
+  assert.deepEqual(downloadsOf().map(a => [a.minRate, a.rateWindowMs]), [[256 * 1024, 10_000], [null, null]])
+  assert.deepEqual(finishesOf(), [true])
+  // 安装包本身不经过 WebView 的 fetch, 只取校验清单
+  assert.ok(state.calls.every(c => c[0].endsWith('/SHA256SUMS')))
+  assert.equal(state.written.length, 0)
+  assert.equal(progress.at(-1).fraction, 1)
+  assert.equal(await openInstaller(path), 'opened')
+  assert.deepEqual(bridge.installs, [APK])
+})
+
+test('Android refuses to install a download that does not match SHA256SUMS', async t => {
+  t.mock.method(console, 'warn', () => {})
+  fakeBridge()
+  state.invoker = nativeDownloads({ sha256: 'b'.repeat(64) })
+  state.fetcher = route([[/SHA256SUMS$/, async () => text(`${'f'.repeat(64)}  ${APK}\n`)]])
+  const error = await downloadInstaller(`${GH_DL}/v1.4.0/${APK}`, APK, () => {}).catch(e => e)
+  assert.match(error.message, /update\.checksumMismatch/)
+  assert.equal(downloadErrorMessage(error), 'update.checksumMismatch')
+  // 校验失败: 删除下载, 不换源重试
+  assert.equal(downloadsOf().length, 1)
+  assert.deepEqual(finishesOf(), [false])
+
+  // 镜像下载拿不到校验值也不安装
+  state.invokes.length = 0
+  state.invoker = nativeDownloads()
+  state.fetcher = route([[/SHA256SUMS$/, async () => { throw new Error('404') }]])
+  await assert.rejects(downloadInstaller(`${GC_DL}/v1.4.0/${APK}`, APK, () => {}), /update\.checksumUnavailable/)
+  assert.deepEqual(finishesOf(), [false])
+  // 其他错误给统一的人话提示
+  assert.equal(downloadErrorMessage(new Error('network: dns')), 'update.downloadFailed')
+})
+
+test('after GitHub was unreachable, downloads and checksums go to GitCode first', async () => {
+  state.storage.set('lightread-update-source', JSON.stringify({ source: 'gitcode', at: Date.now() }))
+  assert.equal(githubUnreachable(), true)
+  assert.deepEqual(downloadPlan(`${GH_DL}/v1.8.0/app.apk`).map(step => [step.source, step.url]), [
+    ['gitcode', `${GC_DL}/v1.8.0/app.apk`],
+    ['github', `${GH_DL}/v1.8.0/app.apk`],
+  ])
+  fakeBridge()
+  state.invoker = nativeDownloads()
+  state.fetcher = route([[/^https:\/\/gitcode\.com\/.*\/SHA256SUMS$/, async () => text(`${ANDROID_SHA}  ${APK}\n`)]])
+  await downloadInstaller(`${GH_DL}/v1.4.0/${APK}`, APK, () => {})
+  assert.deepEqual(downloadsOf().map(a => a.url), [`${GC_DL}/v1.4.0/${APK}`])
+  assert.deepEqual(state.calls.map(c => c[0]), [`${GC_DL}/v1.4.0/SHA256SUMS`])
+})
+
+test('without install permission the user is sent to settings and the install resumes on return', async () => {
+  const bridge = fakeBridge({ allowed: false })
+  const path = `/cache/updates/${APK}`
+  await installWithPrompt(path)
+  assert.equal(installPermissionGranted(), false)
+  const [message, type, , action] = state.toasts.at(-1)
+  assert.equal(message, 'update.needInstallPermission')
+  assert.equal(type, 'info')
+  assert.equal(action.label, 'update.allowInstall')
+  action.run()
+  assert.equal(bridge.settingsOpened, 1)
+
+  // 回来时还没开: 不打扰
+  assert.equal(resumePendingInstall(), false)
+  bridge.allowed = true
+  assert.equal(resumePendingInstall(), true)
+  assert.deepEqual(bridge.installs, [APK, APK])
+  // 只接着装一次
+  assert.equal(resumePendingInstall(), false)
+
+  // 太久以前的待安装记录不再自动打开
+  bridge.allowed = false
+  assert.equal(await openInstaller(path), 'needs-permission')
+  const record = JSON.parse(state.storage.get('lightread-update-pending-install'))
+  state.storage.set('lightread-update-pending-install', JSON.stringify({ ...record, at: Date.now() - 31 * 60_000 }))
+  bridge.allowed = true
+  assert.equal(resumePendingInstall(), false)
+  assert.equal(state.storage.has('lightread-update-pending-install'), false)
+})
+
+test('a vanished download asks for a fresh download', async () => {
+  fakeBridge({ status: 'missing' })
+  await assert.rejects(openInstaller(`/cache/updates/${APK}`), /update\.installerMissing/)
+})
+
+test('phone browsers open GitHub when it answers quickly, otherwise the GitCode mirror', async t => {
+  state.native = false
+  const opens = []
+  const popup = { opener: {}, location: { href: '' } }
+  window.open = (...args) => { opens.push(args); return args[0] === '' ? popup : null }
+  const link = `${GH_DL}/v1.4.0/${APK}`
+
+  globalThis.fetch = async (url, init) => { assert.equal(init.mode, 'no-cors'); return {} }
+  await openDownload(link)
+  assert.equal(popup.location.href, link)
+  assert.equal(popup.opener, null)
+  assert.deepEqual(opens[0], ['', '_blank'])
+
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let probeSignal
+  globalThis.fetch = (_url, init) => {
+    probeSignal = init.signal
+    return new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new Error('aborted'))))
+  }
+  const slow = openDownload(link)
+  await settled()
+  t.mock.timers.tick(WEB_PROBE_MS)
+  await slow
+  assert.equal(probeSignal.aborted, true)
+  assert.equal(popup.location.href, `${GC_DL}/v1.4.0/${APK}`)
+
+  // 已知 GitHub 不通: 不再探测, 直接开镜像; 非安装包链接原样打开
+  opens.length = 0
+  let probes = 0
+  globalThis.fetch = async () => { probes++; return {} }
+  await openDownload(RELEASES_URL)
+  state.storage.set('lightread-update-source', JSON.stringify({ source: 'gitcode', at: Date.now() }))
+  await openDownload(link)
+  assert.equal(probes, 0)
+  assert.deepEqual(opens, [[RELEASES_URL, '_blank', 'noopener'], [`${GC_DL}/v1.4.0/${APK}`, '_blank', 'noopener']])
+})
+
+test('Android project patch adds the install permission once and keeps the cache shareable', async () => {
+  const { patchManifest, patchFilePaths } = await import('./patch-android-project.mjs')
+  const provider = `<provider android:name="androidx.core.content.FileProvider" android:authorities="\${applicationId}.fileprovider" android:exported="false" android:grantUriPermissions="true" />`
+  const manifest = `<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <uses-permission android:name="android.permission.INTERNET" />\n    <application>${provider}</application>\n</manifest>\n`
+  const patched = patchManifest(manifest)
+  assert.match(patched, /INTERNET" \/>\n    <uses-permission android:name="android\.permission\.REQUEST_INSTALL_PACKAGES" \/>/)
+  assert.equal(patchManifest(patched), patched)
+  assert.throws(() => patchManifest(manifest.replace(provider, '')), /FileProvider/)
+
+  const tauriPaths = '<paths xmlns:android="http://schemas.android.com/apk/res/android">\n  <external-path name="my_images" path="." />\n  <cache-path name="my_cache_images" path="." />\n</paths>'
+  assert.equal(patchFilePaths(tauriPaths), tauriPaths)
+  const noCache = '<paths>\n  <external-path name="x" path="." />\n</paths>'
+  assert.match(patchFilePaths(noCache), /<cache-path name="lightread_updates" path="updates\/" \/>\n<\/paths>/)
+})
+
+test('a GitHub download that starts too slowly switches to the mirror', async t => {
+  let now = 1_800_000_000_000
+  t.mock.method(Date, 'now', () => (now += 4_000))
+  const bytes = new TextEncoder().encode('mirror-bytes')
+  state.fetcher = route([
+    [/SHA256SUMS$/, async () => text(`${sha(bytes)}  app.dmg\n`)],
+    [/^https:\/\/github\.com\//, async () => new Response(new ReadableStream({
+      pull(controller) { controller.enqueue(new Uint8Array(10)) },
+    }), { headers: { 'content-length': String(70 * 1048576) } })],
+    [/^https:\/\/gitcode\.com\//, async () => binary(bytes)],
+  ])
+  const path = await downloadInstaller(`${GH_DL}/v1.4.0/app.dmg`, 'app.dmg', () => {})
+  assert.equal(path, '/dl/app.dmg')
+  assert.deepEqual([...state.written[0].data], [...bytes])
+  assert.deepEqual(state.calls.map(c => c[0]).slice(0, 2), [`${GH_DL}/v1.4.0/app.dmg`, `${GC_DL}/v1.4.0/app.dmg`])
 })

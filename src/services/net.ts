@@ -53,6 +53,11 @@ export interface RemoteRequestInit {
   raw?: boolean
 }
 
+/** 设置页「网络」里配置的代理 (桌面 / 安卓应用的原生请求使用); 未配置为空串 */
+export function remoteProxy(): string {
+  return useSettings().httpProxy.trim()
+}
+
 export async function fetchRemote(
   url: string,
   auth?: RequestAuth,
@@ -69,7 +74,7 @@ export async function fetchRemote(
   let res: Response
   if (isTauri()) {
     const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http')
-    const proxyUrl = useSettings().httpProxy.trim()
+    const proxyUrl = remoteProxy()
     res = await tauriFetch(url, {
       method: init.method ?? 'GET',
       body: init.body,

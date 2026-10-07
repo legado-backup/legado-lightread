@@ -37,8 +37,8 @@ const MAX_WORD = 8
 /** 歧义不上色的默认阈值 (调研 §5.1) */
 export const UNSURE_MARGIN = 2
 
-// 汉字串 / 西文词 / 数字 / 空白 / 标点符号 / 其他单个字符
-const RUN_RE = /(\p{Script=Han}+)|([\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}][\p{L}\p{M}'’-]*)|(\p{N}+(?:[.,:]\p{N}+)*%?)|(\s+)|([\p{P}\p{S}]+)|([\s\S])/gu
+// 汉字串 / 西文词 / 数字 / 空白 / 标点符号 / 其他单个字符 (西文词只续接西文字母, 「阿Q的名字」不会把「的名字」并进西文词)
+const RUN_RE = /(\p{Script=Han}+)|([\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}][\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}\p{M}'’-]*)|(\p{N}+(?:[.,:]\p{N}+)*%?)|(\s+)|([\p{P}\p{S}]+)|([\s\S])/gu
 const KINDS: SegKind[] = ['han', 'latin', 'num', 'space', 'punct', 'other']
 const PURE_HAN_RE = /^\p{Script=Han}+$/u
 

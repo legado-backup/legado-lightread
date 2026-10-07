@@ -74,7 +74,7 @@ InfiniCLOUD 每个账号的 WebDAV 节点不同（`https://<节点>.teracloud.jp
 
 | 归类 | 设置 |
 |---|---|
-| 同步 | `language`、`appearance`；`reader.*`（字号、行距、页边距、主题、排版方式、栏数、字体名、两端对齐、字距、进度显示）；`pdf.*`；`githubBookRepos`；`autoReadSeconds`；`ttsRate`、`edgeVoice`、`localVoiceId`；`aiProvider`、`aiBaseUrl`、`aiModel`；`webdavUrl`、`webdavUser`、`webdavProvider`；`dailyGoalMinutes`；`dianjing` 的 `enabled`、`consentAll`、`density`、`kinds`、`channel`、`chapterCard`；`readingMode` 的 `typewriter.*`、`lyric.*`、`wordGuide.*`、`immersive.*`、`eyeCare.*`、`night.*`；`ambient.*` |
+| 同步 | `language`、`appearance`；`reader.*`（字号、行距、页边距、主题、排版方式、栏数、字体名、两端对齐、字距、进度显示）；`pdf.*`；`githubBookRepos`；`autoReadSeconds`；`ttsRate`、`edgeVoice`、`localVoiceId`；`aiProvider`、`aiBaseUrl`、`aiModel`；`webdavUrl`、`webdavUser`、`webdavProvider`；`dailyGoalMinutes`；`dianjing` 的 `level`（点睛阅读选的版本）、`enabled`、`consentAll`、`density`、`kinds`、`channel`、`chapterCard`；`readingMode` 的 `typewriter.*`、`lyric.*`、`wordGuide.*`、`immersive.*`、`eyeCare.*`、`night.*`；`ambient.*` |
 | 密钥（仅 `syncSecrets`） | `webdavPass`、`aiApiKey` |
 | 只属于本机 | `version`；`customFonts`（字体文件在本机）；`libraryRoot`、`calibrePath`（本机路径）；`httpProxy`、`corsProxy`（网络环境）；`paperAgentEngine`、`paperAgentExecutables`（本机安装的引擎）；`ttsEngine`（本地离线音色要下载模型，网页没有）、`ttsVoice`（系统音色因系统而异）；`usageStats`（关掉的设备不会被别处打开）；`syncSettings`、`syncSecrets`；`webdavSyncAuto`、`webdavSyncFiles`（自动同步、是否传书籍文件按设备）；`dianjing.perBook`、`dianjing.fiction`（键是本机书 id）；`readingMode.presets`、`readingMode.largeText`、`readingMode.eink`（预设开关与快照） |
 

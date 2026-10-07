@@ -1,4 +1,5 @@
 mod agent;
+mod app_update;
 mod babeldoc;
 mod calibre;
 mod edge_tts;
@@ -159,6 +160,8 @@ pub fn run() {
       edge_tts::edge_tts_synthesize,
       fonts::list_system_fonts,
       http_upload::http_upload,
+      app_update::update_download,
+      app_update::update_finish,
       calibre::calibre_list_books,
       calibre::calibre_read_file,
       local_tts::local_tts_status,

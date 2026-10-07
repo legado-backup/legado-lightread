@@ -29,3 +29,13 @@ test('每天: 打开应用一次, 第一次打开书再一次', () => {
   assert.equal(needsPing('2026-10-05:reader', '2026-10-05', true), false)
   assert.equal(needsPing('2026-10-05:reader', '2026-10-05', false), false)
 })
+
+import { isTestEnvironment } from '../src/services/usageStatsCore.ts'
+test('自动化测试与本机预览不上报, App 内 (tauri.localhost) 照常', () => {
+  assert.equal(isTestEnvironment({ webdriver: true }, 'lightread.example', false), true)
+  assert.equal(isTestEnvironment({}, 'localhost', false), true)
+  assert.equal(isTestEnvironment({}, '127.0.0.1', false), true)
+  assert.equal(isTestEnvironment({}, 'tauri.localhost', true), false)
+  assert.equal(isTestEnvironment({}, 'localhost', true), false, 'macOS App 的 tauri://localhost')
+  assert.equal(isTestEnvironment({ webdriver: false }, 'lightread.ethereal-ai.workers.dev', false), false)
+})

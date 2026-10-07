@@ -19,7 +19,7 @@
  *     … view.addAnnotation(...); if (withNote) 打开想法编辑
  *   },
  *   openAi: prompt => { panel.value = 'ai'; void sendAi(prompt) },   // 概念卡「展开」
- *   onExclusive: () => { … },                                  // 可选: 开启时暂停仿生阅读 (互斥, §5)
+ *   basic: { isOn, set, supported },                           // 基础版 (按词着色) 的开关, 见下文「两个版本」
  *   beforeOverlay: closeOverlays,                              // 弹卡 / 面板前收起其他浮层
  * })
  * ```
@@ -49,7 +49,9 @@
  *    - 听书: 读每句前 `dj.isKeyPosition(sectionIndex, cursor.pos.block, cursor.pos.sentence)` → 停顿 300ms、语速 -8%;
  *      章首先读要义: `dj.chapterGist(sectionIndex)` (文本或 null)。编号与 SentenceCursor 一致。
  *    - 歌词: 聚焦行停在要句上时停留 × 1.3: `dj.isKeySentence(lineRange)`。
- *    - 仿生阅读: 与点睛互斥 (§5), 主会话在 dj.active 变为 true 时暂停仿生阅读并提示。
+ *    - 两个版本 (services/dianjing/level.ts): 基础版 = 按词着色 (绘制在 useReadingModes, 只在选了基础版时画);
+ *      智能版 = 本文件的 AI 引擎 (`enabled` / `active` 只在选了智能版时为 true)。所有入口 (面板开关、D 键)
+ *      都走 `toggle()` / `setLevel()` / `switchToBasic()`, 按读者上次选的版本开关。
  *    - 注意: readingModes/revealLayer.clearReadingModeMarks() 会删除所有 `lr-` 开头的 Highlight (含 lr-dj-*);
  *      点睛在每次 relocate / 绘制时会自动重新登记, 但建议把该函数的前缀收窄为 `lr-tw-`。
  */
@@ -64,6 +66,7 @@ import { djColors } from '../services/dianjing/theme'
 import { selectKeys, selectTerms, type Density, type KeyItem, type TermItem } from '../services/dianjing/protocol'
 import type { ChunkRecord } from '../services/dianjing/cache'
 import { getDjCache } from '../services/dianjing/cache'
+import { applyDjAction, normalizeLevel, smartOnFor, type DjAction, type DjLevel, type DjSwitchState } from '../services/dianjing/level'
 
 export interface DjMeta {
   title?: string
@@ -89,6 +92,13 @@ export interface UseDianjingOptions {
   beforeOverlay?: () => void
   /** 跳到一句 (CFI): 宿主按阅读焦点放置 (滚动模式落在屏幕 38% 处); 不给则用 view.goTo */
   goToText?: (cfi: string) => Promise<unknown>
+  /** 基础版 (按词着色, 不联网): 开关与是否可用; 由阅读模式实现绘制 */
+  basic?: {
+    isOn: () => boolean
+    set: (on: boolean) => void
+    /** 当前系统能画按词着色 (旧 WebView 不能) */
+    supported: () => boolean
+  }
 }
 
 export interface DjCardState {
@@ -197,13 +207,14 @@ export function useDianjing(opts: UseDianjingOptions) {
     onChange: bump,
   })
 
-  /** 本书是否开启 */
-  const enabled = computed(() => {
-    const p = prefs.value
-    const per = p.perBook[opts.bookId]
-    return per ?? (p.consentAll && p.enabled)
-  })
-  const hasConsent = computed(() => prefs.value.consentAll || opts.bookId in prefs.value.perBook)
+  /** 选的版本: 基础 (按词着色) / 智能 (AI) */
+  const level = computed<DjLevel>(() => normalizeLevel(prefs.value.level))
+  /** 智能版在本书开着 (只在选了智能版时为 true; AI 引擎随它启停) */
+  const enabled = computed(() => level.value === 'smart' && smartOnFor(prefs.value, opts.bookId))
+  const basicOn = computed(() => level.value === 'basic' && !!opts.basic?.isOn())
+  /** 点睛阅读开着 (按所选版本) */
+  const on = computed(() => basicOn.value || enabled.value)
+  const basicSupported = computed(() => opts.basic?.supported() ?? true)
 
   const status = computed<DjStatus>(() => {
     void tick.value
@@ -238,33 +249,55 @@ export function useDianjing(opts: UseDianjingOptions) {
     bump()
   }
 
-  /** 开关: 未同意时弹同意说明 */
+  /** 走一步开关状态机 (services/dianjing/level.ts), 把变化写回设置; 返回 false 表示先弹了同意说明 */
+  function apply(action: DjAction): boolean {
+    const p = prefs.value
+    const before: DjSwitchState = {
+      level: level.value,
+      basicOn: !!opts.basic?.isOn(),
+      perBook: p.perBook,
+      consentAll: p.consentAll,
+      enabled: p.enabled,
+    }
+    const { state, needConsent } = applyDjAction(before, opts.bookId, action)
+    if (needConsent) {
+      opts.beforeOverlay?.()
+      consentOpen.value = true
+      return false
+    }
+    if (state.basicOn !== before.basicOn) opts.basic?.set(state.basicOn)
+    if (state.consentAll !== p.consentAll) settings.dianjing.consentAll = state.consentAll
+    if (state.enabled !== p.enabled) settings.dianjing.enabled = state.enabled
+    if (state.perBook[opts.bookId] !== p.perBook[opts.bookId]) settings.dianjing.perBook = state.perBook
+    if (state.level !== p.level) settings.dianjing.level = state.level
+    return true
+  }
+
+  /** 总开关 (面板开关、D 键): 按上次选的版本开 / 关; 智能版未同意时弹同意说明 */
   function toggle() {
     refreshSupport()
     if (!supported.value) {
       toast(t('dianjing.unsupported'), 'error')
       return
     }
-    if (enabled.value) {
-      settings.dianjing.perBook = { ...prefs.value.perBook, [opts.bookId]: false }
-      return
-    }
-    if (!hasConsent.value) {
-      opts.beforeOverlay?.()
-      consentOpen.value = true
-      return
-    }
-    settings.dianjing.perBook = { ...prefs.value.perBook, [opts.bookId]: true }
+    apply({ kind: 'toggle' })
   }
 
-  /** 同意: 仅本书 / 所有书 */
+  /** 选版本 (面板里的「基础 / 智能」): 开着时把「开」带到新版本 (智能版未同意时先弹同意说明, 期间基础版照常开着) */
+  function setLevel(next: DjLevel) {
+    apply({ kind: 'setLevel', level: next })
+  }
+
+  /** 「先用基础版」: 智能版用不了 (额度 / 配置 / 离线) 或不想联网时, 一步换成基础版并开着 */
+  function switchToBasic() {
+    consentOpen.value = false
+    apply({ kind: 'switchToBasic' })
+  }
+
+  /** 同意 (智能版): 仅本书 / 所有书 */
   function consent(scope: 'book' | 'all') {
     consentOpen.value = false
-    if (scope === 'all') {
-      settings.dianjing.consentAll = true
-      settings.dianjing.enabled = true
-    }
-    settings.dianjing.perBook = { ...prefs.value.perBook, [opts.bookId]: true }
+    apply({ kind: 'consent', scope })
   }
 
   function cancelConsent() { consentOpen.value = false }
@@ -599,7 +632,12 @@ export function useDianjing(opts: UseDianjingOptions) {
     const el = e.target as HTMLElement | null
     if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName ?? ''))) return false
     if ((e.key === 'd' || e.key === 'D') && !e.shiftKey) {
+      const was = on.value
       toggle()
+      // 键盘开关没有可见的按钮反馈: 说一声开的是哪个版本 (弹出同意说明时不提示)
+      if (on.value !== was) {
+        toast(on.value ? t('dianjing.turnedOn', { level: t(level.value === 'smart' ? 'dianjing.levelSmartName' : 'dianjing.levelBasicName') }) : t('dianjing.turnedOff'))
+      }
       e.preventDefault()
       return true
     }
@@ -648,6 +686,10 @@ export function useDianjing(opts: UseDianjingOptions) {
   return {
     engine,
     // 状态
+    level,
+    on,
+    basicOn,
+    basicSupported,
     enabled,
     active,
     supported,
@@ -670,6 +712,8 @@ export function useDianjing(opts: UseDianjingOptions) {
     overlayOpen,
     // 开关
     toggle,
+    setLevel,
+    switchToBasic,
     consent,
     cancelConsent,
     setFiction,

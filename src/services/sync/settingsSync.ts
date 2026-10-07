@@ -94,6 +94,8 @@ export const SETTINGS_SYNC_SPEC: SettingsSpec = {
   webdavSyncFiles: LOCAL,
   dailyGoalMinutes: SYNC,
   dianjing: {
+    /** 点睛阅读选的版本 (基础 / 智能) */
+    level: SYNC,
     enabled: SYNC,
     consentAll: SYNC,
     /** 键是本机书 id, 各设备不同 */

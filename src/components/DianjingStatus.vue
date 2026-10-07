@@ -26,6 +26,8 @@ const message = computed(() => {
   return t('dianjing.statusLoading', { pct: Math.round(props.dj.progress.value * 100) })
 })
 const canFix = computed(() => status.value === 'quota' || ['config', 'auth'].includes(props.dj.errorCode.value ?? ''))
+/** 智能版眼下用不了: 一步换成点睛阅读基础版 (不联网) */
+const offerBasic = computed(() => canFix.value || status.value === 'offline')
 </script>
 
 <template>
@@ -46,7 +48,10 @@ const canFix = computed(() => status.value === 'quota' || ['config', 'auth'].inc
     </button>
     <div v-if="open" class="dj-pop" role="status">
       <p>{{ message }}</p>
-      <button v-if="canFix" type="button" class="btn btn-sm btn-primary" @click="open = false; emit('open-settings')">{{ t('dianjing.openSettings') }}</button>
+      <div v-if="canFix || offerBasic" class="dj-pop-actions">
+        <button v-if="canFix" type="button" class="btn btn-sm btn-primary" @click="open = false; emit('open-settings')">{{ t('dianjing.openSettings') }}</button>
+        <button v-if="offerBasic" type="button" class="btn btn-sm" @click="open = false; dj.switchToBasic()">{{ t('dianjing.useBasic') }}</button>
+      </div>
     </div>
   </div>
 </template>
@@ -100,5 +105,10 @@ const canFix = computed(() => status.value === 'quota' || ['config', 'auth'].inc
   font-size: 13px;
   color: var(--text);
   line-height: 1.5;
+}
+.dj-pop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 </style>

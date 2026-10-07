@@ -24,6 +24,7 @@ import { decideFiction, fictionFromMeta, fictionFromText } from '../src/services
 import { bookRange, cacheKey, createMemoryCache, feedbackKey, sectionKey } from '../src/services/dianjing/cache.ts'
 import { dianjingCSS, djColors, djThemeName, DJ_PRIORITY } from '../src/services/dianjing/theme.ts'
 import { splitSentences } from '../src/services/readAloud.ts'
+import { applyDjAction, dianjingOn, effectiveLevels, migrateLevel, normalizeLevel, smartOnFor } from '../src/services/dianjing/level.ts'
 import { CHAT_MODEL, LEGACY_MODELS, quotaDay, rateLimited, sseToNdjson } from '../relay/src/lib.js'
 
 const sentences = (text, lang = 'zh') => splitSentences(text, lang).map(s => text.slice(s.start, s.end))
@@ -329,4 +330,103 @@ test('主题取值: 四种正文主题 + 墨水屏; 样式只用颜色与 text-d
   assert.doesNotMatch(dianjingCSS('eink'), /background-color: rgba/)
   // 优先级低于打字机隐藏层 (100) 与墨迹 (50)
   assert.ok(Math.max(...Object.values(DJ_PRIORITY)) < 20)
+})
+
+// ---- 两个版本: 基础 (按词分色, 不联网) / 智能 (AI) ----
+
+const sw = (over = {}) => ({ level: 'basic', basicOn: false, perBook: {}, consentAll: false, enabled: false, ...over })
+const isOnFor = (st, book) => dianjingOn({ level: st.level, basicOn: st.basicOn, smartOn: smartOnFor(st, book) })
+
+test('版本: 未知值归为基础版; 同一时间至多一个版本生效', () => {
+  assert.equal(normalizeLevel(undefined), 'basic')
+  assert.equal(normalizeLevel('bionic'), 'basic')
+  assert.equal(normalizeLevel('smart'), 'smart')
+  assert.deepEqual(effectiveLevels({ level: 'basic', basicOn: true, smartOn: true }), { basic: true, smart: false })
+  assert.deepEqual(effectiveLevels({ level: 'smart', basicOn: true, smartOn: true }), { basic: false, smart: true })
+  assert.deepEqual(effectiveLevels({ level: 'smart', basicOn: true, smartOn: false }), { basic: false, smart: false })
+  assert.equal(smartOnFor({ consentAll: true, enabled: true, perBook: { a: false } }, 'a'), false)
+  assert.equal(smartOnFor({ consentAll: true, enabled: true, perBook: {} }, 'b'), true)
+  assert.equal(smartOnFor({ consentAll: false, enabled: true, perBook: {} }, 'b'), false)
+})
+
+test('迁移 (v14): 在用按词着色 → 开着 + 基础版; 点睛对所有书开着 → 智能版; 两者都开 → 智能版; 新用户 → 关 + 基础版', () => {
+  assert.deepEqual(migrateLevel({}), { level: 'basic', wordGuideEnabled: false })
+  assert.deepEqual(migrateLevel({ readingMode: { wordGuide: { enabled: true } } }), { level: 'basic', wordGuideEnabled: true })
+  assert.deepEqual(migrateLevel({ dianjing: { consentAll: true, enabled: true, perBook: {} } }), { level: 'smart', wordGuideEnabled: false })
+  assert.deepEqual(
+    migrateLevel({ dianjing: { consentAll: true, enabled: true }, readingMode: { wordGuide: { enabled: true } } }),
+    { level: 'smart', wordGuideEnabled: false },
+  )
+  // 只给个别书开过点睛: 智能版 (那几本书照旧); 同时开着按词着色也是智能版 (两者都用 → 智能)
+  assert.deepEqual(migrateLevel({ dianjing: { perBook: { a: true } } }), { level: 'smart', wordGuideEnabled: false })
+  assert.deepEqual(migrateLevel({ dianjing: { perBook: { a: true } }, readingMode: { wordGuide: { enabled: true } } }), { level: 'smart', wordGuideEnabled: false })
+  // 同意过但都关了: 仍是新用户的默认
+  assert.deepEqual(migrateLevel({ dianjing: { consentAll: true, enabled: false, perBook: { a: false } } }), { level: 'basic', wordGuideEnabled: false })
+  assert.deepEqual(migrateLevel({ dianjing: 'garbage' }), { level: 'basic', wordGuideEnabled: false })
+})
+
+test('总开关: 默认基础版一步打开、不需要同意; 再按一次关掉', () => {
+  let r = applyDjAction(sw(), 'a', { kind: 'toggle' })
+  assert.equal(r.needConsent, false)
+  assert.equal(r.state.basicOn, true)
+  assert.ok(isOnFor(r.state, 'a'))
+  r = applyDjAction(r.state, 'a', { kind: 'toggle' })
+  assert.equal(r.state.basicOn, false)
+  assert.ok(!isOnFor(r.state, 'a'))
+})
+
+test('总开关: 上次选了智能版 → 按智能版开; 本书没同意过时先弹同意说明, 状态不变', () => {
+  const s = sw({ level: 'smart' })
+  let r = applyDjAction(s, 'a', { kind: 'toggle' })
+  assert.equal(r.needConsent, true)
+  assert.equal(r.state, s)
+  r = applyDjAction(s, 'a', { kind: 'consent', scope: 'book' })
+  assert.equal(r.state.level, 'smart')
+  assert.equal(r.state.perBook.a, true)
+  assert.ok(isOnFor(r.state, 'a'))
+  assert.ok(!isOnFor(r.state, 'b'), '仅本书: 别的书不开')
+  // 关掉后再开不用再同意
+  r = applyDjAction(r.state, 'a', { kind: 'toggle' })
+  assert.equal(r.state.perBook.a, false)
+  r = applyDjAction(r.state, 'a', { kind: 'toggle' })
+  assert.equal(r.needConsent, false)
+  assert.ok(isOnFor(r.state, 'a'))
+})
+
+test('选版本: 开着时把「开」带到新版本; 关着时只记住选择', () => {
+  // 基础开着 → 智能 (已同意): 基础关、智能开
+  let r = applyDjAction(sw({ basicOn: true, perBook: { a: false } }), 'a', { kind: 'setLevel', level: 'smart' })
+  assert.deepEqual([r.state.level, r.state.basicOn, r.state.perBook.a], ['smart', false, true])
+  // 智能开着 → 基础: 智能本书关、基础开
+  r = applyDjAction(r.state, 'a', { kind: 'setLevel', level: 'basic' })
+  assert.deepEqual([r.state.level, r.state.basicOn, r.state.perBook.a], ['basic', true, false])
+  assert.ok(isOnFor(r.state, 'a'))
+  // 基础开着 → 智能 (没同意过): 先弹同意说明, 基础版继续开着
+  const s = sw({ basicOn: true })
+  r = applyDjAction(s, 'b', { kind: 'setLevel', level: 'smart' })
+  assert.equal(r.needConsent, true)
+  assert.equal(r.state.basicOn, true)
+  assert.equal(r.state.level, 'basic')
+  // 关着: 只改版本, 不打开
+  r = applyDjAction(sw(), 'a', { kind: 'setLevel', level: 'smart' })
+  assert.deepEqual([r.needConsent, r.state.level, isOnFor(r.state, 'a')], [false, 'smart', false])
+})
+
+test('先用基础版: 智能版用不了或不想联网时一步换成基础版并开着; 同意说明里点它不算同意', () => {
+  let r = applyDjAction(sw({ level: 'smart', perBook: { a: true } }), 'a', { kind: 'switchToBasic' })
+  assert.deepEqual([r.state.level, r.state.basicOn, r.state.perBook.a], ['basic', true, false])
+  r = applyDjAction(sw({ level: 'smart' }), 'b', { kind: 'switchToBasic' })
+  assert.deepEqual([r.state.level, r.state.basicOn], ['basic', true])
+  assert.ok(!('b' in r.state.perBook), '没有记成已同意')
+})
+
+test('同意「所有书开启」: 智能版对其他书也开着; 在某本书换回基础版只影响这本书的智能版', () => {
+  let r = applyDjAction(sw({ level: 'smart' }), 'a', { kind: 'consent', scope: 'all' })
+  assert.ok(r.state.consentAll && r.state.enabled)
+  assert.ok(isOnFor(r.state, 'b'))
+  r = applyDjAction(r.state, 'a', { kind: 'setLevel', level: 'basic' })
+  assert.ok(isOnFor(r.state, 'a') && r.state.level === 'basic')
+  // 基础版是全局的: 其他书也是基础版开着
+  assert.ok(isOnFor(r.state, 'b'))
+  assert.deepEqual(effectiveLevels({ level: r.state.level, basicOn: r.state.basicOn, smartOn: smartOnFor(r.state, 'b') }), { basic: true, smart: false })
 })

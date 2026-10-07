@@ -183,6 +183,28 @@ export interface SmartTocResult {
   flat: Array<{ label: string; href: string }>
 }
 
+const OPS_NS = 'http://www.idpf.org/2007/ops'
+
+/**
+ * 扉页 / 封面页 (epub:type="titlepage" | "cover", 或 class="titlepage"): 上面的书名不是章节,
+ * 扫进来会让目录第一项指向扉页, 甚至顶替书里自带的正确目录
+ */
+export function isTitleOrCoverPage(doc: Document): boolean {
+  const body = doc.body ?? doc.documentElement
+  if (!body) return false
+  const typed = (el: Element | null) => {
+    if (!el) return false
+    const type = el.getAttributeNS?.(OPS_NS, 'type') || el.getAttribute?.('epub:type') || ''
+    return /(^|\s)(titlepage|cover|halftitlepage)(\s|$)/.test(type) || el.classList?.contains('titlepage')
+  }
+  if (typed(body)) return true
+  // 只看最外几层: 扉页通常是 body > section.titlepage
+  for (const el of Array.from(body.children).slice(0, 3)) {
+    if (typed(el)) return true
+  }
+  return false
+}
+
 /**
  * 为已 open 的 foliate-view 生成智能目录. 无法识别 (少于 2 项) 时返回空.
  * 固定版式 / 漫画等无 createDocument 的分节直接跳过.
@@ -201,7 +223,7 @@ export async function buildSmartToc(view: any): Promise<SmartTocResult> {
     } catch {
       continue
     }
-    if (!doc) continue
+    if (!doc || isTitleOrCoverPage(doc)) continue
     for (const line of collectLines(doc)) lines.push({ ...line, section: index })
     // 让出主线程, 大书扫描不阻塞翻页
     if (index % 8 === 7) await new Promise(r => setTimeout(r, 0))

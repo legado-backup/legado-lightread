@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { AUTO_SPEED_LEVELS, speedPosition, secondsAtPosition } from '../services/autoReadSpeed'
+import { AUTO_SPEED_LEVELS, AUTO_SPEED_STEPS, speedPosition, secondsAtPosition } from '../services/autoReadSpeed'
 import LevelSlider from '../components/LevelSlider.vue'
+import { TTS_RATE_MAX, TTS_RATE_MIN, TTS_RATE_STOPS, rateText } from '../services/ttsRate'
 import { pingUsage } from '../services/usageStats'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -4582,8 +4583,15 @@ onBeforeUnmount(() => {
       </div>
       <div class="tts-row">
         <label>{{ t('tts.rate') }}</label>
-        <input v-model.number="settings.ttsRate" type="range" min="0.5" max="2" step="0.1" />
-        <span class="tts-value">{{ settings.ttsRate.toFixed(1) }}x</span>
+        <LevelSlider
+          v-model="settings.ttsRate"
+          :min="TTS_RATE_MIN"
+          :max="TTS_RATE_MAX"
+          :step="0.05"
+          :stops="TTS_RATE_STOPS.map(v => ({ value: v, label: v === 1 ? t('tts.rateNormal') : rateText(v) }))"
+          :label="t('tts.rate')"
+        />
+        <span class="tts-value">{{ rateText(settings.ttsRate) }}</span>
       </div>
       <div v-if="edgeAvailable()" class="tts-row">
         <label>{{ t('tts.engine') }}</label>
@@ -4638,10 +4646,11 @@ onBeforeUnmount(() => {
         <LevelSlider
           class="auto-speed-slider"
           :model-value="speedPosition(settings.autoReadSeconds)"
-          :min="0"
-          :max="AUTO_SPEED_LEVELS.length - 1"
-          :step="0.05"
-          :stops="AUTO_SPEED_LEVELS.map((l, i) => ({ value: i, label: t(l.key) }))"
+          :min="1"
+          :max="AUTO_SPEED_STEPS"
+          :step="1"
+          :stops="AUTO_SPEED_LEVELS.map(l => ({ value: l.position, label: t(l.key) }))"
+          :value-text="String(speedPosition(settings.autoReadSeconds))"
           :label="t('reader.speed')"
           @update:model-value="settings.autoReadSeconds = secondsAtPosition($event)"
         />

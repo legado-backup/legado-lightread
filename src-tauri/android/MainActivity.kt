@@ -6,14 +6,27 @@ package com.yzfly.lightread
 // window.LightReadInsets 交给前端 src/services/systemBars.ts; 前端再按页面实际深浅
 // 回调 setBarsDark 切换状态栏 / 导航栏图标颜色。
 
+//
+// 应用内更新 (window.LightReadUpdater, 前端 src/services/updater.ts): Rust 把校验过的安装包
+// 放在 cacheDir/updates/<name>.apk, 这里用 FileProvider (tauri init 自带, cache-path) 交给
+// 系统安装器。没开「安装未知应用」时由前端引导到该设置页, 回来后再调 install。
+// 清单需要 REQUEST_INSTALL_PACKAGES, 由 scripts/patch-android-project.mjs 在 init 后补上。
+
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
+import java.io.File
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -25,10 +38,12 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    Thread { cleanInstalledUpdates() }.start()
   }
 
   override fun onWebViewCreate(webView: WebView) {
     webView.addJavascriptInterface(InsetsBridge(), "LightReadInsets")
+    webView.addJavascriptInterface(UpdaterBridge(), "LightReadUpdater")
 
     ViewCompat.setOnApplyWindowInsetsListener(webView) { view, insets ->
       val bars = insets.getInsets(
@@ -89,6 +104,91 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface
     fun setBarsDark(dark: Boolean) {
       runOnUiThread { applyBarsDark(dark) }
+    }
+  }
+
+  // ---- 应用内更新 ----
+
+  private fun updatesDir() = File(cacheDir, "updates")
+
+  /** Android 8+ 需要用户为本应用打开「安装未知应用」 */
+  private fun canInstallPackages(): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()
+
+  @Suppress("DEPRECATION")
+  private fun installedVersionCode(): Long =
+    androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(packageManager.getPackageInfo(packageName, 0))
+
+  /** 删掉已经装上 (或比当前旧) 的安装包, 以及一天前的半截下载 */
+  @Suppress("DEPRECATION")
+  private fun cleanInstalledUpdates() {
+    try {
+      val files = updatesDir().listFiles() ?: return
+      val current = installedVersionCode()
+      val dayAgo = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+      for (file in files) {
+        val stale = if (file.name.endsWith(".apk")) {
+          val info = packageManager.getPackageArchiveInfo(file.path, 0)
+          info == null || info.packageName != packageName ||
+            androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(info) <= current
+        } else {
+          file.lastModified() < dayAgo
+        }
+        if (stale) file.delete()
+      }
+    } catch (e: Exception) {
+      // 清理失败不影响启动
+    }
+  }
+
+  private inner class UpdaterBridge {
+    @JavascriptInterface
+    fun canInstall(): Boolean = canInstallPackages()
+
+    /** 打开本应用的「安装未知应用」开关页; 个别系统没有该页时退到应用详情 */
+    @JavascriptInterface
+    fun openInstallPermission() {
+      runOnUiThread {
+        val pkg = Uri.parse("package:$packageName")
+        try {
+          if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) throw ActivityNotFoundException()
+          startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, pkg))
+        } catch (e: Exception) {
+          try {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg))
+          } catch (e: Exception) {
+            // 没有可用的设置页
+          }
+        }
+      }
+    }
+
+    /**
+     * 打开系统安装器安装 cacheDir/updates/<name> (只接受校验后的 .apk)。
+     * 返回 ok / permission (需先开启安装权限) / missing (文件不在) / error
+     */
+    @JavascriptInterface
+    fun install(name: String): String {
+      if (!Regex("^[A-Za-z0-9_+-][A-Za-z0-9._+-]*\\.apk$").matches(name)) return "error"
+      val file = File(updatesDir(), name)
+      if (!file.isFile) return "missing"
+      if (!canInstallPackages()) return "permission"
+      return try {
+        val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", file)
+        val intent = Intent(Intent.ACTION_VIEW)
+          .setDataAndType(uri, "application/vnd.android.package-archive")
+          .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        runOnUiThread {
+          try {
+            startActivity(intent)
+          } catch (e: Exception) {
+            // 极少见: 系统没有安装器; 用户可在设置页复制链接用浏览器下载
+          }
+        }
+        "ok"
+      } catch (e: Exception) {
+        "error"
+      }
     }
   }
 }

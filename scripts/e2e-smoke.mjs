@@ -152,7 +152,7 @@ await step('新建书单并加入单本书籍', async () => {
 await step('书单支持移除、批量加入与持久化', async () => {
   await page.getByRole('button', { name: '管理', exact: true }).click()
   await page.locator('.book-card:has-text("测试小说")').click()
-  await page.getByRole('button', { name: '从书单移除', exact: true }).click()
+  await page.getByRole('button', { name: '从书单移出', exact: true }).click()
   await page.waitForSelector('text=这个书单还是空的')
 
   await page.getByRole('button', { name: /全部藏书/ }).click()
@@ -430,7 +430,7 @@ await step('PDF 渲染引擎可切换为 PDFium', async () => {
 })
 
 await step('PDF 已移除流式阅读入口', async () => {
-  if (await page.getByRole('button', { name: '流式', exact: true }).count()) {
+  if (await page.getByRole('button', { name: '重排', exact: true }).count()) {
     throw new Error('仍显示流式阅读入口')
   }
   await page.waitForSelector('.p-holder canvas', { timeout: 10000 })
@@ -488,7 +488,7 @@ await step('PDF 标准打开快捷键导入同类藏书并重建阅读器', asyn
   await page.locator('.document-back').click()
   await page.waitForTimeout(800)
   if (!page.url().endsWith('#/library')) throw new Error(`失效导入抢占了后续导航: ${page.url()}`)
-  if (await page.locator('.toast.error:has-text("无法打开 PDF")').count()) {
+  if (await page.locator('.toast.error:has-text("PDF 打不开")').count()) {
     throw new Error('阅读器失效后仍显示 PDF 打开失败提示')
   }
   if (await page.locator('.book-card:has-text("stale-open")').count()) {
@@ -508,7 +508,7 @@ await step('PDF 标准打开快捷键导入同类藏书并重建阅读器', asyn
   await page.keyboard.press(`${primaryKey}+o`)
   const corruptChooser = await corruptChooserPromise
   await corruptChooser.setFiles(corruptPdfPath)
-  await page.waitForSelector('.toast.error:has-text("无法打开 PDF")')
+  await page.waitForSelector('.toast.error:has-text("PDF 打不开")')
   if (page.url() !== previousUrl) throw new Error('选择损坏 PDF 后阅读器发生跳转')
 
   const chooserPromise = page.waitForEvent('filechooser')

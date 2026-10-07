@@ -25,6 +25,7 @@ import { useReadingTimer } from '../composables/useReadingTimer'
 import { usePortraitView } from '../composables/usePortraitView'
 import { effectiveReaderLayout, portraitSpacing } from '../services/portraitLayout'
 import { autoSpeedKey, stepAutoSpeed } from '../services/autoReadSpeed'
+import { TTS_RATE_MAX, TTS_RATE_MIN, TTS_RATE_STOPS, rateText } from '../services/ttsRate'
 import { toast } from '../services/toast'
 import { t } from '../i18n'
 import { searchBook, type SearchHit } from '../services/bookSearch'
@@ -1734,13 +1735,8 @@ watch(() => [settings.ttsEngine, settings.ttsRate, settings.edgeVoice, settings.
 })
 
 /** 语速显示: 1.0× / 1.25× / 0.75× (用乘号, 不用字母 x) */
-function rateText(rate: number): string {
-  const r = Math.round(rate * 100) / 100
-  return `${Number.isInteger(r * 10) ? r.toFixed(1) : r.toFixed(2)}×`
-}
 /** 语速档位: 1.0× 标「正常」; 其余两档之间可以拖 (步长 0.05) */
-const RATE_STOPS = [0.75, 1, 1.25, 1.5, 2]
-const rateStops = computed(() => RATE_STOPS.map(v => ({ value: v, label: v === 1 ? t('tts.rateNormal') : rateText(v) })))
+const rateStops = computed(() => TTS_RATE_STOPS.map(v => ({ value: v, label: v === 1 ? t('tts.rateNormal') : rateText(v) })))
 
 // ---- 定时关闭: 15 / 30 分钟、1 小时, 或听完本章 ----
 // 到点前 3 秒开始淡出, 到点停在暂停 (不是停止, 进度和断点都在), Toast 可一键「再听 15 分钟」。
@@ -2554,8 +2550,6 @@ const modes = useReadingModes({
   onReminder: () => stopAutoRead(),
   // 跟听书的歌词: 点了另一行 → 听书从那一句读
   onLyricSeek: range => { void startTTS({ range }) },
-  isDianjingActive: () => !!lateDj.value?.active.value,
-  onWordGuideEnabled: () => { if (lateDj.value?.active.value) lateDj.value.toggle() },
 })
 lateModes.value = modes
 
@@ -2595,6 +2589,12 @@ const dj = useDianjing({
     void sendAi(prompt)
   },
   beforeOverlay: closeOverlays,
+  // 点睛阅读基础版 = 按词着色 (绘制在阅读模式里)
+  basic: {
+    isOn: () => settings.readingMode.wordGuide.enabled,
+    set: on => modes.setWordGuide(on),
+    supported: () => modes.supported.value && modes.wordGuideSupported.value,
+  },
 })
 lateDj.value = dj
 
@@ -3229,7 +3229,7 @@ onBeforeUnmount(() => {
 
       <div class="tts-row tts-rate-row">
         <label>{{ t('tts.rate') }}</label>
-        <LevelSlider v-model="settings.ttsRate" :min="0.5" :max="2" :step="0.05" :stops="rateStops" :label="t('tts.rate')" />
+        <LevelSlider v-model="settings.ttsRate" :min="TTS_RATE_MIN" :max="TTS_RATE_MAX" :step="0.05" :stops="rateStops" :label="t('tts.rate')" />
         <span class="tts-value">{{ rateText(settings.ttsRate) }}</span>
       </div>
       <div class="tts-row tts-row-stacked">

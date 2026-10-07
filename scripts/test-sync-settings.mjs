@@ -43,12 +43,20 @@ test('每个默认设置都已归类 (sync / secret / local), 归类表没有多
   ]) assert.ok(LOCAL_SETTING_PATHS.includes(p), `${p} 应只属于本机`)
   for (const p of ['reader.theme', 'reader.fontSize', 'appearance', 'language', 'webdavUrl', 'webdavUser',
     'webdavProvider', 'aiProvider', 'aiBaseUrl', 'aiModel', 'readingMode.typewriter.cpm', 'ambient.layers',
-    'features.recommendedBooklists', 'features.transfer']) {
+    'features.recommendedBooklists', 'features.transfer', 'dianjing.level', 'readingMode.wordGuide.enabled',
+    'readingMode.wordGuide.intensity', 'readingMode.wordGuide.color']) {
     assert.ok(ALL_SYNC_PATHS.includes(p), `${p} 应同步`)
   }
   const values = readSyncedSettings(settingsDefaults())
   assert.deepEqual(Object.keys(values).sort(), [...ALL_SYNC_PATHS])
   assert.ok(!('libraryRoot' in values) && !('reader' in values))
+})
+
+test('点睛阅读: 版本 (基础 / 智能) 默认基础版并随同步, 按书开关只属于本机', () => {
+  assert.equal(settingsDefaults().dianjing.level, 'basic')
+  assert.equal(settingsDefaults().readingMode.wordGuide.enabled, false)
+  assert.equal(SETTINGS_SYNC_SPEC.dianjing.level, 'sync')
+  assert.equal(SETTINGS_SYNC_SPEC.dianjing.perBook, 'local')
 })
 
 test('可选功能 (书单推荐 / 互传) 默认关闭, 作为使用偏好随同步', () => {
@@ -255,6 +263,7 @@ test('两台设备经 WebDAV: 主题 / 字号 / WebDAV 地址同步过去, 设�
   A.settings.libraryRoot = '/home/a/books'
   A.settings.readingMode.typewriter.cpm = 500
   A.settings.dianjing.perBook = { 'local-id': true }
+  A.settings.dianjing.level = 'smart'
   B.settings.libraryRoot = '/sdcard/books'
 
   await sync(A, dav.remote())
@@ -273,7 +282,8 @@ test('两台设备经 WebDAV: 主题 / 字号 / WebDAV 地址同步过去, 设�
   assert.equal(B.settings.webdavPass, '')
   assert.equal(B.settings.libraryRoot, '/sdcard/books')
   assert.deepEqual(B.settings.dianjing.perBook, {})
-  assert.equal(r.settingsApplied, 6)
+  assert.equal(B.settings.dianjing.level, 'smart', '点睛阅读选的版本随同步')
+  assert.equal(r.settingsApplied, 7)
 
   // 不打架: 双方再同步, 没有新的落地, 文档里的寄存器与来源一致
   assert.equal((await sync(B, dav.remote())).settingsApplied, 0)
