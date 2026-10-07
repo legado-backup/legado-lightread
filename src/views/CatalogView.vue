@@ -143,6 +143,16 @@ function openBookWebsite(url: string) {
 }
 const uniSearching = ref(false)
 const uniSearched = ref(false)
+
+/** 每组结果先显示前几条, 其余点「展开全部」; 新的搜索重新收起 */
+const UNI_PREVIEW = 6
+const expandedGroups = reactive(new Set<string>())
+const shownOf = <T>(key: string, list: T[], cap = Infinity): T[] =>
+  list.slice(0, expandedGroups.has(key) ? cap : UNI_PREVIEW)
+function toggleGroup(key: string) {
+  if (expandedGroups.has(key)) expandedGroups.delete(key)
+  else expandedGroups.add(key)
+}
 const uniErrors = ref<string[]>([])
 const uniGithub = ref<GithubBookHit[]>([])
 const uniGutenberg = ref<OpdsPublication[]>([])
@@ -158,6 +168,15 @@ const UNI_SOURCES: UniSource[] = ['philosophy', 'archive', 'github', 'gutenberg'
 const uniStatus = reactive<Record<UniSource, 'idle' | 'loading' | 'done' | 'error'>>({
   philosophy: 'idle', archive: 'idle', github: 'idle', gutenberg: 'idle', openlibrary: 'idle', arxiv: 'idle',
 })
+/** 搜索范围里的公开来源 (顺序即显示顺序) */
+const publicScopeChips = computed(() => ([
+  { key: 'philosophy', name: t('catalog.philosophy'), title: t('catalog.philosophyHint') },
+  { key: 'gutenberg', name: t('catalog.gutenberg') },
+  { key: 'archive', name: 'Internet Archive' },
+  { key: 'arxiv', name: 'arXiv' },
+  { key: 'openlibrary', name: 'Open Library' },
+  { key: 'github', name: 'GitHub' },
+] as Array<{ key: UniSource; name: string; title?: string }>))
 const uniSourceName = (key: UniSource) => ({
   philosophy: t('catalog.philosophy'), archive: 'Internet Archive', github: 'GitHub',
   gutenberg: t('catalog.gutenberg'), openlibrary: 'Open Library', arxiv: 'arXiv',
@@ -193,6 +212,11 @@ const uniVisibleGroups = computed(() => UNI_SOURCES
 const uniEmptySources = computed(() => UNI_SOURCES
   .filter(key => uniScopes[key] && uniStatus[key] === 'done' && !uniTitles(key).length)
   .map(uniSourceName))
+
+/** 搜完了, 有来源正常返回, 但哪里都没有结果 */
+const uniNoResults = computed(() => !uniSearching.value &&
+  (UNI_SOURCES.some(key => uniStatus[key] === 'done') || myResults.value.some(r => r.status === 'done')) &&
+  !myResults.value.some(r => r.publications.length) && UNI_SOURCES.every(key => !uniTitles(key).length))
 
 /** 「Failed to fetch」对用户没有意义: 说明是连不上, 网页版提示书源代理 */
 function sourceErrorText(e: any): string {
@@ -230,6 +254,7 @@ async function uniSearch() {
   uniGithub.value = []
   uniGutenberg.value = []
   uniArxiv.value = []
+  expandedGroups.clear()
   for (const key of UNI_SOURCES) uniStatus[key] = uniScopes[key] ? 'loading' : 'idle'
   const jobs: Promise<void>[] = []
   // 我的书库 (用户添加的 OPDS 书源) 各自独立搜索: 一个慢/失败不影响其它; 用原始关键词, 交给书库自己的搜索
@@ -308,6 +333,10 @@ async function uniDownloadPub(pub: OpdsPublication, acq: OpdsPublication['acquis
 }
 
 const sources = ref<CatalogSourceRec[]>([])
+/** 卡片上只显示主机名, 完整地址放在悬停提示里 */
+function hostOf(url: string) {
+  try { return new URL(url).host || url } catch { return url }
+}
 const activeSource = ref<CatalogSourceRec | null>(null)
 const page = ref<OpdsPage | null>(null)
 const loading = ref(false)
@@ -617,16 +646,24 @@ async function calibreImportAllNew() {
   toast(t('catalog.syncDone', { ok, total: fresh.length }), 'success', 4000)
 }
 
+const catalogEl = ref<HTMLElement | null>(null)
+/** 进入 / 切换目录时回到顶部 (滚动容器是应用壳的 main, 不随路由重置) */
+function scrollToTop() {
+  catalogEl.value?.scrollIntoView({ block: 'start' })
+}
+
 async function openUrl(url: string, title: string, pushCrumb = true) {
   loading.value = true
   loadError.value = ''
+  if (pushCrumb) scrollToTop()
   try {
     const result = await loadPage(url)
     page.value = result
     if (pushCrumb) breadcrumbs.value.push({ title: title || result.title, url })
   } catch (e: any) {
-    loadError.value = e?.message ?? t('catalog.loadFailed')
-    if (!isTauri()) {
+    const network = e instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(String(e?.message))
+    loadError.value = network ? sourceErrorText(e) : (e?.message ?? t('catalog.loadFailed'))
+    if (!network && !isTauri()) {
       loadError.value += t('catalog.corsHint')
     }
   } finally {
@@ -635,6 +672,7 @@ async function openUrl(url: string, title: string, pushCrumb = true) {
 }
 
 function openSource(s: CatalogSourceRec) {
+  scrollToTop()
   activeSource.value = s
   breadcrumbs.value = []
   page.value = null
@@ -659,6 +697,7 @@ function gotoCrumb(i: number) {
 }
 
 function backToSources() {
+  scrollToTop()
   activeSource.value = null
   page.value = null
   breadcrumbs.value = []
@@ -782,76 +821,104 @@ async function removeSource(s: CatalogSourceRec) {
 </script>
 
 <template>
-  <div class="catalog">
+  <div ref="catalogEl" class="catalog">
     <!-- 书源列表 -->
     <template v-if="!activeSource">
-      <header class="toolbar">
-        <h1>{{ t('catalog.title') }}</h1>
-        <div class="spacer" />
+      <header class="page-head">
+        <div class="page-title">
+          <h1>{{ t('catalog.title') }}</h1>
+          <p>{{ t('catalog.subtitle') }}</p>
+        </div>
         <button class="btn btn-primary" @click="openAdd">
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M11 13H5a1 1 0 1 1 0-2h6V5a1 1 0 1 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6z"/></svg>
           {{ t('catalog.add') }}
         </button>
       </header>
+
       <!-- 统一搜书: 找书是这一页的主要任务, 放在书源列表之前 -->
-      <section class="uni-section card">
-        <h2>{{ t('catalog.uniTitle') }}</h2>
-        <div class="gh-search-row">
-          <input
-            v-model="uniQuery"
-            class="input"
-            type="search"
-            :placeholder="t('catalog.uniPlaceholder')"
-            :aria-label="t('catalog.uniTitle')"
-            @keyup.enter="uniSearch"
-          />
-          <button class="btn btn-primary" :disabled="uniSearching || !uniQuery.trim() || !hasSearchScope" @click="uniSearch">
+      <section class="uni-section card" :aria-label="t('catalog.uniTitle')">
+        <form class="uni-search" role="search" @submit.prevent="uniSearch">
+          <div class="uni-field">
+            <svg class="uni-field-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input
+              v-model="uniQuery"
+              class="uni-input"
+              type="search"
+              enterkeyhint="search"
+              :placeholder="t('catalog.uniPlaceholder')"
+              :aria-label="t('catalog.uniTitle')"
+            />
+          </div>
+          <button type="submit" class="btn btn-primary uni-submit" :disabled="uniSearching || !uniQuery.trim() || !hasSearchScope">
+            <svg v-if="uniSearching" class="spin" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/></svg>
             {{ uniSearching ? t('library.ghSearching') : t('library.ghSearch') }}
           </button>
-        </div>
-        <p class="intro">{{ t('catalog.freeSearchHint') }}<template v-if="myLibraries.length"> {{ t('catalog.privateSearchHint') }}</template></p>
-        <div class="uni-scopes">
-          <label
-            v-for="s in myLibraries"
-            :key="s.id"
-            class="check-chip mine"
-            :class="{ on: myScopeOn(s.id) }"
-            :title="t('catalog.myLibraryScope', { title: s.title })"
-          >
-            <input :checked="myScopeOn(s.id)" :disabled="uniSearching" type="checkbox" @change="toggleMyScope(s.id, $event)" />
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/></svg>
-            {{ s.title }}
-          </label>
-          <label class="check-chip" :class="{ on: uniScopes.philosophy }" :title="t('catalog.philosophyHint')"><input v-model="uniScopes.philosophy" :disabled="uniSearching" type="checkbox" /> {{ t('catalog.philosophy') }}</label>
-          <label class="check-chip" :class="{ on: uniScopes.gutenberg }"><input v-model="uniScopes.gutenberg" :disabled="uniSearching" type="checkbox" /> {{ t('catalog.gutenberg') }}</label>
-          <label class="check-chip" :class="{ on: uniScopes.archive }"><input v-model="uniScopes.archive" :disabled="uniSearching" type="checkbox" /> Internet Archive</label>
-          <label class="check-chip" :class="{ on: uniScopes.arxiv }"><input v-model="uniScopes.arxiv" :disabled="uniSearching" type="checkbox" /> arXiv</label>
-          <label class="check-chip" :class="{ on: uniScopes.openlibrary }"><input v-model="uniScopes.openlibrary" :disabled="uniSearching" type="checkbox" /> Open Library</label>
-          <label class="check-chip" :class="{ on: uniScopes.github }"><input v-model="uniScopes.github" :disabled="uniSearching" type="checkbox" /> GitHub</label>
-        </div>
-        <p v-if="!hasSearchScope" class="intro" role="status">{{ t('catalog.chooseSearchSource') }}</p>
-        <div v-if="uniErrors.length" class="gh-notice" role="alert">
-          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M10.3 3.9a2 2 0 0 1 3.4 0l8 13.6A2 2 0 0 1 20 20.5H4a2 2 0 0 1-1.7-3l8-13.6zM12 9a1 1 0 0 0-1 1v4a1 1 0 1 0 2 0v-4a1 1 0 0 0-1-1zm0 9.2a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z"/></svg>
-          {{ uniErrors.join('; ') }}
-        </div>
-        <div v-if="ghProgress" class="gh-progress" role="status">{{ ghProgress }}</div>
-        <div v-if="fetchingNotice" class="gh-progress" role="status">{{ fetchingNotice }}</div>
+        </form>
 
-        <template v-if="uniSearched">
-          <p v-if="!uniSearching && (UNI_SOURCES.some(key => uniStatus[key] === 'done') || myResults.some(r => r.status === 'done')) && !myResults.some(r => r.publications.length) && !uniPhilosophy.length && !uniGithub.length && !uniGutenberg.length && !uniArchive.length && !uniOpenLibrary.length && !uniArxiv.length" class="intro" role="status">{{ t('catalog.noSearchResults') }} {{ t('catalog.copyrightHint') }}</p>
+        <div class="uni-scope-row">
+          <span class="uni-scope-label">{{ t('catalog.scopeLabel') }}</span>
+          <div class="uni-scopes">
+            <label
+              v-for="s in myLibraries"
+              :key="s.id"
+              class="check-chip mine"
+              :class="{ on: myScopeOn(s.id), disabled: uniSearching }"
+              :title="t('catalog.myLibraryScope', { title: s.title })"
+            >
+              <input :checked="myScopeOn(s.id)" :disabled="uniSearching" type="checkbox" @change="toggleMyScope(s.id, $event)" />
+              <svg class="chip-mark" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/></svg>
+              {{ s.title }}
+            </label>
+            <label
+              v-for="chip in publicScopeChips"
+              :key="chip.key"
+              class="check-chip"
+              :class="{ on: uniScopes[chip.key], disabled: uniSearching }"
+              :title="chip.title"
+            >
+              <input v-model="uniScopes[chip.key]" :disabled="uniSearching" type="checkbox" />
+              <svg class="chip-mark chip-check" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+              {{ chip.name }}
+            </label>
+          </div>
+        </div>
+        <p v-if="!hasSearchScope" class="uni-hint warn" role="status">{{ t('catalog.chooseSearchSource') }}</p>
+        <p v-else-if="!uniSearched" class="uni-hint">{{ t('catalog.freeSearchHint') }}<template v-if="myLibraries.length"> {{ t('catalog.privateSearchHint') }}</template></p>
+
+        <div v-if="uniErrors.length" class="gh-notice" role="alert">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M10.3 3.9a2 2 0 0 1 3.4 0l8 13.6A2 2 0 0 1 20 20.5H4a2 2 0 0 1-1.7-3l8-13.6zM12 9a1 1 0 0 0-1 1v4a1 1 0 1 0 2 0v-4a1 1 0 0 0-1-1zm0 9.2a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z"/></svg>
+          <span>{{ uniErrors.join('; ') }}</span>
+        </div>
+        <div v-if="ghProgress || fetchingNotice" class="uni-progress" role="status">
+          <svg class="spin" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/></svg>
+          {{ ghProgress || fetchingNotice }}
+        </div>
+
+        <div v-if="uniSearched" class="uni-results">
+          <div v-if="uniNoResults" class="uni-empty" role="status">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8.5 11h5"/></svg>
+            <div>
+              <p class="uni-empty-title">{{ t('catalog.noSearchResults') }}</p>
+              <p>{{ t('catalog.copyrightHint') }}</p>
+            </div>
+          </div>
+
           <!-- 我的书库排在最前 -->
           <div v-for="entry in myResults" :key="entry.source.id" class="uni-group mine-group" :aria-busy="entry.status === 'loading'">
             <div class="uni-group-head">
               <span class="tag mine-tag">{{ t('catalog.myLibrary') }}</span>
-              {{ entry.source.title }}
-              <template v-if="entry.status === 'done'"> · {{ t('reader.resultCount', { n: entry.next ? `${entry.publications.length}+` : entry.publications.length }) }}</template>
-              <template v-else-if="entry.status === 'loading'"> · {{ t('catalog.sourceSearching') }}</template>
+              <span class="uni-group-name">{{ entry.source.title }}</span>
+              <span v-if="entry.status === 'done'" class="uni-group-count"> · {{ t('reader.resultCount', { n: entry.next ? `${entry.publications.length}+` : entry.publications.length }) }}</span>
+              <span v-else-if="entry.status === 'loading'" class="uni-group-count"> · {{ t('catalog.sourceSearching') }}</span>
             </div>
-            <p v-if="entry.status === 'error'" class="uni-group-msg error" role="alert">{{ entry.error }}</p>
+            <div v-if="entry.status === 'loading'" class="uni-skeleton" aria-hidden="true"><span class="skeleton" /><span class="skeleton" /></div>
+            <p v-else-if="entry.status === 'error'" class="uni-group-msg error" role="alert">{{ entry.error }}</p>
             <p v-else-if="entry.status === 'nosearch'" class="uni-group-msg">{{ t('catalog.sourceNoSearch') }}</p>
-            <div v-for="(pub, i) in entry.publications" :key="i" class="gh-item uni-pub">
-              <span class="gh-name">{{ pub.title }}</span>
-              <span class="gh-meta">{{ pub.author || t('common.anonymous') }}</span>
+            <div v-for="(pub, i) in shownOf(entry.source.id, entry.publications)" :key="i" class="gh-item uni-pub">
+              <div class="uni-pub-main">
+                <span class="gh-name">{{ pub.title }}</span>
+                <span class="gh-meta">{{ pub.author || t('common.anonymous') }}</span>
+              </div>
               <span class="uni-acts">
                 <button
                   v-if="importedFromSource(entry.source, pub)"
@@ -876,191 +943,212 @@ async function removeSource(s: CatalogSourceRec) {
                 <span v-else class="gh-meta">{{ t('catalog.noDownloadFormat') }}</span>
               </span>
             </div>
-            <div v-if="entry.next" class="uni-more">
-              <button class="btn btn-sm" :disabled="entry.loadingMore" @click="loadMoreMine(entry)">
+            <div v-if="entry.publications.length > UNI_PREVIEW || entry.next" class="uni-more">
+              <button v-if="entry.publications.length > UNI_PREVIEW" class="btn btn-sm btn-ghost" :aria-expanded="expandedGroups.has(entry.source.id)" @click="toggleGroup(entry.source.id)">
+                {{ expandedGroups.has(entry.source.id) ? t('catalog.showFewer') : t('catalog.showAllResults', { n: entry.publications.length }) }}
+              </button>
+              <button v-if="entry.next && (expandedGroups.has(entry.source.id) || entry.publications.length <= UNI_PREVIEW)" class="btn btn-sm btn-ghost" :disabled="entry.loadingMore" @click="loadMoreMine(entry)">
                 {{ entry.loadingMore ? t('common.loading') : t('catalog.loadMore') }}
               </button>
             </div>
           </div>
+
           <!-- 公开书源: 有结果的按最贴切结果排序, 搜索中的在后, 未找到的折叠成一行 -->
           <template v-for="key in uniVisibleGroups" :key="key">
-            <div v-if="key === 'philosophy'" class="uni-group" :aria-busy="uniStatus.philosophy === 'loading'">
-              <div class="uni-group-head">{{ t('catalog.philosophy') }} · {{ uniStatus.philosophy === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniPhilosophy.length }) }}</div>
-              <div v-for="work in uniPhilosophy" :key="work.id" class="gh-item uni-pub">
-                <span class="gh-name">{{ work.title }}</span>
-                <span class="gh-meta"><template v-if="work.author">{{ work.author }} · </template>{{ work.source.name }}</span>
-                <span class="uni-acts">
-                  <button v-for="acq in philosophyAcqs(work)" :key="acq.href" class="btn btn-sm" :disabled="downloading.has(acq.href)" @click="downloadPhilosophy(work, acq)">{{ downloading.has(acq.href) ? t('catalog.downloading') : t(philosophyInBrowser(work) ? 'catalog.browserDownload' : 'catalog.download', { label: acq.label }) }}</button>
-                  <button class="btn btn-sm" @click="openBookWebsite(work.url)">{{ t('catalog.viewOriginal') }}</button>
-                </span>
+            <div class="uni-group" :aria-busy="uniStatus[key] === 'loading'">
+              <div class="uni-group-head">
+                <span class="uni-group-name">{{ uniSourceName(key) }}</span>
+                <span class="uni-group-count"> · {{ uniStatus[key] === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniTitles(key).length }) }}</span>
               </div>
-            </div>
-            <div v-if="key === 'archive'" class="uni-group" :aria-busy="uniStatus.archive === 'loading'">
-              <div class="uni-group-head">Internet Archive · {{ uniStatus.archive === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniArchive.length }) }}</div>
-              <div v-for="book in uniArchive" :key="book.identifier" class="gh-item uni-pub">
-                <span class="gh-name">{{ book.title }}</span>
-                <span class="gh-meta">{{ book.author || t('common.anonymous') }}<template v-if="book.year"> · {{ book.year }}</template></span>
-                <span class="uni-acts">
-                  <template v-if="archivePublications[book.identifier]">
-                    <button v-for="acq in archivePublications[book.identifier].acquisitions" :key="acq.href" class="btn btn-sm" :disabled="downloading.has(acq.href)" @click="downloadPublicBook(archivePublications[book.identifier], acq, 'Internet Archive')">{{ downloading.has(acq.href) ? t('catalog.downloading') : t(publicDownloadInBrowser ? 'catalog.browserDownload' : 'catalog.download', { label: acq.label }) }}</button>
-                    <span v-if="!archivePublications[book.identifier].acquisitions.length" class="gh-meta">{{ t('catalog.noDownloadFormat') }}</span>
-                  </template>
-                  <button v-else class="btn btn-sm" :disabled="archiveLoading.has(book.identifier)" @click="showArchiveDownloads(book)">{{ archiveLoading.has(book.identifier) ? t('catalog.readingLibrary') : t('catalog.showDownloads') }}</button>
-                  <button class="btn btn-sm" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button>
-                </span>
-              </div>
-            </div>
-            <div v-if="key === 'openlibrary'" class="uni-group" :aria-busy="uniStatus.openlibrary === 'loading'">
-              <div class="uni-group-head">Open Library · {{ uniStatus.openlibrary === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniOpenLibrary.length }) }}</div>
-              <p class="intro">{{ t('catalog.openlibraryHint') }}</p>
-              <div v-for="book in uniOpenLibrary" :key="book.key" class="gh-item uni-pub">
-                <span class="gh-name">{{ book.title }}</span>
-                <span class="gh-meta">{{ book.author || t('common.anonymous') }}<template v-if="book.year"> · {{ book.year }}</template> · {{ t('catalog.access.' + book.access) }}</span>
-                <span class="uni-acts"><button class="btn btn-sm" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button></span>
-              </div>
-            </div>
-            <div v-if="key === 'github'" class="uni-group" :aria-busy="uniStatus.github === 'loading'">
-              <div class="uni-group-head">GitHub · {{ uniStatus.github === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniGithub.length }) }}</div>
-              <div v-for="hit in uniGithub.slice(0, 60)" :key="hit.url" class="gh-item" :class="{ busy: ghImporting === hit.url }" role="button" tabindex="0" @click="importGhBook(hit)" @keydown.enter.prevent="importGhBook(hit)">
-                <span class="gh-name">{{ hit.name }}</span>
-                <span class="gh-meta">{{ hit.repo }}<template v-if="hit.size"> · {{ fmtBytes(hit.size) }}</template></span>
-              </div>
-            </div>
-            <div v-if="key === 'gutenberg'" class="uni-group" :aria-busy="uniStatus.gutenberg === 'loading'">
-              <div class="uni-group-head">{{ t('catalog.gutenberg') }} · {{ uniStatus.gutenberg === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniGutenberg.length }) }}</div>
-              <div v-for="(pub, i) in uniGutenberg" :key="i" class="gh-item uni-pub">
-                <span class="gh-name">{{ pub.title }}</span>
-                <span class="gh-meta">{{ pub.author || t('common.anonymous') }}</span>
-                <span class="uni-acts">
-                  <button
-                    v-for="acq in pub.acquisitions.slice(0, 2)"
-                    :key="acq.href"
-                    class="btn btn-sm"
-                    :disabled="downloading.has(acq.href)"
-                    @click.stop="uniDownloadPub(pub, acq, t('catalog.gutenberg'))"
-                  >{{ downloading.has(acq.href) ? t('catalog.downloading') : acq.label }}</button>
-                  <span v-if="!pub.acquisitions.length" class="gh-meta">{{ t('catalog.noDownloadFormat') }}</span>
-                </span>
-              </div>
-            </div>
-            <div v-if="key === 'arxiv'" class="uni-group" :aria-busy="uniStatus.arxiv === 'loading'">
-              <div class="uni-group-head">arXiv · {{ uniStatus.arxiv === 'loading' ? t('catalog.sourceSearching') : t('reader.resultCount', { n: uniArxiv.length }) }}</div>
-              <div v-for="(pub, i) in uniArxiv" :key="i" class="gh-item uni-pub">
-                <span class="gh-name">{{ pub.title }}</span>
-                <span class="gh-meta">{{ pub.author || '' }}</span>
-                <span class="uni-acts">
-                  <button
-                    v-for="acq in pub.acquisitions.slice(0, 1)"
-                    :key="acq.href"
-                    class="btn btn-sm"
-                    :disabled="downloading.has(acq.href)"
-                    @click.stop="uniDownloadPub(pub, acq, 'arXiv')"
-                  >{{ downloading.has(acq.href) ? t('catalog.downloading') : acq.label }}</button>
-                </span>
+              <div v-if="uniStatus[key] === 'loading'" class="uni-skeleton" aria-hidden="true"><span class="skeleton" /><span class="skeleton" /></div>
+
+              <template v-if="key === 'philosophy'">
+                <div v-for="work in shownOf(key, uniPhilosophy)" :key="work.id" class="gh-item uni-pub">
+                  <div class="uni-pub-main">
+                    <span class="gh-name">{{ work.title }}</span>
+                    <span class="gh-meta"><template v-if="work.author">{{ work.author }} · </template>{{ work.source.name }}</span>
+                  </div>
+                  <span class="uni-acts">
+                    <button v-for="(acq, ai) in philosophyAcqs(work)" :key="acq.href" class="btn btn-sm" :class="{ 'btn-accent': ai === 0 }" :disabled="downloading.has(acq.href)" @click="downloadPhilosophy(work, acq)">{{ downloading.has(acq.href) ? t('catalog.downloading') : t(philosophyInBrowser(work) ? 'catalog.browserDownload' : 'catalog.download', { label: acq.label }) }}</button>
+                    <button class="btn btn-sm btn-ghost" @click="openBookWebsite(work.url)">{{ t('catalog.viewOriginal') }}</button>
+                  </span>
+                </div>
+              </template>
+
+              <template v-else-if="key === 'archive'">
+                <div v-for="book in shownOf(key, uniArchive)" :key="book.identifier" class="gh-item uni-pub">
+                  <div class="uni-pub-main">
+                    <span class="gh-name">{{ book.title }}</span>
+                    <span class="gh-meta">{{ book.author || t('common.anonymous') }}<template v-if="book.year"> · {{ book.year }}</template></span>
+                  </div>
+                  <span class="uni-acts">
+                    <template v-if="archivePublications[book.identifier]">
+                      <button v-for="(acq, ai) in archivePublications[book.identifier].acquisitions" :key="acq.href" class="btn btn-sm" :class="{ 'btn-accent': ai === 0 }" :disabled="downloading.has(acq.href)" @click="downloadPublicBook(archivePublications[book.identifier], acq, 'Internet Archive')">{{ downloading.has(acq.href) ? t('catalog.downloading') : t(publicDownloadInBrowser ? 'catalog.browserDownload' : 'catalog.download', { label: acq.label }) }}</button>
+                      <span v-if="!archivePublications[book.identifier].acquisitions.length" class="gh-meta">{{ t('catalog.noDownloadFormat') }}</span>
+                    </template>
+                    <button v-else class="btn btn-sm btn-accent" :disabled="archiveLoading.has(book.identifier)" @click="showArchiveDownloads(book)">{{ archiveLoading.has(book.identifier) ? t('catalog.readingLibrary') : t('catalog.showDownloads') }}</button>
+                    <button class="btn btn-sm btn-ghost" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button>
+                  </span>
+                </div>
+              </template>
+
+              <template v-else-if="key === 'openlibrary'">
+                <p v-if="uniStatus.openlibrary === 'done'" class="uni-group-msg">{{ t('catalog.openlibraryHint') }}</p>
+                <div v-for="book in shownOf(key, uniOpenLibrary)" :key="book.key" class="gh-item uni-pub">
+                  <div class="uni-pub-main">
+                    <span class="gh-name">{{ book.title }}</span>
+                    <span class="gh-meta">{{ book.author || t('common.anonymous') }}<template v-if="book.year"> · {{ book.year }}</template> · <span class="access" :class="book.access">{{ t('catalog.access.' + book.access) }}</span></span>
+                  </div>
+                  <span class="uni-acts"><button class="btn btn-sm btn-ghost" @click="openBookWebsite(book.url)">{{ t('catalog.viewOriginal') }}</button></span>
+                </div>
+              </template>
+
+              <template v-else-if="key === 'github'">
+                <div v-for="hit in shownOf(key, uniGithub, 60)" :key="hit.url" class="gh-item uni-pub" :class="{ busy: ghImporting === hit.url }">
+                  <div class="uni-pub-main">
+                    <span class="gh-name">{{ hit.name }}</span>
+                    <span class="gh-meta">{{ hit.repo }}<template v-if="hit.size"> · {{ fmtBytes(hit.size) }}</template></span>
+                  </div>
+                  <span class="uni-acts">
+                    <button class="btn btn-sm btn-accent" :disabled="!!ghImporting" :aria-busy="ghImporting === hit.url" @click="importGhBook(hit)">{{ ghImporting === hit.url ? t('catalog.downloading') : t('catalog.importToLibrary') }}</button>
+                  </span>
+                </div>
+              </template>
+
+              <template v-else-if="key === 'gutenberg'">
+                <div v-for="(pub, i) in shownOf(key, uniGutenberg)" :key="i" class="gh-item uni-pub">
+                  <div class="uni-pub-main">
+                    <span class="gh-name">{{ pub.title }}</span>
+                    <span class="gh-meta">{{ pub.author || t('common.anonymous') }}</span>
+                  </div>
+                  <span class="uni-acts">
+                    <button
+                      v-for="(acq, ai) in pub.acquisitions.slice(0, 2)"
+                      :key="acq.href"
+                      class="btn btn-sm"
+                      :class="{ 'btn-accent': ai === 0 }"
+                      :disabled="downloading.has(acq.href)"
+                      @click.stop="uniDownloadPub(pub, acq, t('catalog.gutenberg'))"
+                    >{{ downloading.has(acq.href) ? t('catalog.downloading') : t('catalog.download', { label: acq.label }) }}</button>
+                    <span v-if="!pub.acquisitions.length" class="gh-meta">{{ t('catalog.noDownloadFormat') }}</span>
+                  </span>
+                </div>
+              </template>
+
+              <template v-else-if="key === 'arxiv'">
+                <div v-for="(pub, i) in shownOf(key, uniArxiv)" :key="i" class="gh-item uni-pub">
+                  <div class="uni-pub-main">
+                    <span class="gh-name">{{ pub.title }}</span>
+                    <span class="gh-meta">{{ pub.author || '' }}</span>
+                  </div>
+                  <span class="uni-acts">
+                    <button
+                      v-for="acq in pub.acquisitions.slice(0, 1)"
+                      :key="acq.href"
+                      class="btn btn-sm btn-accent"
+                      :disabled="downloading.has(acq.href)"
+                      @click.stop="uniDownloadPub(pub, acq, 'arXiv')"
+                    >{{ downloading.has(acq.href) ? t('catalog.downloading') : t('catalog.download', { label: acq.label }) }}</button>
+                  </span>
+                </div>
+              </template>
+
+              <div v-if="uniTitles(key).length > UNI_PREVIEW" class="uni-more">
+                <button class="btn btn-sm btn-ghost" :aria-expanded="expandedGroups.has(key)" @click="toggleGroup(key)">
+                  {{ expandedGroups.has(key) ? t('catalog.showFewer') : t('catalog.showAllResults', { n: key === 'github' ? Math.min(uniTitles(key).length, 60) : uniTitles(key).length }) }}
+                </button>
               </div>
             </div>
           </template>
-          <p v-if="uniEmptySources.length && uniVisibleGroups.length" class="intro uni-empty-sources" role="status">{{ t('catalog.notFoundIn', { sources: uniEmptySources.join(settings.language === 'en' ? ', ' : '、') }) }}</p>
-        </template>
+          <p v-if="uniEmptySources.length && uniVisibleGroups.length" class="uni-empty-sources" role="status">{{ t('catalog.notFoundIn', { sources: uniEmptySources.join(settings.language === 'en' ? ', ' : '、') }) }}</p>
+        </div>
       </section>
 
-      <p class="intro">
-        {{ t('catalog.intro') }}
-      </p>
-      <div class="source-grid">
-        <div
-          v-for="s in sources"
-          :key="s.id"
-          class="source-card card"
-          role="button"
-          tabindex="0"
-          @click="openSource(s)"
-          @keydown.enter.prevent="openSource(s)"
-          @keydown.space.prevent="openSource(s)"
-        >
-          <div class="source-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1.5" fill="currentColor" stroke="none"/></svg>
+      <!-- 书库与目录 (内置 + 用户添加的 OPDS) -->
+      <section class="cat-section">
+        <div class="section-head">
+          <div>
+            <h2>{{ t('catalog.sourcesTitle') }}</h2>
+            <p class="section-desc">{{ t('catalog.sourcesDesc') }}</p>
           </div>
-          <div class="source-body">
-            <div class="source-title">{{ s.title }}</div>
-            <div class="source-url">{{ s.url }}</div>
-            <div class="source-foot">
-              <span v-if="s.builtin" class="tag">{{ t('catalog.builtin') }}</span>
-              <template v-else>
-                <button v-if="s.kind === 'opds'" class="btn btn-sm" @click.stop="uploadTarget = s" @keydown.stop>{{ t('library.addBooks') }}</button>
-                <span class="source-actions">
-                  <button class="btn btn-sm" :aria-label="t('catalog.editSourceNamed', { title: s.title })" @click.stop="openEdit(s)" @keydown.stop>{{ t('common.edit') }}</button>
-                  <button class="btn btn-sm btn-danger" @click.stop="removeSource(s)" @keydown.stop>{{ t('common.delete') }}</button>
-                </span>
-              </template>
+        </div>
+        <div class="source-grid">
+          <div
+            v-for="s in sources"
+            :key="s.id"
+            class="source-card card"
+            :class="{ custom: !s.builtin }"
+            role="button"
+            tabindex="0"
+            @click="openSource(s)"
+            @keydown.enter.prevent="openSource(s)"
+            @keydown.space.prevent="openSource(s)"
+          >
+            <div class="source-top">
+              <div class="source-icon" aria-hidden="true">
+                <svg v-if="s.kind === 'arxiv'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>
+                <svg v-else-if="s.builtin" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2zM22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/></svg>
+                <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/></svg>
+              </div>
+              <div class="source-body">
+                <div class="source-title-row">
+                  <span class="source-title">{{ s.title }}</span>
+                  <span v-if="s.builtin" class="tag tag-muted">{{ t('catalog.builtin') }}</span>
+                </div>
+                <div class="source-url" :title="s.url">
+                  <svg v-if="s.username" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :aria-label="t('catalog.hasAccount')" role="img"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+                  {{ hostOf(s.url) }}
+                </div>
+              </div>
+              <svg class="source-chevron" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M9.3 6.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4L13.58 12 9.3 7.7a1 1 0 0 1 0-1.4z"/></svg>
+            </div>
+            <div v-if="!s.builtin" class="source-foot">
+              <span class="tag">{{ t('catalog.myLibrary') }}</span>
+              <span class="source-actions">
+                <button v-if="s.kind === 'opds'" class="btn btn-sm" @click.stop="uploadTarget = s" @keydown.stop>
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+                  {{ t('library.addBooks') }}
+                </button>
+                <button class="btn btn-sm btn-icon btn-ghost" :title="t('common.edit')" :aria-label="t('catalog.editSourceNamed', { title: s.title })" @click.stop="openEdit(s)" @keydown.stop>
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>
+                </button>
+                <button class="btn btn-sm btn-icon btn-ghost btn-danger" :title="t('common.delete')" :aria-label="t('catalog.deleteSourceNamed', { title: s.title })" @click.stop="removeSource(s)" @keydown.stop>
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
+                </button>
+              </span>
             </div>
           </div>
-          <svg class="source-chevron" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M9.3 6.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4L13.58 12 9.3 7.7a1 1 0 0 1 0-1.4z"/></svg>
-        </div>
-      </div>
-
-      <section class="web-sources">
-        <h2>{{ t('catalog.webSourcesTitle') }}</h2>
-        <p class="intro">{{ t('catalog.webSourcesHint') }}</p>
-        <div class="source-grid">
-          <article v-for="source in WEB_BOOK_SOURCES" :key="source.id" class="card web-source-card">
-            <div class="source-title">{{ source.title }}</div>
-            <p class="intro">{{ t(source.descriptionKey) }}</p>
-            <button class="btn btn-sm" @click="openBookWebsite(webBookSourceUrl(source, uniQuery))">{{ uniQuery.trim() && source.searchUrl ? t('catalog.searchWebsite') : t('catalog.openWebsite') }}</button>
-          </article>
-        </div>
-      </section>
-
-      <!-- GitHub 书源列表 (社区共建) -->
-      <section class="gh-section">
-        <header class="toolbar">
-          <h2>{{ t('catalog.ghListTitle') }}</h2>
-          <span class="gh-updated">{{ t('catalog.communityMeta', { date: communityUpdated, n: communityRepos.length }) }}{{ communityFromRemote ? '' : t('catalog.communityBundled') }}</span>
-          <div class="spacer" />
-          <button class="btn btn-sm" @click="refreshCommunity(true)">{{ t('catalog.updateList') }}</button>
-          <button class="btn btn-sm" @click="openDownload(COMMUNITY_LIST_PAGE)">{{ t('catalog.contribute') }}</button>
-        </header>
-        <p class="intro">{{ t('catalog.ghListIntro') }}</p>
-        <div class="gh-repos">
-          <span v-for="item in communityRepos" :key="item.repo" class="gh-repo-chip community" :title="item.note ?? ''">
-            {{ item.repo }}
-          </span>
-        </div>
-        <div class="gh-repos">
-          <span v-for="repo in settings.githubBookRepos" :key="repo" class="gh-repo-chip">
-            {{ repo }}
-            <button class="gh-repo-del" :title="t('common.delete')" :aria-label="`${t('common.delete')} ${repo}`" @click="removeGhRepo(repo)">
-              <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M6.7 5.3a1 1 0 0 0-1.4 1.4L10.6 12l-5.3 5.3a1 1 0 1 0 1.4 1.4l5.3-5.3 5.3 5.3a1 1 0 0 0 1.4-1.4L13.4 12l5.3-5.3a1 1 0 0 0-1.4-1.4L12 10.6 6.7 5.3z"/></svg>
-            </button>
-          </span>
-          <input
-            v-model="ghRepoDraft"
-            class="input gh-repo-add"
-            :placeholder="t('library.ghAddRepo')"
-            :aria-label="t('library.ghAddRepo')"
-            @keyup.enter="addGhRepo"
-          />
+          <button class="add-source-card" @click="openAdd">
+            <span class="add-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M11 13H5a1 1 0 1 1 0-2h6V5a1 1 0 1 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6z"/></svg>
+            </span>
+            <span class="add-text">
+              <strong>{{ t('catalog.connectOwn') }}</strong>
+              <span>{{ t('catalog.connectOwnHint') }}</span>
+            </span>
+          </button>
         </div>
       </section>
 
       <!-- Calibre 书库直读 (桌面版) -->
-      <section v-if="calibreAvailable()" class="calibre-section">
-        <header class="toolbar">
-          <h2>{{ t('catalog.calibreTitle') }}</h2>
-          <div class="spacer" />
-          <template v-if="settings.calibrePath">
-            <span class="calibre-path" :title="settings.calibrePath">{{ settings.calibrePath }}</span>
-            <button class="btn btn-sm" :disabled="calibreLoading" @click="refreshCalibre">{{ t('common.refresh') }}</button>
-            <button class="btn btn-sm btn-primary" :disabled="calibreBatchBusy" @click="calibreImportAllNew">
-              {{ calibreBatchBusy ? t('catalog.syncing') : t('catalog.importAllNew') }}
-            </button>
-            <button class="btn btn-sm btn-danger" @click="disconnectCalibre">{{ t('catalog.disconnect') }}</button>
-          </template>
-          <button v-else class="btn btn-primary" @click="connectCalibre">{{ t('catalog.connectCalibre') }}</button>
-        </header>
-        <p v-if="!settings.calibrePath" class="intro">
-          {{ t('catalog.calibreIntro') }}
-        </p>
+      <section v-if="calibreAvailable()" class="cat-section calibre-section">
+        <div class="section-head">
+          <div>
+            <h2>{{ t('catalog.calibreTitle') }}</h2>
+            <p v-if="!settings.calibrePath" class="section-desc">{{ t('catalog.calibreIntro') }}</p>
+            <p v-else class="section-desc calibre-path" :title="settings.calibrePath">{{ settings.calibrePath }}</p>
+          </div>
+          <div class="section-actions">
+            <template v-if="settings.calibrePath">
+              <button class="btn btn-sm" :disabled="calibreLoading" @click="refreshCalibre">{{ t('common.refresh') }}</button>
+              <button class="btn btn-sm btn-primary" :disabled="calibreBatchBusy" @click="calibreImportAllNew">
+                {{ calibreBatchBusy ? t('catalog.syncing') : t('catalog.importAllNew') }}
+              </button>
+              <button class="btn btn-sm btn-ghost btn-danger" @click="disconnectCalibre">{{ t('catalog.disconnect') }}</button>
+            </template>
+            <button v-else class="btn btn-sm" @click="connectCalibre">{{ t('catalog.connectCalibre') }}</button>
+          </div>
+        </div>
         <div v-if="calibreLoading" class="empty">{{ t('catalog.readingLibrary') }}</div>
         <div v-else-if="settings.calibrePath && calibreBooks.length" class="calibre-grid">
           <div v-for="book in calibreBooks" :key="book.id" class="calibre-card card">
@@ -1072,7 +1160,7 @@ async function removeSource(s: CatalogSourceRec) {
               <div class="calibre-title" :title="book.title">{{ book.title }}</div>
               <div class="calibre-authors">{{ book.authors || t('common.anonymous') }}</div>
               <div class="calibre-formats">
-                <span v-for="f in book.formats" :key="f.format" class="tag">{{ f.format.toUpperCase() }}</span>
+                <span v-for="f in book.formats" :key="f.format" class="tag tag-muted">{{ f.format.toUpperCase() }}</span>
               </div>
               <div class="calibre-actions">
                 <template v-if="importedTitles.has(book.title)">
@@ -1091,11 +1179,77 @@ async function removeSource(s: CatalogSourceRec) {
         </div>
         <div v-else-if="settings.calibrePath" class="empty"><p>{{ t('catalog.libraryEmpty') }}</p></div>
       </section>
+
+      <!-- 更多下载网站 (外部浏览器) -->
+      <section class="cat-section web-sources">
+        <div class="section-head">
+          <div>
+            <h2>{{ t('catalog.webSourcesTitle') }}</h2>
+            <p class="section-desc">{{ t('catalog.webSourcesHint') }}</p>
+          </div>
+        </div>
+        <div class="web-grid">
+          <article v-for="source in WEB_BOOK_SOURCES" :key="source.id" class="card web-source-card">
+            <div class="web-head">
+              <span class="web-avatar" aria-hidden="true">{{ source.title.charAt(0) }}</span>
+              <div class="source-title">{{ source.title }}</div>
+            </div>
+            <p class="web-desc">{{ t(source.descriptionKey) }}</p>
+            <button class="btn btn-sm web-open" @click="openBookWebsite(webBookSourceUrl(source, uniQuery))">{{ uniQuery.trim() && source.searchUrl ? t('catalog.searchWebsite') : t('catalog.openWebsite') }}</button>
+          </article>
+        </div>
+      </section>
+
+      <!-- GitHub 书库 (社区共建) -->
+      <section class="cat-section gh-section">
+        <div class="section-head">
+          <div>
+            <h2>{{ t('catalog.ghListTitle') }}</h2>
+            <p class="section-desc">{{ t('catalog.ghListIntro') }}</p>
+          </div>
+          <div class="section-actions">
+            <button class="btn btn-sm" @click="refreshCommunity(true)">{{ t('catalog.updateList') }}</button>
+            <button class="btn btn-sm" @click="openDownload(COMMUNITY_LIST_PAGE)">{{ t('catalog.contribute') }}</button>
+          </div>
+        </div>
+        <div class="card gh-card">
+          <div class="gh-row">
+            <span class="gh-row-label">{{ t('catalog.ghMine') }}</span>
+            <div class="gh-repos">
+              <span v-for="repo in settings.githubBookRepos" :key="repo" class="gh-repo-chip">
+                {{ repo }}
+                <button class="gh-repo-del" :title="t('common.delete')" :aria-label="`${t('common.delete')} ${repo}`" @click="removeGhRepo(repo)">
+                  <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M6.7 5.3a1 1 0 0 0-1.4 1.4L10.6 12l-5.3 5.3a1 1 0 1 0 1.4 1.4l5.3-5.3 5.3 5.3a1 1 0 0 0 1.4-1.4L13.4 12l5.3-5.3a1 1 0 0 0-1.4-1.4L12 10.6 6.7 5.3z"/></svg>
+                </button>
+              </span>
+              <input
+                v-model="ghRepoDraft"
+                class="input gh-repo-add"
+                :placeholder="t('library.ghAddRepo')"
+                :aria-label="t('library.ghAddRepo')"
+                @keyup.enter="addGhRepo"
+              />
+            </div>
+          </div>
+          <details class="gh-community">
+            <summary>
+              <svg class="gh-caret" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M9.3 6.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4L13.58 12 9.3 7.7a1 1 0 0 1 0-1.4z"/></svg>
+              {{ t('catalog.ghCommunity', { n: communityRepos.length }) }}
+              <span class="gh-updated">{{ communityUpdated }}{{ communityFromRemote ? '' : t('catalog.communityBundled') }}</span>
+            </summary>
+            <div class="gh-repos">
+              <span v-for="item in communityRepos" :key="item.repo" class="gh-repo-chip community" :title="item.note ?? ''">
+                {{ item.repo }}
+              </span>
+            </div>
+          </details>
+        </div>
+      </section>
     </template>
 
     <!-- 目录浏览 -->
     <template v-else>
-      <header class="toolbar">
+      <header class="toolbar dir-toolbar">
         <button class="btn btn-sm" @click="breadcrumbs.length > 1 ? gotoCrumb(breadcrumbs.length - 2) : backToSources()">
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M14.7 6.3a1 1 0 0 1 0 1.4L10.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4l-5-5a1 1 0 0 1 0-1.4l5-5a1 1 0 0 1 1.42 0z"/></svg>
           {{ t('common.back') }}
@@ -1103,17 +1257,18 @@ async function removeSource(s: CatalogSourceRec) {
         <nav class="crumbs" aria-label="Breadcrumb">
           <button class="crumb" @click="backToSources">{{ t('catalog.title') }}</button>
           <template v-for="(c, i) in breadcrumbs" :key="i">
-            <span class="crumb-sep">/</span>
+            <span class="crumb-sep" aria-hidden="true">/</span>
             <button class="crumb" :class="{ current: i === breadcrumbs.length - 1 }" :aria-current="i === breadcrumbs.length - 1 ? 'page' : undefined" @click="gotoCrumb(i)">
               {{ c.title }}
             </button>
           </template>
         </nav>
         <div class="spacer" />
-        <button v-if="!activeSource.builtin && activeSource.kind === 'opds'" class="btn btn-primary" @click="uploadTarget = activeSource">{{ t('library.addBooks') }}</button>
-        <form v-if="page?.searchUrl" @submit.prevent="runSearch">
-          <input v-model="searchQuery" class="input" type="search" :placeholder="t('catalog.searchThisSource')" :aria-label="t('catalog.searchThisSource')" />
+        <form v-if="page?.searchUrl" class="dir-search" role="search" @submit.prevent="runSearch">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input v-model="searchQuery" class="input" type="search" enterkeyhint="search" :placeholder="t('catalog.searchThisSource')" :aria-label="t('catalog.searchThisSource')" />
         </form>
+        <button v-if="!activeSource.builtin && activeSource.kind === 'opds'" class="btn btn-primary" @click="uploadTarget = activeSource">{{ t('library.addBooks') }}</button>
       </header>
 
       <div v-if="loading" class="empty" role="status" aria-busy="true">
@@ -1141,8 +1296,11 @@ async function removeSource(s: CatalogSourceRec) {
             class="nav-card card"
             @click="openUrl(nav.href, nav.title)"
           >
-            <span class="nav-title">{{ nav.title }}</span>
-            <span v-if="nav.summary" class="nav-summary">{{ nav.summary }}</span>
+            <span class="nav-text">
+              <span class="nav-title">{{ nav.title }}</span>
+              <span v-if="nav.summary" class="nav-summary">{{ nav.summary }}</span>
+            </span>
+            <svg class="nav-chevron" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9.3 6.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4L13.58 12 9.3 7.7a1 1 0 0 1 0-1.4z"/></svg>
           </button>
         </div>
 
@@ -1159,9 +1317,10 @@ async function removeSource(s: CatalogSourceRec) {
               <p v-if="pub.summary" class="pub-summary">{{ pub.summary }}</p>
               <div class="pub-actions">
                 <button
-                  v-for="acq in pub.acquisitions"
+                  v-for="(acq, ai) in pub.acquisitions"
                   :key="acq.href"
                   class="btn btn-sm"
+                  :class="{ 'btn-accent': ai === 0 }"
                   :disabled="downloading.has(acq.href)"
                   @click="download(pub, acq)"
                 >
@@ -1237,52 +1396,423 @@ async function removeSource(s: CatalogSourceRec) {
 </template>
 
 <style scoped>
-.web-sources { margin-top: 24px; }
-.web-source-card { padding: 16px; display: flex; flex-direction: column; align-items: flex-start; }
-.web-source-card .intro { flex: 1; }
-.uni-acts { flex-wrap: wrap; }
-
 .catalog {
-  padding: 24px 28px calc(40px + var(--lr-safe-bottom));
+  padding: 24px 28px calc(48px + var(--lr-safe-bottom));
   min-height: 100%;
-}
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
-  flex-wrap: wrap;
-}
-.toolbar h1 {
-  font-size: 20px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-}
-.toolbar h2,
-.uni-section h2 {
-  font-size: 15px;
-  font-weight: 650;
+  max-width: 1160px;
 }
 .spacer {
   flex: 1;
 }
-.intro {
-  color: var(--text-2);
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+/* ---- 页头 ---- */
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.page-title h1 {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.page-title p {
+  margin-top: 4px;
   font-size: 13px;
-  line-height: 1.8;
-  margin-bottom: 20px;
+  color: var(--text-3);
+  line-height: 1.6;
+}
+.page-head .btn {
+  flex-shrink: 0;
+}
+
+/* ---- 统一搜书 ---- */
+.uni-section {
+  padding: 18px 20px;
+  margin-bottom: 36px;
+}
+.uni-search {
+  display: flex;
+  gap: 10px;
+}
+.uni-field {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.uni-field-icon {
+  position: absolute;
+  left: 14px;
+  color: var(--text-3);
+  pointer-events: none;
+  transition: color var(--dur-fast) var(--ease);
+}
+.uni-field:focus-within .uni-field-icon {
+  color: var(--brand);
+}
+.uni-input {
+  width: 100%;
+  height: 46px;
+  padding: 0 14px 0 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.uni-input::placeholder {
+  color: var(--text-3);
+}
+.uni-input:hover:not(:focus) {
+  border-color: var(--border-strong);
+}
+.uni-input:focus {
+  background: var(--card);
+  border-color: var(--brand);
+  box-shadow: var(--ring);
+}
+.uni-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.uni-submit {
+  height: 46px;
+  min-width: 88px;
+  padding: 0 20px;
+  border-radius: var(--radius-lg);
+  font-size: 15px;
+}
+
+.uni-scope-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 14px;
+}
+.uni-scope-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.uni-scopes {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.check-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--card);
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+/* 原生复选框铺满整个胶囊、透明: 保留可访问性与点击区域, 状态由胶囊样式表达 */
+.check-chip input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+.check-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.check-chip.on {
+  background: var(--brand-soft);
+  border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+  color: var(--brand);
+}
+.check-chip:focus-within {
+  box-shadow: var(--ring);
+}
+.check-chip.disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.chip-mark {
+  flex-shrink: 0;
+}
+.chip-check {
+  width: 0;
+  margin-left: -5px;
+  opacity: 0;
+  transition:
+    width var(--dur-fast) var(--ease),
+    margin var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+.check-chip.on .chip-check {
+  width: 13px;
+  margin-left: -2px;
+  opacity: 1;
+}
+.uni-hint {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-3);
+}
+.uni-hint.warn {
+  color: var(--warning);
+}
+.gh-notice {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.6;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.gh-notice svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.uni-progress {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--brand);
+}
+
+/* 搜索结果 */
+.uni-results {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.uni-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 4px 6px 6px;
+}
+.uni-group.mine-group {
+  border-color: color-mix(in srgb, var(--brand) 30%, var(--border));
+}
+.uni-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px 6px;
+  font-size: 13px;
+}
+.uni-group-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.uni-group-count {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.mine-tag {
+  height: 20px;
+  font-size: 11px;
+}
+.uni-group-msg {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-3);
+  padding: 0 10px 8px;
+}
+.uni-group-msg.error {
+  color: var(--danger);
+}
+.uni-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 10px 10px;
+}
+.uni-skeleton .skeleton {
+  height: 14px;
+  width: 46%;
+  border-radius: var(--radius-sm);
+}
+.uni-skeleton .skeleton + .skeleton {
+  width: 28%;
+  height: 11px;
+}
+.gh-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  transition: background var(--dur-fast) var(--ease);
+}
+.gh-item + .gh-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10px;
+  right: 10px;
+  border-top: 1px solid var(--border);
+}
+.gh-item:hover {
+  background: var(--surface-2);
+}
+.gh-item:hover::before,
+.gh-item:hover + .gh-item::before {
+  border-color: transparent;
+}
+.gh-item.busy {
+  background: var(--brand-soft);
+}
+.uni-pub-main {
+  flex: 1 1 260px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.gh-name {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.gh-meta {
+  font-size: 12px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+.access.public {
+  color: var(--success);
+}
+.uni-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+.btn-accent {
+  background: var(--brand-soft);
+  border-color: transparent;
+  color: var(--brand);
+}
+.btn-accent:hover {
+  background: color-mix(in srgb, var(--brand) 18%, transparent);
+  border-color: transparent;
+  color: var(--brand);
+}
+.btn-accent:disabled {
+  background: var(--brand-soft);
+  border-color: transparent;
+}
+.uni-more {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 0 2px;
+}
+.uni-more .btn {
+  color: var(--brand);
+}
+.uni-empty {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.uni-empty svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.uni-empty-title {
+  color: var(--text);
+  font-weight: 500;
+}
+.uni-empty-sources {
+  font-size: 12px;
+  color: var(--text-3);
+  padding: 0 4px;
+}
+
+/* ---- 分区 ---- */
+.cat-section {
+  margin-top: 36px;
+}
+.section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.section-head h2 {
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.section-desc {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-3);
   max-width: 640px;
 }
+.section-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 书库与目录 */
 .source-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
 }
 .source-card {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   gap: 12px;
-  padding: 14px 14px 14px 16px;
+  padding: 14px 14px 12px 16px;
   cursor: pointer;
   transition:
     box-shadow var(--dur) var(--ease),
@@ -1298,234 +1828,309 @@ async function removeSource(s: CatalogSourceRec) {
   outline: none;
   box-shadow: var(--ring), var(--shadow-md);
 }
+.source-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .source-icon {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   display: grid;
   place-items: center;
-  background: var(--brand-light);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.source-card.custom .source-icon {
+  background: var(--brand-soft);
   color: var(--brand);
 }
 .source-body {
   flex: 1;
   min-width: 0;
 }
+.source-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.source-title-row .tag {
+  flex-shrink: 0;
+  height: 20px;
+  font-size: 11px;
+}
+.source-title {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.source-url {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.source-url svg {
+  flex-shrink: 0;
+}
 .source-chevron {
   color: var(--text-3);
   flex-shrink: 0;
-  margin-top: 9px;
   transition: transform var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .source-card:hover .source-chevron {
   color: var(--brand);
   transform: translateX(2px);
 }
-.source-title {
-  font-weight: 600;
-  margin-bottom: 3px;
-}
-.source-url {
-  font-size: 12px;
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-bottom: 10px;
-}
 .source-foot {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap;
   gap: 6px;
-  min-height: 24px;
+  min-height: 30px;
+  padding-left: 52px;
+}
+.tag-muted {
+  background: var(--surface-2);
+  color: var(--text-3);
 }
 .source-actions {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 2px;
   margin-left: auto;
 }
-.crumbs {
+.source-actions .btn:first-child:not(.btn-icon) {
+  margin-right: 4px;
+}
+.add-source-card {
   display: flex;
   align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
+  gap: 12px;
+  min-height: 72px;
+  padding: 14px 16px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text-2);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.add-source-card:hover {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.add-source-card:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+.add-icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--radius-lg);
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  color: inherit;
+}
+.add-source-card:hover .add-icon {
+  background: var(--card);
+}
+.add-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
-.crumb {
-  border: none;
-  background: none;
+.add-text strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.add-source-card:hover .add-text strong {
   color: var(--brand);
+}
+.add-text span {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* 更多下载网站 */
+.web-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.web-source-card {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.web-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.web-avatar {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  color: var(--text-2);
   font-size: 13px;
-  padding: 4px 6px;
-  border-radius: 4px;
-  max-width: 240px;
+  font-weight: 650;
+}
+.web-desc {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-3);
+}
+.web-open {
+  align-self: flex-start;
+}
+
+/* GitHub 书库 */
+.gh-card {
+  padding: 4px 16px;
+}
+.gh-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 0;
+}
+.gh-row-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.gh-repos {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+}
+.gh-repo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--card);
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.crumb:hover {
-  background: var(--brand-light);
-}
-.crumb.current {
-  color: var(--text);
-  font-weight: 500;
-}
-.crumb-sep {
-  color: var(--text-3);
-  font-size: 12px;
-}
-.nav-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 10px;
-  margin-bottom: 20px;
-}
-.nav-card {
-  padding: 12px 14px;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  cursor: pointer;
-  transition:
-    box-shadow var(--dur) var(--ease),
-    border-color var(--dur) var(--ease);
-}
-.nav-card:hover {
-  box-shadow: var(--shadow-md);
-  border-color: color-mix(in srgb, var(--brand) 30%, var(--border));
-}
-.nav-card:focus-visible {
-  outline: none;
-  box-shadow: var(--ring), var(--shadow-md);
-}
-.nav-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text);
-}
-.nav-summary {
-  font-size: 12px;
-  color: var(--text-3);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.pub-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.pub {
-  display: flex;
-  gap: 16px;
-  padding: 14px;
-}
-.pub-cover {
-  width: 84px;
-  height: 118px;
-  object-fit: cover;
-  border-radius: 6px;
-  flex-shrink: 0;
+.gh-repo-chip.community {
   background: var(--surface-2);
+  border-color: transparent;
+  cursor: default;
 }
-.pub-cover.placeholder {
+.gh-repo-del {
+  border: none;
+  background: none;
+  color: var(--text-3);
+  width: 20px;
+  height: 20px;
+  margin-right: -6px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+}
+.gh-repo-del:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.gh-repo-add {
+  height: 28px;
+  width: 220px;
+  max-width: 100%;
+  font-size: 12px;
+  border-radius: var(--radius-pill);
+}
+.gh-community {
+  border-top: 1px solid var(--border);
+  padding: 4px 0;
+}
+.gh-community summary {
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: var(--text-3);
-}
-.pub-info {
-  min-width: 0;
-  flex: 1;
-}
-.pub-title {
-  font-weight: 500;
-  margin-bottom: 4px;
-}
-.pub-author {
-  font-size: 13px;
-  color: var(--text-3);
-  margin-bottom: 6px;
-}
-.pub-summary {
-  font-size: 13px;
-  color: var(--text-2);
-  line-height: 1.7;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin-bottom: 10px;
-}
-.pub-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.no-acq {
-  font-size: 12px;
-  color: var(--text-3);
-}
-.load-more {
-  display: flex;
-  justify-content: center;
-  padding: 20px;
-}
-.form-row {
-  display: flex;
-  flex-direction: column;
   gap: 6px;
-  margin-bottom: 12px;
-}
-.form-row-pair {
-  display: flex;
-  gap: 10px;
-}
-.form-row-pair .form-row {
-  flex: 1;
-}
-.form-row label {
+  padding: 8px 0;
   font-size: 13px;
+  font-weight: 500;
   color: var(--text-2);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
 }
-.form-hint {
-  font-size: 12px;
+.gh-community summary::-webkit-details-marker {
+  display: none;
+}
+.gh-community summary:hover {
+  color: var(--text);
+}
+.gh-community summary:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: var(--radius-sm);
+}
+.gh-caret {
   color: var(--text-3);
-  line-height: 1.7;
-  margin-bottom: 16px;
+  transition: transform var(--dur) var(--ease);
 }
-.form-hint code {
-  font-family: var(--font-mono);
-  font-size: 0.92em;
-  background: var(--surface-2);
-  padding: 1px 5px;
-  border-radius: 4px;
+.gh-community[open] .gh-caret {
+  transform: rotate(90deg);
 }
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+.gh-community .gh-repos {
+  padding: 2px 0 10px;
+}
+.gh-updated {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-3);
 }
 
 /* Calibre 书库 */
-.calibre-section {
-  margin-top: 32px;
-}
-.calibre-section h2 {
-  font-size: 16px;
-}
 .calibre-path {
-  font-size: 12px;
-  color: var(--text-3);
-  max-width: 260px;
+  max-width: 520px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 .calibre-grid {
   display: grid;
@@ -1541,7 +2146,7 @@ async function removeSource(s: CatalogSourceRec) {
   width: 72px;
   height: 100px;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
   background: var(--surface-2);
 }
@@ -1583,213 +2188,228 @@ async function removeSource(s: CatalogSourceRec) {
   margin-top: auto;
 }
 
-.gh-section {
-  margin-top: 28px;
-}
-.gh-section h2 {
-  font-size: 16px;
-}
-.gh-search-row {
+/* ---- 目录浏览 ---- */
+.toolbar {
   display: flex;
-  gap: 8px;
-  max-width: 560px;
-}
-.gh-search-row .input {
-  flex: 1;
-}
-.gh-repos {
-  display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
   flex-wrap: wrap;
-  align-items: center;
-  margin-top: 10px;
 }
-.gh-repo-chip {
-  display: inline-flex;
+.crumbs {
+  display: flex;
   align-items: center;
-  gap: 4px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  font-size: 12px;
-  color: var(--text-2);
-  background: var(--card);
+  gap: 2px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
-.gh-repo-del {
+.crumb {
   border: none;
   background: none;
   color: var(--text-3);
-  width: 20px;
-  height: 20px;
-  margin-right: -6px;
-  border-radius: 50%;
-  display: inline-grid;
-  place-items: center;
-  padding: 0;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.gh-repo-del:hover {
-  color: var(--danger);
-  background: var(--danger-soft);
+.crumb:hover {
+  background: var(--surface-2);
+  color: var(--text);
 }
-.gh-repo-add {
-  height: 28px;
-  width: 210px;
+.crumb.current {
+  color: var(--text);
+  font-weight: 600;
+}
+.crumb-sep {
+  color: var(--border-strong);
   font-size: 12px;
-  border-radius: 14px;
 }
-.gh-notice {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--warning);
+.dir-search {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
 }
-.gh-progress {
-  margin-top: 8px;
-  font-size: 13px;
-  color: var(--brand);
-}
-.gh-results {
-  margin-top: 12px;
-  max-width: 720px;
-  max-height: 420px;
-  overflow: auto;
-  padding: 8px;
-}
-.gh-item {
-  padding: 8px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.gh-item:hover {
-  background: var(--surface-2);
-}
-.gh-item:focus-visible {
-  outline: none;
-  box-shadow: var(--ring);
-}
-.gh-item.busy {
-  opacity: 0.5;
+.dir-search svg {
+  position: absolute;
+  left: 11px;
+  color: var(--text-3);
   pointer-events: none;
 }
-.gh-name {
-  font-size: 13px;
+.dir-search .input {
+  width: 240px;
+  padding-left: 32px;
+}
+.nav-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  margin-bottom: 24px;
+}
+.nav-card {
+  padding: 12px 12px 12px 16px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition:
+    box-shadow var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.nav-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: color-mix(in srgb, var(--brand) 30%, var(--border));
+}
+.nav-card:focus-visible {
+  outline: none;
+  box-shadow: var(--ring), var(--shadow-md);
+}
+.nav-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nav-title {
+  font-size: 14px;
+  font-weight: 500;
   color: var(--text);
-  word-break: break-all;
 }
-.gh-meta {
-  font-size: 11px;
-  color: var(--text-3);
-  word-break: break-all;
-}
-.gh-empty {
-  color: var(--text-3);
-  font-size: 13px;
-  text-align: center;
-  padding: 16px 0;
-}
-.gh-count {
+.nav-summary {
   font-size: 12px;
   color: var(--text-3);
-  padding: 8px 10px 2px;
-  border-top: 1px solid var(--border);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-
-.uni-section {
-  margin-bottom: 24px;
-  padding: 16px 18px;
-  max-width: 760px;
+.nav-chevron {
+  flex-shrink: 0;
+  color: var(--text-3);
+  transition: transform var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.uni-section h2 {
-  font-size: 16px;
+.nav-card:hover .nav-chevron {
+  color: var(--brand);
+  transform: translateX(2px);
+}
+.pub-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+  gap: 12px;
+}
+.pub {
+  display: flex;
+  gap: 16px;
+  padding: 14px;
+}
+.pub-cover {
+  width: 84px;
+  height: 118px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+}
+.pub-cover.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  box-shadow: none;
+}
+.pub-info {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.pub-title {
+  font-weight: 600;
+  line-height: 1.5;
+  margin-bottom: 2px;
+}
+.pub-author {
+  font-size: 13px;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+.pub-summary {
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.7;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   margin-bottom: 10px;
 }
-.uni-scopes {
+.pub-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
-  margin-top: 10px;
+  margin-top: auto;
+}
+.no-acq {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.load-more {
+  display: flex;
+  justify-content: center;
+  padding: 20px;
+}
+.empty-icon.spinner svg {
+  animation: spin 0.9s linear infinite;
+}
+.empty-icon.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.hint {
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+/* ---- 添加 / 编辑书源弹窗 ---- */
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.form-row-pair {
+  display: flex;
+  gap: 10px;
+}
+.form-row-pair .form-row {
+  flex: 1;
+}
+.form-row label {
   font-size: 13px;
   color: var(--text-2);
 }
-.check-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 12px 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 15px;
-  cursor: pointer;
-  user-select: none;
-  transition:
-    border-color var(--dur-fast) var(--ease),
-    background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
-}
-.check-chip:hover {
-  border-color: var(--border-strong);
-}
-.check-chip.on {
-  background: var(--brand-light);
-  border-color: color-mix(in srgb, var(--brand) 50%, var(--border));
-  color: var(--brand);
-}
-.check-chip:focus-within {
-  box-shadow: var(--ring);
-}
-.check-chip input {
-  width: 14px;
-  height: 14px;
-}
-.uni-group {
-  margin-top: 12px;
-  border-top: 1px solid var(--border);
-  max-height: 300px;
-  overflow: auto;
-}
-.uni-group-head {
-  position: sticky;
-  top: 0;
-  background: var(--card);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-2);
-  padding: 8px 4px 4px;
-}
-.uni-pub {
-  position: relative;
-}
-.uni-acts {
-  display: flex;
-  gap: 6px;
-  margin-top: 4px;
-}
-.mine-tag {
-  margin-right: 4px;
-  background: var(--brand-light);
-  color: var(--brand);
-}
-.uni-group-msg {
+.form-hint {
   font-size: 12px;
   color: var(--text-3);
-  padding: 4px 4px 8px;
+  line-height: 1.7;
+  margin-bottom: 16px;
 }
-.uni-group-msg.error {
-  color: var(--danger);
+.form-hint code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 4px;
 }
-.uni-more {
+.form-actions {
   display: flex;
-  justify-content: center;
-  padding: 6px 0 10px;
-}
-.check-chip.mine svg {
-  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .conn-input {
   min-height: 72px;
@@ -1811,30 +2431,19 @@ async function removeSource(s: CatalogSourceRec) {
 .conn-status.error {
   color: var(--warning);
 }
-.gh-updated {
-  font-size: 12px;
-  color: var(--text-3);
-  margin-left: 10px;
-}
-.gh-repo-chip.community {
-  background: var(--brand-light);
-  border-color: transparent;
-  color: var(--brand);
-}
-.empty-icon.spinner svg {
-  animation: spin 0.9s linear infinite;
-}
-.empty-icon.danger {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-.hint {
-  font-size: 13px;
-  line-height: 1.8;
-}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin,
+  .empty-icon.spinner svg {
+    animation-duration: 2.4s;
+  }
+  .source-card:hover {
+    transform: none;
   }
 }
 
@@ -1842,17 +2451,92 @@ async function removeSource(s: CatalogSourceRec) {
   .catalog {
     padding: 16px 16px calc(28px + var(--lr-safe-bottom));
   }
-  .source-grid {
+  .page-title h1 {
+    font-size: 20px;
+  }
+  .page-title p {
+    display: none;
+  }
+  .uni-section {
+    padding: 14px;
+    margin-bottom: 28px;
+  }
+  .uni-search {
+    gap: 8px;
+  }
+  .uni-input,
+  .uni-submit {
+    height: 44px;
+  }
+  .uni-submit {
+    min-width: 0;
+    padding: 0 16px;
+  }
+  .uni-scope-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .uni-group {
+    padding: 2px 2px 4px;
+  }
+  .uni-pub-main {
+    flex-basis: 180px;
+  }
+  .uni-acts {
+    margin-left: 0;
+  }
+  .uni-acts > .btn-ghost:first-child {
+    margin-left: -11px;
+  }
+  .check-chip {
+    padding: 0 10px;
+  }
+  .web-source-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px 10px;
+    padding: 12px 14px;
+  }
+  .web-desc {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .web-open {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+  }
+  .cat-section {
+    margin-top: 28px;
+  }
+  .source-grid,
+  .web-grid {
     grid-template-columns: 1fr;
+  }
+  .gh-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .gh-repo-add {
+    width: 100%;
+  }
+  .gh-updated {
+    display: none;
   }
   .toolbar {
     gap: 8px;
   }
-  .gh-search-row {
-    max-width: none;
+  .dir-search {
+    order: 10;
+    flex: 1 1 100%;
   }
-  .calibre-path {
-    display: none;
+  .dir-search .input {
+    width: 100%;
   }
   .form-row-pair {
     flex-direction: column;
