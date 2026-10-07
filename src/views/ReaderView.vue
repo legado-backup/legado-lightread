@@ -294,8 +294,10 @@ function stopAi() {
   aiStreaming.value = false
 }
 
-// 自动阅读
+// 自动阅读: 翻页模式每隔 N 秒翻一页; 滚动模式 (含竖屏单页滚动) 匀速平滑滚动, 约 N 秒滚过一屏。
+// autoReading 表示开着 (含暂停中), autoPaused 为用户暂停 (轻点正文 / 迷你条)
 const autoReading = ref(false)
+const autoPaused = ref(false)
 let autoTimer: ReturnType<typeof setInterval> | undefined
 
 let view: any = null
@@ -342,7 +344,8 @@ function layoutGeometry() {
   const portrait = portraitView.value
   const spacing = portrait ? portraitSpacing(width, prefs.gap) : null
   const phone = window.innerWidth <= 600
-  // 上下边带: 翻页模式放页眉页脚 (章节名 / 进度), 手机屏幕矮收窄些; 竖屏滚动没有页眉页脚, 只留一线呼吸
+  // 上下边带: 翻页模式放页眉页脚 (章节名 / 进度), 手机屏幕矮收窄些; 滚动模式下正文铺满全高,
+  // 它只决定「哪段算在屏上」(进度 / 朗读起点), 竖屏滚动收窄让判定贴近实际可见区
   const margin = portrait && readerLayout.value.flow === 'scrolled'
     ? (phone ? '12px' : '20px')
     : (phone ? '36px' : '48px')
@@ -785,7 +788,24 @@ function startAutoRead() {
   if (ttsState.value === 'playing') pauseTTS()
   stopAutoRead()
   autoReading.value = true
+  autoPaused.value = false
+  runAutoEngine()
+  // 开始后收起工具栏, 把屏幕留给正文 (轻点正文暂停时再呼出)
+  hideBars()
+}
+
+/** 按当前生效的翻页 / 滚动方式开动 (暂停后继续、切换方式时也走这里) */
+function runAutoEngine() {
+  clearInterval(autoTimer)
+  cancelAnimationFrame(autoRaf)
+  if (!autoReading.value || autoPaused.value) return
+  if (effectiveFlow.value === 'scrolled' && !view?.isFixedLayout) {
+    autoLastTs = 0
+    autoRaf = requestAnimationFrame(autoScrollFrame)
+    return
+  }
   autoTimer = setInterval(() => {
+    if (autoHeld()) return
     if (fraction.value >= 0.999) {
       stopAutoRead()
       return
@@ -796,11 +816,106 @@ function startAutoRead() {
 
 function stopAutoRead() {
   autoReading.value = false
+  autoPaused.value = false
   clearInterval(autoTimer)
+  cancelAnimationFrame(autoRaf)
+}
+
+function pauseAutoRead() {
+  if (!autoReading.value) return
+  autoPaused.value = true
+  runAutoEngine()
+}
+
+function resumeAutoRead() {
+  if (!autoReading.value) return
+  autoPaused.value = false
+  runAutoEngine()
+}
+
+/** 速度 (秒/页、秒/屏) 微调: 越慢步子越大; 3–60 秒 */
+function adjustAutoSpeed(dir: 1 | -1) {
+  const s = settings.autoReadSeconds
+  const step = s > 20 ? 5 : s > 10 ? 2 : 1
+  // dir = 1 为加快 (秒数变小)
+  settings.autoReadSeconds = Math.min(60, Math.max(3, s - dir * step))
+}
+
+// ---- 滚动模式的匀速滚动 ----
+let autoRaf = 0
+let autoLastTs = 0
+/** 浮点滚动位置 (scrollTop 会被取整, 慢速时每帧不足 1px, 需自己累计) */
+let autoPos = -1
+/** 手指按住 / 滚轮拨动正文后暂缓到这个时间, 松手后接着滚 */
+let autoHoldUntil = 0
+/** 上次让 foliate 报告位置 (relocate) 的时间: 连续滚动时它的 scroll 防抖永远等不到停顿 */
+let autoReportTs = 0
+let autoCrossing = false
+
+/** 面板 / 抽屉打开、手指按住正文时暂缓 (不算暂停, 收起后自动继续) */
+function autoHeld() {
+  return Date.now() < autoHoldUntil || panel.value !== 'none' || settingsOpen.value || ttsPanel.value
+    || jumpOpen.value || ambientPanel.value || !!activeAnnotation.value || !!selection.value
+}
+
+function holdAutoScroll(ms: number) {
+  autoHoldUntil = Math.max(autoHoldUntil, Date.now() + ms)
+  autoPos = -1
+}
+
+function autoScrollFrame(ts: number) {
+  if (!autoReading.value || autoPaused.value) return
+  autoRaf = requestAnimationFrame(autoScrollFrame)
+  const dt = autoLastTs ? Math.min(100, ts - autoLastTs) : 0
+  autoLastTs = ts
+  const r = view?.renderer
+  if (!r || !dt || loading.value || autoCrossing || !r.scrolled || autoHeld()) {
+    if (autoHeld()) autoPos = -1
+    return
+  }
+  const size = Number(r.size) || 0
+  const viewSize = Number(r.viewSize) || 0
+  if (!size) return
+  // 本节滚到底: 进入下一节 (foliate 的 next 在节尾切到下一节顶部); 全书读完则停
+  if (viewSize - (r.start + size) <= 2) {
+    if (fraction.value >= 0.999 || r.atEnd) {
+      stopAutoRead()
+      return
+    }
+    autoCrossing = true
+    autoPos = -1
+    Promise.resolve(r.next()).finally(() => {
+      autoCrossing = false
+      autoLastTs = 0
+    })
+    return
+  }
+  const speed = size / Math.max(3, settings.autoReadSeconds) // px/s
+  const cur = Number(r.containerPosition) || 0
+  // 用户手动滚过 (位置与自己累计的差太多) 就从当前位置接着走
+  if (autoPos < 0 || Math.abs(autoPos - cur) > 4) autoPos = cur
+  autoPos += speed * dt / 1000
+  const delta = autoPos - cur
+  // delta 必须为正: foliate 的 next(0) 会当成「翻一整屏」
+  if (ts - autoReportTs > 1000 && delta >= 1) {
+    // 每秒让 foliate 正常走一次「滚动到 + 报告位置」(关掉动画即刻完成), 进度、页码、自动保存照常更新
+    autoReportTs = ts
+    const animated = r.hasAttribute('animated')
+    if (animated) r.removeAttribute('animated')
+    void r.next(delta)
+    if (animated) r.setAttribute('animated', '')
+  } else {
+    r.containerPosition = autoPos
+  }
+  pingReadingAuto()
 }
 
 watch(() => settings.autoReadSeconds, () => {
-  if (autoReading.value) startAutoRead()
+  if (autoReading.value && !autoPaused.value) runAutoEngine()
+})
+// 旋转屏幕等导致翻页 / 滚动方式改变: 换对应的推进方式
+watch(effectiveFlow, () => {
+  if (autoReading.value) runAutoEngine()
 })
 
 // ---- 听书 ----
@@ -1522,6 +1637,8 @@ function onSectionLoad(e: CustomEvent) {
   // 与滑动走同一条触摸管线; 之后的合成 click 一律吞掉。
   let touchStart: { x: number; y: number; t: number; atTop: boolean; atBottom: boolean; crossed?: boolean } | null = null
   doc.addEventListener('touchstart', (e: TouchEvent) => {
+    // 自动滚动中手指按住正文: 先停住, 让人能自己拖着看 (松手后接着滚)
+    if (autoReading.value) holdAutoScroll(60_000)
     const t0 = e.changedTouches[0]
     // 滚动模式下记下起手时是否已停在本节顶 / 底: 只有停稳后再滑才跨章, 避免惯性一滑到底就跳走
     const r = view?.renderer
@@ -1560,6 +1677,10 @@ function onSectionLoad(e: CustomEvent) {
   // 捕获阶段先于 foliate 的 touchend 监听: 轻点时阻断其"吸附回当前页"动画,
   // 否则吸附动画与我们的翻页动画并发抢写滚动位置, 随机弹回 (Windows 触屏的病根)
   doc.addEventListener('touchend', (e: TouchEvent) => {
+    if (autoReading.value) {
+      autoHoldUntil = Date.now() + 1200
+      autoPos = -1
+    }
     const t0 = e.changedTouches[0]
     const st = touchStart
     touchStart = null
@@ -1600,6 +1721,9 @@ function onSectionLoad(e: CustomEvent) {
     // 吞掉这次轻点随后的合成 click (必须在处理之后设置)
     suppressClickUntil = Date.now() + 700
   }, { passive: true, capture: true })
+
+  // 自动滚动中拨滚轮 / 触控板: 暂缓一会儿再接着滚, 不和用户抢
+  doc.addEventListener('wheel', () => { if (autoReading.value) holdAutoScroll(1500) }, { passive: true })
 
   // 指针/触摸引发的 focusin 会让 foliate 回滚到旧锚点 (表现为翻页弹回), 拦掉;
   // 键盘 Tab 导航的 focusin 不受影响
@@ -1642,6 +1766,18 @@ function onContentClick(clientX: number, doc: Document, target?: Element | null,
   const contentRect = container.value?.getBoundingClientRect()
   if (!frameRect || !contentRect) return
   const x = frameRect.left + clientX - contentRect.left
+  // 自动翻页 / 滚动中: 轻点暂停并呼出工具栏, 再点继续 (滚动时整屏都可点; 翻页时左右两侧仍可手动翻)
+  const middle = x >= contentRect.width / 3 && x <= contentRect.width * 2 / 3
+  if (autoReading.value && (middle || effectiveFlow.value === 'scrolled')) {
+    if (autoPaused.value) {
+      resumeAutoRead()
+      hideBars()
+    } else {
+      pauseAutoRead()
+      showBars()
+    }
+    return
+  }
   if (x < contentRect.width / 3) turnPage('left')
   else if (x > contentRect.width * 2 / 3) turnPage('right')
   // 中间 1/3: 呼出 / 隐藏工具栏 (沉浸式)
@@ -2430,7 +2566,8 @@ onBeforeUnmount(() => {
       v-if="modes.panelOpen.value"
       :modes="modes"
       :progress="typewriterProgress"
-      :auto-reading="autoReading"
+      :auto-reading="autoReading && !autoPaused"
+      :auto-scrolled="effectiveFlow === 'scrolled'"
       :tts-active="ttsState === 'playing'"
       v-model:auto-read-seconds="settings.autoReadSeconds"
       @start-auto="startAutoRead"
@@ -2442,7 +2579,17 @@ onBeforeUnmount(() => {
         <DianjingToggle :dj="dj" @open-settings="router.push('/settings')" @open-outline="dj.openOutline()" @open-skim="dj.openSkim()" />
       </template>
     </ReadingModePanel>
-    <ReadingModeMini :modes="modes" :bars-visible="barsVisible" :progress="typewriterProgress" />
+    <ReadingModeMini
+      :modes="modes"
+      :bars-visible="barsVisible"
+      :progress="typewriterProgress"
+      :solid="effectiveFlow === 'scrolled'"
+      :auto-state="autoReading ? (autoPaused ? 'paused' : 'running') : null"
+      :auto-speed-text="t(effectiveFlow === 'scrolled' ? 'reader.secPerScreen' : 'reader.secPerPage', { n: settings.autoReadSeconds })"
+      @auto-toggle="autoPaused ? resumeAutoRead() : pauseAutoRead()"
+      @auto-speed="adjustAutoSpeed"
+      @auto-stop="stopAutoRead"
+    />
     <ReadingModeLayer :modes="modes" :bars-visible="barsVisible" :suggest-eink="modes.einkSuggested.value" />
 
     <!-- 点睛阅读: 首次同意 / 解释卡 / 章首要义 / 脉络 / 速读 / 状态 -->
@@ -3806,6 +3953,8 @@ onBeforeUnmount(() => {
 }
 .set-row input[type='range'] {
   flex: 1;
+  /* 滑条默认有约 130px 的最小宽度, 字号一行 (A− 滑条 A+ 输入框) 会被撑出面板 */
+  min-width: 0;
   accent-color: var(--brand);
 }
 .set-row span {

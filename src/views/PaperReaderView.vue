@@ -3782,7 +3782,8 @@ onBeforeUnmount(() => {
               @click="setPagedFit('fitW')"
             >{{ t('reader.fitWidth') }}</button>
           </div>
-          <div class="reader-segment page-view-segment no-phone" role="group" :aria-label="t('reader.pageView')">
+          <!-- 竖屏锁定单页滚动时对页 / 书籍视图不生效, 收起省出工具栏空间 -->
+          <div v-if="!pdfEffective.portraitLocked" class="reader-segment page-view-segment no-phone" role="group" :aria-label="t('reader.pageView')">
             <button
               type="button"
               :class="{ active: spreadMode === 'single' }"

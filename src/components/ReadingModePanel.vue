@@ -21,8 +21,10 @@ const props = defineProps<{
   modes: ReadingModes
   /** 自动翻页是否在运行 (ReaderView 的 autoReading) */
   autoReading: boolean
-  /** 自动翻页速度, 秒/页 (v-model:auto-read-seconds) */
+  /** 自动翻页速度, 秒/页 (v-model:auto-read-seconds); 滚动模式下为秒/屏 */
   autoReadSeconds: number
+  /** 当前为滚动模式: 自动翻页改为匀速平滑滚动 */
+  autoScrolled?: boolean
   /** 打字机 / 歌词运行时的进度与剩余时间 (阅读器计算); 未运行为 null */
   progress?: ReadingModeProgress | null
   /** 听书正在播放 */
@@ -152,6 +154,8 @@ function toggleAuto() {
     return
   }
   props.modes.stopForExternal('auto')
+  // 手机上面板是盖住正文的底部抽屉: 开始后收起 (同打字机 / 歌词), 暂停、调速用底部迷你条或轻点正文
+  if (window.matchMedia?.('(max-width: 600px)').matches) close()
   emit('start-auto')
 }
 
@@ -405,7 +409,7 @@ function onSpeedInput(e: Event) {
 
       <!-- 自动翻页 (原自动阅读): 行为不变, 秒/页 3–60 -->
       <div v-if="tab === 'auto'" class="auto-panel rm-body">
-        <p class="rm-hint">{{ t('readingMode.autoHint') }}</p>
+        <p class="rm-hint">{{ t(autoScrolled ? 'readingMode.autoScrollHint' : 'readingMode.autoHint') }}</p>
         <div class="rm-row">
           <span class="rm-label">{{ t('reader.speed') }}</span>
           <input
@@ -416,10 +420,10 @@ function onSpeedInput(e: Event) {
             step="1"
             :value="autoReadSeconds"
             :aria-label="t('reader.speed')"
-            :aria-valuetext="t('reader.secPerPage', { n: autoReadSeconds })"
+            :aria-valuetext="t(autoScrolled ? 'reader.secPerScreen' : 'reader.secPerPage', { n: autoReadSeconds })"
             @input="onAutoSeconds"
           />
-          <span class="rm-value">{{ t('reader.secPerPage', { n: autoReadSeconds }) }}</span>
+          <span class="rm-value">{{ t(autoScrolled ? 'reader.secPerScreen' : 'reader.secPerPage', { n: autoReadSeconds }) }}</span>
         </div>
         <button type="button" class="btn btn-primary rm-main" @click="toggleAuto">
           <svg v-if="autoReading" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 5a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0V6a1 1 0 0 1 1-1zm8 0a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0V6a1 1 0 0 1 1-1z"/></svg>
@@ -1320,6 +1324,31 @@ function onSpeedInput(e: Event) {
     height: 34px;
     top: 0;
     right: 0;
+  }
+  /* 触屏: 可点区域补到 44px (看起来不变, 用透明外扩) */
+  .rm-card-info::before {
+    content: '';
+    position: absolute;
+    inset: -5px;
+  }
+  .rm-panel .segmented button {
+    min-height: 40px;
+  }
+  .rm-chip {
+    height: 40px;
+  }
+  .rm-step,
+  .rm-close {
+    width: 44px;
+    height: 44px;
+  }
+  .rm-speed-input,
+  .rm-time {
+    height: 40px;
+  }
+  .rm-toggle,
+  .rm-main {
+    min-height: 44px;
   }
 }
 @media (max-width: 600px) {
