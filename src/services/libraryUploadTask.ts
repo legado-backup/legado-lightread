@@ -15,6 +15,8 @@ export interface UploadTaskRow {
   key: string
   name: string
   file?: File
+  /** 桌面选文件夹上传: 轮到这本时才从磁盘读出 (重试时再读一次) */
+  loadFile?: () => Promise<File>
   book?: BookMeta
   source: CatalogSourceRec
   capability: LibraryUploadCapability
@@ -22,7 +24,7 @@ export interface UploadTaskRow {
   status: UploadRowStatus
   error?: { key: string; params?: Record<string, string | number> }
 }
-export type UploadTaskInput = Pick<UploadTaskRow, 'key' | 'name' | 'file' | 'book'>
+export type UploadTaskInput = Pick<UploadTaskRow, 'key' | 'name' | 'file' | 'book' | 'loadFile'>
 
 export interface UploadTaskDeps {
   getBookFile(id: string): Promise<Blob>
@@ -108,6 +110,9 @@ export function uploadErrorOf(error: unknown): UploadTaskRow['error'] {
 
 async function processRow(row: UploadTaskRow, deps: UploadTaskDeps) {
   const cap = row.capability
+  if (!row.file && row.loadFile) {
+    try { row.file = await row.loadFile() } catch { throw new LibraryUploadError('upload.fileUnavailable') }
+  }
   let fileName = row.file?.name ?? row.book!.fileName
   let format = detectFormat(fileName)
   let title = row.book?.title
@@ -166,6 +171,8 @@ export function runLibraryUpload(deps?: UploadTaskDeps): Promise<void> {
         } catch (error) {
           row.status = 'failed'
           row.error = uploadErrorOf(error)
+          // 能重新从磁盘读的就先放掉, 免得失败的大文件一直占内存
+          if (row.loadFile) row.file = undefined
         }
       }
     } finally {

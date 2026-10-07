@@ -5,7 +5,7 @@ import {
   sectionSizes, bytesPerPage, fallbackBytesPerPage, sectionPageCounts,
   pagePosition, locatePage, pageToFraction, fractionToPage, parseJumpInput,
 } from '../src/services/readerPages.ts'
-import { effectiveReaderLayout, effectivePdfLayout, portraitSpacing } from '../src/services/portraitLayout.ts'
+import { effectiveReaderLayout, effectivePdfLayout, portraitSpacing, isPortraitView } from '../src/services/portraitLayout.ts'
 
 // ---- 竖屏单页滚动 (services/portraitLayout.ts) ----
 test('竖屏且开启时生效为单栏滚动, 横屏 / 关闭时用用户设置', () => {
@@ -14,6 +14,26 @@ test('竖屏且开启时生效为单栏滚动, 横屏 / 关闭时用用户设置
   assert.deepEqual(effectiveReaderLayout({ ...base, portrait: false }), { flow: 'paginated', maxColumnCount: 2, portraitLocked: false })
   assert.deepEqual(effectiveReaderLayout({ ...base, portraitScroll: false, portrait: true }), { flow: 'paginated', maxColumnCount: 2, portraitLocked: false })
   assert.equal(effectiveReaderLayout({ ...base, portrait: false, forceSingleColumn: true }).maxColumnCount, 1)
+})
+
+test('竖屏判定: 占满屏宽时按屏幕方向, 屏幕键盘压矮视口不翻成横屏', () => {
+  // Surface 竖放最大化 (960×1440), 点墨 / 系统键盘停靠后视口只剩 960×880
+  const surface = { screenWidth: 960, screenHeight: 1440, orientationType: 'portrait-primary' }
+  assert.equal(isPortraitView({ ...surface, width: 960, height: 1378 }), true)
+  assert.equal(isPortraitView({ ...surface, width: 960, height: 880 }), true)
+  // 横放最大化, 键盘弹出依旧横屏
+  const land = { screenWidth: 1440, screenHeight: 960, orientationType: 'landscape-primary' }
+  assert.equal(isPortraitView({ ...land, width: 1440, height: 898 }), false)
+  // 桌面上把窗口拉成竖长条: 仍按视口
+  assert.equal(isPortraitView({ ...land, width: 587, height: 880 }), true)
+  assert.equal(isPortraitView({ ...land, width: 900, height: 600 }), false)
+  // 手机竖屏弹出软键盘 (390×844 → 390×420)
+  assert.equal(isPortraitView({ width: 390, height: 420, screenWidth: 390, screenHeight: 844, orientationType: 'portrait-primary' }), true)
+  // 旧 iOS: screen 恒为竖放尺寸, 只有 window.orientation
+  assert.equal(isPortraitView({ width: 1180, height: 760, screenWidth: 820, screenHeight: 1180, legacyOrientation: 90 }), false)
+  assert.equal(isPortraitView({ width: 820, height: 600, screenWidth: 820, screenHeight: 1180, legacyOrientation: 0 }), true)
+  // 拿不到 screen 时退回视口宽高比
+  assert.equal(isPortraitView({ width: 500, height: 800 }), true)
 })
 
 test('PDF 竖屏锁定为单页连续滚动, 放映不受影响', () => {

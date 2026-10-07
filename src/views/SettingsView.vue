@@ -364,6 +364,7 @@ watch(() => settings.syncSettings, on => {
 const navSections = computed(() => [
   { id: 'sync', label: t('settings.syncSection') },
   { id: 'general', label: t('settings.general') },
+  { id: 'features', label: t('settings.features') },
   { id: 'reading', label: t('settings.navReading') },
   { id: 'ai', label: t('settings.aiTitle') },
   ...(paperAgentRuntimeAvailable() ? [{ id: 'agents', label: t('settings.paperAgentsTitle') }] : []),
@@ -846,8 +847,8 @@ const APPEARANCE_OPTIONS = [
             </span>
           </label>
         </div>
-        <!-- 互传入口 (手机底部标签栏没有「互传」) -->
-        <router-link to="/transfer" class="transfer-entry">
+        <!-- 互传入口 (手机底部标签栏没有「互传」); 「功能」里关闭互传时隐藏 -->
+        <router-link v-if="settings.features.transfer" to="/transfer" class="transfer-entry">
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16.3 3.3a1 1 0 0 1 1.4 0l3 3a1 1 0 0 1 0 1.4l-3 3a1 1 0 1 1-1.4-1.4L17.58 8H5a1 1 0 0 1 0-2h12.59l-1.3-1.3a1 1 0 0 1 0-1.4zM7.7 13.3a1 1 0 0 1 0 1.4L6.42 16H19a1 1 0 1 1 0 2H6.41l1.3 1.3a1 1 0 1 1-1.42 1.4l-3-3a1 1 0 0 1 0-1.4l3-3a1 1 0 0 1 1.42 0z" /></svg>
           <span class="toggle-text">
             <span class="row-title">{{ t('transfer.settingsEntry') }}</span>
@@ -1039,6 +1040,32 @@ const APPEARANCE_OPTIONS = [
           </button>
         </div>
       </div>
+    </section>
+
+    <!-- 功能: 可选功能开关 (默认关) -->
+    <section id="settings-features" class="card section" aria-labelledby="settings-features-heading">
+      <h2 id="settings-features-heading" tabindex="-1">{{ t('settings.features') }}</h2>
+      <p class="section-desc">{{ t('settings.featuresDesc') }}</p>
+      <label class="toggle-row">
+        <span class="toggle-text">
+          <span class="row-title">{{ t('settings.featureBooklists') }}</span>
+          <span class="row-desc">{{ t('settings.featureBooklistsDesc') }}</span>
+        </span>
+        <span class="switch">
+          <input v-model="settings.features.recommendedBooklists" type="checkbox" role="switch" :aria-checked="settings.features.recommendedBooklists" />
+          <span class="switch-track" aria-hidden="true"></span>
+        </span>
+      </label>
+      <label class="toggle-row">
+        <span class="toggle-text">
+          <span class="row-title">{{ t('settings.featureTransfer') }}</span>
+          <span class="row-desc">{{ t('settings.featureTransferDesc') }}</span>
+        </span>
+        <span class="switch">
+          <input v-model="settings.features.transfer" type="checkbox" role="switch" :aria-checked="settings.features.transfer" />
+          <span class="switch-track" aria-hidden="true"></span>
+        </span>
+      </label>
     </section>
 
     <!-- 阅读 -->

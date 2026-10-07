@@ -279,17 +279,28 @@ export function useDianjing(opts: UseDianjingOptions) {
   function onSectionLoad(detail: { doc: Document; index: number } | null | undefined) {
     if (!detail?.doc) return
     refreshSupport()
-    engine.attach(detail.index, detail.doc)
-    // 不再显示的分节: 释放绘制层
+    // 跨章连续滚动时 getContents() 含所有已载分节 (预载的邻章也会 load)
     const live = new Set<number>((view()?.renderer?.getContents?.() ?? []).map((c: any) => c.index))
     live.add(detail.index)
+    engine.attach(detail.index, detail.doc, live)
+    // 不再显示的分节: 释放绘制层
     for (const k of engine.sections.keys()) if (!live.has(k)) engine.detach(k)
     if (active.value && !engine.active) engine.start()
   }
 
-  function onRelocate(detail: { range?: Range | null; index?: number } | null | undefined) {
+  /** 跨章连续滚动: 渲染器卸载远处的分节 (文档随后销毁), 释放它的绘制层 */
+  function onSectionUnload(detail: { doc?: Document | null; index?: number } | null | undefined) {
+    const index = detail?.index
+    if (typeof index !== 'number' || !detail?.doc) return
+    // 同一节可能刚以新文档重新载入 (重建槽位), 只释放属于被卸载文档的那一层
+    if (engine.sections.get(index)?.model.doc === detail.doc) engine.detach(index)
+  }
+
+  function onRelocate(detail: { range?: Range | null; index?: number; section?: { current?: number } } | null | undefined) {
     if (!detail) return
-    const index = typeof detail.index === 'number' ? detail.index : view()?.renderer?.getContents?.()?.[0]?.index
+    // view 转发的 relocate 没有 index, 分节号在 section.current
+    const index = typeof detail.section?.current === 'number' ? detail.section.current
+      : typeof detail.index === 'number' ? detail.index : view()?.renderer?.getContents?.()?.[0]?.index
     if (typeof index !== 'number') return
     engine.relocate(index, detail.range ?? null)
     if (pendingFlash && pendingFlash.section === index) {
@@ -659,6 +670,7 @@ export function useDianjing(opts: UseDianjingOptions) {
     setFiction,
     // 事件
     onSectionLoad,
+    onSectionUnload,
     onRelocate,
     onContentTap,
     onSelection,

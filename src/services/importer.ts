@@ -141,9 +141,15 @@ export async function importFile(
   return { ok: true, fileName: file.name, bookId }
 }
 
+/** 延迟读取的文件 (桌面端选文件夹导入: 导到这一本时才从磁盘读出) */
+export interface LazyImportFile {
+  name: string
+  load(): Promise<File>
+}
+
 /** 批量导入 */
 export async function importFiles(
-  files: Iterable<File>,
+  files: Iterable<File | LazyImportFile>,
   source = '本地导入',
   onProgress?: (done: number, total: number, current: string) => void,
   overrides?: MetaOverrides,
@@ -151,13 +157,13 @@ export async function importFiles(
   const list = Array.from(files)
   const results: ImportResult[] = []
   let done = 0
-  for (const file of list) {
-    onProgress?.(done, list.length, file.name)
+  for (const item of list) {
+    onProgress?.(done, list.length, item.name)
     try {
-      results.push(await importFile(file, source, overrides))
+      results.push(await importFile('load' in item ? await item.load() : item, source, overrides))
     } catch (error: any) {
       // 单本存储失败也要继续其余文件，并让界面能正常退出进度状态。
-      results.push({ ok: false, fileName: file.name, error: error?.message ?? '文件保存失败' })
+      results.push({ ok: false, fileName: item.name, error: error?.message ?? '文件保存失败' })
     }
     done++
   }

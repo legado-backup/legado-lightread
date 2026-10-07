@@ -14,6 +14,8 @@ export interface ReaderPrefs {
   maxColumnCount: 1 | 2
   /** 平板竖屏 (高于宽) 时改为单栏连续滚动, 横屏恢复上面的 flow / 分栏; PDF 同样适用 */
   portraitScroll: boolean
+  /** 滚动模式下跨章连续滚动: 章与章首尾相接 (docs/continuous-scroll.md); 关掉回到单章滚动 */
+  continuousScroll: boolean
   fontFamily: string
   justify: boolean
   /** 字距 (em), 0 为书籍原样; 大字预设为 0.05 */
@@ -101,6 +103,14 @@ export interface ReadingModePrefs {
   night: { schedule: boolean; from: string; to: string }
   /** 预设快照 (按预设 id), 持久化以便崩溃后恢复 */
   presets: Record<string, PresetRecordPrefs>
+}
+
+/** 可选功能开关 (设置 → 功能); 默认关, 开启后与原先完全一致 */
+export interface FeaturePrefs {
+  /** 书单推荐: 书源页的「书单推荐」区块与远程书单拉取 (自制书单 / 待找 / 分享导入不受影响) */
+  recommendedBooklists: boolean
+  /** 互传: 侧栏入口、后台收取、「发送到其他设备」等所有入口 */
+  transfer: boolean
 }
 
 /** 结构版本: 修正历史默认值时递增 */
@@ -222,6 +232,8 @@ interface SettingsState {
   readingMode: ReadingModePrefs
   /** 背景音 */
   ambient: AmbientPrefs
+  /** 可选功能开关 */
+  features: FeaturePrefs
 }
 
 const STORAGE_KEY = 'lightread-settings'
@@ -240,6 +252,7 @@ const defaults: SettingsState = {
     flow: 'paginated',
     maxColumnCount: 2,
     portraitScroll: true,
+    continuousScroll: true,
     fontFamily: '',
     justify: true,
     letterSpacing: 0,
@@ -319,6 +332,10 @@ const defaults: SettingsState = {
     duckLevel: 0.25,
     pauseWhenHidden: true,
   },
+  features: {
+    recommendedBooklists: false,
+    transfer: false,
+  },
 }
 
 /** 默认设置的副本 (设置同步判断「从没改过」、测试检查每项设置都已归类) */
@@ -379,6 +396,10 @@ function load(): SettingsState {
       pdf: { ...defaults.pdf, ...saved.pdf },
       paperAgentExecutables: { ...defaults.paperAgentExecutables, ...savedAgentExecutables },
       readingMode: mergeReadingMode(saved.readingMode),
+      features: {
+        ...defaults.features,
+        ...(saved.features && typeof saved.features === 'object' && !Array.isArray(saved.features) ? saved.features : {}),
+      },
       dianjing: {
         ...structuredClone(defaults.dianjing),
         ...(saved.dianjing && typeof saved.dianjing === 'object' ? saved.dianjing : {}),

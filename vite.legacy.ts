@@ -18,6 +18,8 @@ export const BROWSER_TARGET = ['chrome89', 'edge89', 'firefox89', 'safari15', 'i
  * 正则后行断言 `(?<=…)` / `(?<!…)` 在 Safari < 16.4 是语法错误, 构建工具不会降级;
  * 一旦出现在模块里, 整个 chunk 都无法解析。这里把第三方依赖里已知的写法改成等价形式,
  * 依赖升级后改写失配则构建失败, 防止静默回归。顺带用同一机制给 foliate 的两处卸载/换章竞态加守卫。
+ * 注: 现在打包的是 src/vendor/foliate/paginator.js 这个 fork (vite.config.ts), 下面三条 paginator 改写
+ * 已直接写进 fork; 上游 paginator.js 不再被打包, 这些规则只在上游文件重新被引用时生效。
  */
 const LOOKBEHIND_REWRITES: { file: RegExp; from: string; to: string }[] = [
   {

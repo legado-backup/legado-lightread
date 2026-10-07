@@ -25,9 +25,12 @@ npm run test:compat / test:tts   # 旧 WebView 兼容 (构建目标/polyfill/CSS
 npm run test:reader-pages / test:listen-eta   # 重排书页码 (实测+推算/双栏/跳页往返); 听书剩余时间 (语速学习/人话时长)
 npm run test:read-aloud      # 听书: 句子游标断句 + 播放管线 (分块/预取/无缝拼接/回退, 假时钟) + 音色目录
 npm run test:reading-modes   # 阅读模式: 打字机出字节奏 / 断句 / 按行分组 (纯函数)
-npm run test:book-sources    # 公共书源: 查询归一 / 哲学文库本地索引搜索 / IA·Open Library·GitHub 相关度
+npm run test:book-sources    # 公共书源: 查询归一 / 哲学文库·研辞问典本地索引搜索 / 教材分卷合并与排序 / IA·Open Library·GitHub 相关度
 node scripts/build-philosophy-index.mjs   # 重新生成哲学文库离线索引 src/data/philosophy-index.json (限速抓目录页, 约 5 分钟)
+node scripts/build-wendian-index.mjs      # 重新生成研辞问典离线书目 src/data/wendian-index.json (sitemap + 分类列表页, ≤1 次/秒, 约 17 分钟; 不碰站内搜索)
 npm run test:opds-library / test:library-upload   # 自建书库: 连接信息解析·搜索发现·EPUB 优先; 上传协议
+npm run test:folder-pick / e2e:folder-pick   # 选择文件夹导入 / 上传: 递归找书 + 按格式推荐度去重
+npm run e2e:continuous-scroll   # 跨章连续滚动: 逐帧触摸 + 惯性跨章, 无回跳 / 预载 / 插入上方不跳 (设计见 docs/continuous-scroll.md)
 npm run test:convert-epub    # 格式转换: MOBI/AZW3/FB2/TXT → EPUB 3 (OPF/nav/资源改写)
 npm run test:transfer / test:qr   # 互传: 三种通道 (账号 / WebDAV / 取件码) 纯逻辑; 无依赖二维码编码
 npm run test:booklists / e2e:booklists   # 书单: 待找匹配·自动归入·分享导入·推荐书单校验; 浏览→找书→加入→分享→导入 (node scripts/build-booklists.mjs 用 Wikidata 重建奖项书单)

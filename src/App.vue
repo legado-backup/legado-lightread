@@ -24,13 +24,15 @@ import {
   type UpdateInfo,
 } from './services/updater'
 
-useSettings().persistOnChange()
+const settings = useSettings()
+settings.persistOnChange()
 useAppearance()
 const route = useRoute()
 const router = useRouter()
 let stopExternalOpen: (() => void) | undefined
 let stopSync: (() => void) | undefined
 let stopTransfer: (() => void) | undefined
+let stopTransferWatch: (() => void) | undefined
 let stopUpdateChecks: (() => void) | undefined
 
 const updateInfo = ref<UpdateInfo | null>(null)
@@ -104,8 +106,11 @@ onMounted(async () => {
   if (isTauri()) stopExternalOpen = await startExternalOpen(router)
   // 多端同步: 启动一次、切到后台、每 5 分钟 (未开启自动同步时引擎自己跳过)
   stopSync = startAutoSync()
-  // 互传: 启动、获得焦点、可见期间定时收取 (未登录且未配置 WebDAV 时什么也不做)
-  stopTransfer = startTransferPolling(() => router.push('/transfer'))
+  // 互传: 启动、获得焦点、可见期间定时收取 (未登录且未配置 WebDAV 时什么也不做); 设置里关闭互传时不收取
+  stopTransferWatch = watch(() => settings.features.transfer, on => {
+    stopTransfer?.()
+    stopTransfer = on ? startTransferPolling(() => router.push('/transfer')) : undefined
+  }, { immediate: true })
   // 匿名使用统计: 每天一次, 后台进行
   void pingUsage()
   void recoverFromLocalTtsCrash()
@@ -116,13 +121,13 @@ async function recoverFromLocalTtsCrash() {
   if (!localTtsAvailable()) return
   await refreshLocalPack()
   if (!localPack.crashed) return
-  const settings = useSettings()
   if (settings.ttsEngine === 'local') settings.ttsEngine = 'edge'
   toast(t('tts.localCrashedRecovered'), 'error', 12000)
 }
 onBeforeUnmount(() => {
   stopExternalOpen?.()
   stopSync?.()
+  stopTransferWatch?.()
   stopTransfer?.()
   stopUpdateChecks?.()
 })
@@ -133,7 +138,7 @@ watch(immersive, (now, before) => {
   if (before && !now) requestAutoSync('reader-exit')
 })
 
-const navs = [
+const allNavs = [
   { path: '/library', labelKey: 'nav.library', icon: 'M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5a2.5 2.5 0 0 1-2.5 2.5H6.5A2.5 2.5 0 0 1 4 18.5v-13zM6.5 5A.5.5 0 0 0 6 5.5V16.05c.16-.03.32-.05.5-.05H18V5H6.5zM6 18.5a.5.5 0 0 0 .5.5H18v-1H6.5a.5.5 0 0 0-.5.5z' },
   { path: '/papers', labelKey: 'nav.papers', icon: 'M6 2h9a1 1 0 0 1 .7.3l4 4a1 1 0 0 1 .3.7v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm8 2H6v16h12V8h-3a1 1 0 0 1-1-1V4zm2 .41V6h1.59L16 4.41zM8 11a1 1 0 0 1 1-1h6a1 1 0 1 1 0 2H9a1 1 0 0 1-1-1zm0 4a1 1 0 0 1 1-1h6a1 1 0 1 1 0 2H9a1 1 0 0 1-1-1z' },
   { path: '/catalogs', labelKey: 'nav.catalogs', icon: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM4.06 13h3.97c.1 1.9.5 3.63 1.1 5.02A8.02 8.02 0 0 1 4.06 13zm0-2a8.02 8.02 0 0 1 5.07-7.02c-.6 1.4-1 3.12-1.1 5.02H4.06zM12 4.04c.83.9 1.72 2.87 1.94 6.96h-3.88c.22-4.09 1.1-6.05 1.94-6.96zM10.06 13h3.88c-.22 4.09-1.11 6.05-1.94 6.96-.83-.9-1.72-2.87-1.94-6.96zm5.9 0h3.98a8.02 8.02 0 0 1-5.07 5.02c.6-1.4 1-3.12 1.1-5.02zm0-2c-.1-1.9-.5-3.63-1.1-5.02A8.02 8.02 0 0 1 19.95 11h-3.98z' },
@@ -141,6 +146,8 @@ const navs = [
   // 互传: 手机底部标签栏已有 5 个, 不再挤第 6 个 (手机入口在藏书页「导入」菜单与设置页), 见 docs/device-transfer.md
   { path: '/transfer', labelKey: 'nav.transfer', desktopOnly: true, icon: 'M16.3 3.3a1 1 0 0 1 1.4 0l3 3a1 1 0 0 1 0 1.4l-3 3a1 1 0 1 1-1.4-1.4L17.58 8H5a1 1 0 0 1 0-2h12.59l-1.3-1.3a1 1 0 0 1 0-1.4zM7.7 13.3a1 1 0 0 1 0 1.4L6.42 16H19a1 1 0 1 1 0 2H6.41l1.3 1.3a1 1 0 1 1-1.42 1.4l-3-3a1 1 0 0 1 0-1.4l3-3a1 1 0 0 1 1.42 0z' },
 ]
+// 互传关闭时隐藏入口 (连同未读角标)
+const navs = computed(() => allNavs.filter(n => n.path !== '/transfer' || settings.features.transfer))
 
 // 设置固定在侧栏左下角, 保持主导航干净
 const settingsNav = { path: '/settings', labelKey: 'nav.settings', icon: 'M10.83 3.28a1.5 1.5 0 0 1 2.34 0l.94 1.16c.24.3.62.45 1 .4l1.47-.2a1.5 1.5 0 0 1 1.69 1.61l-.12 1.49c-.03.38.14.75.46.97l1.23.85a1.5 1.5 0 0 1 .4 2.3l-.86 1.22c-.22.31-.26.72-.1 1.07l.6 1.36a1.5 1.5 0 0 1-1.17 2.03l-1.47.24c-.38.06-.7.32-.83.68l-.52 1.4a1.5 1.5 0 0 1-2.2.8l-1.28-.77a1.13 1.13 0 0 0-1.08 0l-1.28.76a1.5 1.5 0 0 1-2.2-.79l-.52-1.4a1.13 1.13 0 0 0-.83-.68l-1.47-.24a1.5 1.5 0 0 1-1.17-2.03l.6-1.36c.16-.35.12-.76-.1-1.07l-.87-1.22a1.5 1.5 0 0 1 .41-2.3l1.23-.85c.32-.22.49-.59.46-.97l-.12-1.5a1.5 1.5 0 0 1 1.69-1.6l1.48.2c.37.05.75-.1.99-.4l.94-1.16zM12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z' }

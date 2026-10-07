@@ -2,7 +2,8 @@
  * 阅读模式与 ReaderView 的对接层 (docs/reading-modes.md, docs/research/reading-modes-landscape.md §4–§6)。
  * 逻辑全部在这里和 services/readingModes/*, ReaderView 只做接线。
  *
- * 模式 (一个名字一个模式): 显示 = 夜间 / 护眼 / 墨水屏 / 大字; 版面 = 沉浸 / 双栏;
+ * 模式 (一个名字一个模式): 场景 = 夜读 / 护眼 / 墨水屏 / 大字 / 沉浸 (一键套用一组排版值, 关闭恢复;
+ * 值本身只在「排版」面板里调, 见 docs/reader-panels.md);
  * 带读 = 自动翻页 / 打字机 / 歌词 / 听书 (同一时刻只运行一个; 听书可以驱动歌词); 实验 = 仿生阅读。
  *
  * ## 接线清单 (ReaderView.vue)
@@ -84,7 +85,7 @@ import {
   type Script,
 } from '../services/readingModes/pacing'
 import { TypewriterController, type TypewriterConfig, type TypewriterHost, type TypewriterState } from '../services/readingModes/typewriter'
-import { READING_MODE_PREFIXES, clearReadingModeMarks } from '../services/readingModes/revealLayer'
+import { HL_GHOST, HL_HIDDEN, READING_MODE_PREFIXES, clearReadingModeMarks, supportsHighlights } from '../services/readingModes/revealLayer'
 import { createTypingSound, type TypingSound } from '../services/readingModes/sound'
 import {
   LyricController,
@@ -166,6 +167,8 @@ export interface UseReadingModesOptions {
 }
 
 const REDUCED_DEFAULT_KEY = 'lightread-reading-mode-reduced-default'
+/** 调暗改为对所有主题生效 (docs/reader-panels.md §4): 一次性清掉此前在非暖色主题下看不到的调暗值 */
+const DIM_GENERAL_KEY = 'lightread-dim-general'
 const ACTIVITY_THROTTLE_MS = 10000
 const REMINDER_CHECK_MS = 30000
 
@@ -261,7 +264,7 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   }
   function toggleNight() { setNight(!nightOn.value) }
 
-  // ---- 护眼: 暖色主题 + 应用内调暗 + 休息提醒 ----
+  // ---- 护眼: 暖色主题 + 休息提醒 (调暗是排版里的通用值, 见下方 dimLevel) ----
   const eyeCareOn = computed(() => isEyeCareTheme(theme.value))
   function setEyeCare(on: boolean) {
     if (on === eyeCareOn.value) return
@@ -282,6 +285,8 @@ export function useReadingModes(opts: UseReadingModesOptions) {
 
   // 用户在设置里直接换了主题: 夜间 / 护眼的快照不再适用, 丢掉 (下次开关从当时的主题记起)
   watch(theme, th => {
+    // 护眼的底色就是排版里最后选的暖色主题 (不再单独选一份)
+    if (isEyeCareTheme(th)) settings.readingMode.eyeCare.theme = th as 'sepia' | 'green'
     for (const id of ['night', 'nightAuto', 'eyeCare']) {
       const cur = settings.readingMode.presets
       const rec = cur[id]
@@ -293,7 +298,15 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     }
   })
 
-  const dimLevel = computed(() => (eyeCareOn.value ? clampDim(settings.readingMode.eyeCare.dim) : 0))
+  // 调暗是排版「配色」里的通用值, 对所有主题生效 (原先只在护眼时生效)。
+  // 迁移一次: 当时不是暖色主题而调暗 > 0 的, 原本看不到效果, 清零以免老用户突然变暗
+  try {
+    if (localStorage.getItem(DIM_GENERAL_KEY) !== '1') {
+      if (!eyeCareOn.value && settings.readingMode.eyeCare.dim > 0) settings.readingMode.eyeCare.dim = 0
+      localStorage.setItem(DIM_GENERAL_KEY, '1')
+    }
+  } catch { /* 存储不可用: 不迁移 */ }
+  const dimLevel = computed(() => clampDim(settings.readingMode.eyeCare.dim))
   /** 调暗遮罩 (阅读器正文之上, pointer-events:none); 0 时为 null */
   const dimOverlayStyle = computed(() => {
     const bg = dimBackground(dimLevel.value)
@@ -383,11 +396,26 @@ export function useReadingModes(opts: UseReadingModesOptions) {
 
   // ---- foliate 适配 ----
   const renderer = () => opts.getView()?.renderer
+  /**
+   * 跨章连续滚动 (docs/continuous-scroll.md §11): 同时有多个分节文档 (上下预载的邻章), getContents() 主章排第一;
+   * load 对预载的邻章也会发, 不代表翻到了那一章。打字机 / 歌词只在一个分节上工作, 跟随主章切换 (section-change)。
+   * 旧版渲染器没有 continuous, 以下分支都不走
+   */
+  const isContinuous = () => !!renderer()?.continuous
+  type Slot = { doc: Document; index: number; overlayer?: any }
+  const slots = (): Slot[] => {
+    try { return (renderer()?.getContents?.() ?? []).filter((c: any) => c?.doc) } catch { return [] }
+  }
+  const contentOf = (doc: Document): Slot | null => slots().find(c => c.doc === doc) ?? null
+  /** 正在显示的分节 (阅读线所在的主章): 按最近一次 relocate 的分节号, 否则取第一个 */
+  function primary(): Slot | null {
+    const list = slots()
+    const current = opts.getView()?.lastLocation?.section?.current
+    return (typeof current === 'number' ? list.find(c => c.index === current) : undefined) ?? list[0] ?? null
+  }
   const host: TypewriterHost = {
-    contents: () => {
-      const c = renderer()?.getContents?.()?.[0]
-      return c?.doc ? c : null
-    },
+    contents: primary,
+    contentOf,
     visibleRange: () => opts.getView()?.lastLocation?.range ?? null,
     scrolled: () => !!renderer()?.scrolled,
     atBookEnd: () => {
@@ -395,14 +423,21 @@ export function useReadingModes(opts: UseReadingModesOptions) {
       const r = view?.renderer
       if (!r) return true
       if (!r.scrolled) return !!r.atEnd
-      return lastSection()
+      const c = controller.value
+      return lastSection(c?.active ? c.section : undefined)
     },
     nextPage: () => (opts.nextPage ? opts.nextPage() : opts.getView()?.next()),
-    nextSection: () => renderer()?.nextSection?.(),
+    nextSection: () => guideNextSection(controller.value?.section ?? -1),
     scrollForward: px => {
       const r = renderer()
+      if (!r || px <= 0) return
+      // 跨章连续滚动: 原始滚动即可 (光标在阅读线之下, 主章不会因此越过本节)
+      if (r.continuous) {
+        r.scrollBy?.(0, px)
+        return
+      }
       // 只在本节内滚动: 到底时 renderer.next 会跨节, 交给节末逻辑
-      if (r && r.viewSize - r.end > 2 && px > 0) void r.next(px)
+      if (r.viewSize - r.end > 2) void r.next(px)
     },
     viewportRect: () => renderer()?.getBoundingClientRect?.() ?? null,
     colors: () => opts.getColors(),
@@ -411,9 +446,9 @@ export function useReadingModes(opts: UseReadingModesOptions) {
       return doc?.documentElement?.lang || opts.getView()?.language?.canonical || (bookScript.value === 'cjk' ? 'zh' : 'en')
     },
   }
-  function lastSection(): boolean {
+  /** index (默认主章) 之后已没有线性分节 */
+  function lastSection(index: number = host.contents()?.index ?? -1): boolean {
     const view = opts.getView()
-    const index = host.contents()?.index ?? -1
     const sections: any[] = view?.book?.sections ?? []
     return !sections.slice(index + 1).some(s => s?.linear !== 'no')
   }
@@ -539,21 +574,53 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     eink: einkActive.value,
   })
 
+  /** 歌词所在分节的 iframe 在窗口中的位置 (跨章连续滚动时按它换算滚动位置, 不依赖主章) */
+  const lyricFrameRect = (): DOMRect | null => {
+    const frame = lyric.value?.doc?.defaultView?.frameElement as Element | null | undefined
+    return frame ? frame.getBoundingClientRect() : null
+  }
   const lyricHost: LyricHost = {
     contents: host.contents,
+    contentOf,
     visibleRange: host.visibleRange,
     viewportRect: host.viewportRect,
-    getScroll: () => renderer()?.start ?? 0,
+    // 跨章连续滚动: renderer.start 等是主章内的相对值, 而歌词所在分节未必是主章 (短章撑不满一屏、跟听书进入预载的下一章);
+    // 一律换算成「视口顶在歌词分节里的位置」, 用原始 scrollBy 推进。上方插入 / 卸载分节的补偿滚动不改变这个值
+    getScroll: () => {
+      const r = renderer()
+      if (r?.continuous) {
+        const vp = host.viewportRect()
+        const frame = lyricFrameRect()
+        if (vp && frame) return vp.top - frame.top
+      }
+      return r?.start ?? 0
+    },
     setScroll: px => {
       const r = renderer()
-      if (r) r.containerPosition = px
+      if (!r) return
+      if (r.continuous) {
+        const vp = host.viewportRect()
+        const frame = lyricFrameRect()
+        if (vp && frame) {
+          const delta = px - (vp.top - frame.top)
+          if (Math.abs(delta) >= 0.5) r.scrollBy?.(0, delta)
+          return
+        }
+      }
+      r.containerPosition = px
     },
     maxScroll: () => {
       const r = renderer()
-      return r ? Math.max(0, (r.viewSize ?? 0) - (r.size ?? 0)) : 0
+      if (!r) return 0
+      if (r.continuous) {
+        const vp = host.viewportRect()
+        const frame = lyricFrameRect()
+        if (vp && frame) return Math.max(0, frame.height - vp.height)
+      }
+      return Math.max(0, (r.viewSize ?? 0) - (r.size ?? 0))
     },
-    nextSection: () => renderer()?.nextSection?.(),
-    atBookEnd: lastSection,
+    nextSection: () => guideNextSection(lyric.value?.section ?? -1),
+    atBookEnd: () => lastSection(lyric.value?.active ? lyric.value.section : undefined),
     colors: () => opts.getColors(),
     lang: host.lang,
   }
@@ -701,7 +768,14 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   /** 跟听书: 阅读器在每句开始出声时传入这一句的 Range */
   function followRange(range: Range) {
     if (!lyricFollowing.value) return
-    lyric.value?.followRange(range)
+    const l = lyric.value
+    // 跨章连续滚动: 听书进入预载在下方的下一章时不会重新加载 (没有 load), 歌词直接接到朗读句所在的分节
+    const doc = range?.startContainer?.ownerDocument
+    if (l?.active && doc && l.doc !== doc && isContinuous()) {
+      const slot = contentOf(doc)
+      if (slot) l.onSectionLoad(slot.doc, slot.index)
+    }
+    l?.followRange(range)
   }
   function setFollowPaused(paused: boolean) { lyric.value?.setFollowPaused(paused) }
   function lyricNext() { lyric.value?.next() }
@@ -855,19 +929,11 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   window.addEventListener('pagehide', onPageHide)
 
   // =====================================================================
-  // 双栏、正文样式、外壳类名
+  // 单栏约束、正文样式、外壳类名
   // =====================================================================
 
   /** 大字、歌词运行时强制单栏 (不改用户的双栏设置) */
   const forceSingleColumn = computed(() => largeTextOn.value || lyricActive.value)
-  const twoColumnsOn = computed(() => settings.reader.maxColumnCount === 2)
-  function toggleTwoColumns() {
-    if (forceSingleColumn.value) {
-      toast(t('readingMode.twoColumnsBlocked'))
-      return
-    }
-    settings.reader.maxColumnCount = settings.reader.maxColumnCount === 2 ? 1 : 2
-  }
 
   /** 传给 getReaderCSS / resolveReaderColors 的附加样式 */
   const readerStyle = computed<ReaderModeStyle>(() => ({ eink: einkActive.value, largeText: largeTextOn.value }))
@@ -891,7 +957,24 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   const wordGuideActive = computed(() => !!settings.readingMode.wordGuide.enabled && !dianjingOn.value && supported.value)
   /** 已开启但被点睛阅读压住 (点睛优先) */
   const wordGuideBlocked = computed(() => !!settings.readingMode.wordGuide.enabled && dianjingOn.value)
-  let wgLayer: WordGuideLayer | null = null
+  /** 每个分节文档一层 (跨章连续滚动时上下预载的邻章也要着色; 单章渲染时只留当前文档) */
+  const wgLayers = new Map<Document, WordGuideLayer>()
+  function disposeWordGuides(keep?: ReadonlySet<Document>) {
+    for (const [doc, layer] of wgLayers) {
+      if (keep?.has(doc)) continue
+      try { layer.dispose() } catch { /* 文档已卸载 */ }
+      wgLayers.delete(doc)
+    }
+  }
+  function wordGuideFor(doc: Document): WordGuideLayer | null {
+    let layer = wgLayers.get(doc) ?? null
+    if (!layer) {
+      layer = WordGuideLayer.create(doc, wgOptions())
+      wordGuideSupported.value = !!layer
+      if (layer) wgLayers.set(doc, layer)
+    }
+    return layer
+  }
 
   const wgOptions = () => ({
     style: settings.readingMode.wordGuide.style,
@@ -902,18 +985,40 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   function syncWordGuide(doc?: Document | null, visible?: Range | null) {
     try {
       if (!wordGuideActive.value) {
-        wgLayer?.dispose()
-        wgLayer = null
+        disposeWordGuides()
         return
       }
       const d = doc ?? host.contents()?.doc
       if (!d) return
-      if (wgLayer?.doc !== d) {
-        wgLayer?.dispose()
-        wgLayer = WordGuideLayer.create(d, wgOptions())
-        wordGuideSupported.value = !!wgLayer
+      if (isContinuous()) {
+        const live = new Set<Document>(slots().map(c => c.doc))
+        live.add(d)
+        disposeWordGuides(live)
+        // 开关 / 选项变化时 (未指定文档) 给屏上其他分节也补上
+        if (!doc) for (const c of slots()) if (c.doc !== d) syncWordGuideSlot(c.doc, c.index)
+      } else disposeWordGuides(new Set([d]))
+      wordGuideFor(d)?.update(visible === undefined ? host.visibleRange() : visible)
+    } catch (e) {
+      console.warn('word guide failed', e)
+    }
+  }
+
+  /** 跨章连续滚动: 预载的邻章着色 (上方的章从末尾附近着色, 下方的从开头) */
+  function syncWordGuideSlot(doc: Document, index: number) {
+    try {
+      const layer = wordGuideFor(doc)
+      if (!layer) return
+      const p = primary()
+      if (p?.doc === doc) {
+        layer.update(host.visibleRange())
+        return
       }
-      wgLayer?.update(visible === undefined ? host.visibleRange() : visible)
+      if (p && index < p.index && doc.body) {
+        const end = doc.createRange()
+        end.selectNodeContents(doc.body)
+        end.collapse(false)
+        layer.update(end)
+      } else layer.update(null)
     } catch (e) {
       console.warn('word guide failed', e)
     }
@@ -929,7 +1034,7 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   watch(
     () => [settings.readingMode.wordGuide.style, settings.readingMode.wordGuide.strength],
     () => {
-      wgLayer?.setOptions(wgOptions())
+      for (const layer of wgLayers.values()) layer.setOptions(wgOptions())
       syncWordGuide()
     },
   )
@@ -998,11 +1103,134 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   // ReaderView 事件
   // =====================================================================
 
+  // ---- 跨章连续滚动: 跟随主章 ----
+
+  /**
+   * 主章切换 (section-change, 或 relocate 的范围落在另一个分节里)。打字机 / 歌词控制着视口时不跟:
+   * 短章撑不满一屏时阅读线会先落进下一章, 而光标 / 当前行还在本章里。只有这些情况才换到主章:
+   * 章末正等着进入下一章 (turning) 且主章在后面; 原分节已卸载; 光标 / 当前行已不在视口 (用户滚走或跳转)
+   */
+  function followPrimary(doc: Document | null | undefined, index: number) {
+    if (!doc || !isContinuous()) return
+    ensureDocListeners(doc)
+    const vis = host.visibleRange()
+    const visIn = vis && vis.startContainer?.ownerDocument === doc ? vis : null
+    const c = controller.value
+    if (c?.active && c.doc !== doc) {
+      const forward = c.state === 'turning' && index > c.section
+      if (forward || !c.doc || !contentOf(c.doc) || !c.cursorInView()) {
+        c.onSectionLoad(doc, index)
+        if (visIn) c.onRelocate(visIn)
+      }
+    }
+    const l = lyric.value
+    if (l?.active && l.doc !== doc) {
+      const forward = l.state === 'turning' && index > l.section
+      if (forward || !l.doc || !contentOf(l.doc) || !l.currentInView()) l.onSectionLoad(doc, index, forward ? null : visIn)
+    }
+    if (wordGuideActive.value) syncWordGuide(doc, visIn)
+    syncVeil()
+  }
+
+  /**
+   * 打字机 / 歌词章末进入下一章。跨章连续滚动时下一章多半已在下方排好: 主章已在后面 (短章) 就直接接上,
+   * 否则让渲染器滚到下一章顶部, 主章切换后接上 (section-change 也会触发, 重复调用无副作用)
+   */
+  async function guideNextSection(from: number): Promise<void> {
+    const r = renderer()
+    if (!r) return
+    if (!r.continuous || from < 0) return r.nextSection?.()
+    const ahead = () => {
+      const p = primary()
+      if (p && p.index > from) followPrimary(p.doc, p.index)
+      return !!p && p.index > from
+    }
+    if (ahead()) return
+    await r.nextSection?.()
+    ahead()
+  }
+
+  // 打字机运行时, 屏上排在它后面的分节 (预载在下方的下一章) 整节隐藏 / 淡显, 不能先于光标露出来
+  const veils = new Map<Document, { hl: any; name: string }>()
+  function clearVeil(doc: Document) {
+    const v = veils.get(doc)
+    if (!v) return
+    veils.delete(doc)
+    try {
+      const reg = (doc.defaultView as any)?.CSS?.highlights
+      if (reg?.get(v.name) === v.hl) reg.delete(v.name)
+    } catch { /* 文档已卸载 */ }
+  }
+  function clearVeils() {
+    for (const doc of [...veils.keys()]) clearVeil(doc)
+  }
+  function syncVeil() {
+    const c = controller.value
+    const want = new Set<Document>()
+    if (c?.active && c.section >= 0 && isContinuous()) {
+      for (const s of slots()) if (s.index > c.section && s.doc !== c.doc) want.add(s.doc)
+    }
+    const name = tw.value.upcoming === 'ghost' ? HL_GHOST : HL_HIDDEN
+    for (const [doc, v] of [...veils]) if (!want.has(doc) || v.name !== name) clearVeil(doc)
+    for (const doc of want) {
+      const win = doc.defaultView as any
+      if (veils.has(doc) || !doc.body || !supportsHighlights(win)) continue
+      try {
+        const hl = new win.Highlight()
+        try { hl.priority = 100 } catch { /* 旧实现无 priority */ }
+        const all = doc.createRange()
+        all.selectNodeContents(doc.body)
+        hl.add(all)
+        win.CSS.highlights.set(name, hl)
+        veils.set(doc, { hl, name })
+      } catch { /* 忽略 */ }
+    }
+  }
+  watch(typewriterState, () => syncVeil())
+  watch(() => tw.value.upcoming, () => syncVeil())
+
+  /** 渲染器 section-change 的 e.detail (跨章连续滚动: 主章切换) */
+  function onSectionChange(detail: { doc?: Document | null; index?: number } | null | undefined) {
+    if (!detail?.doc || typeof detail.index !== 'number') return
+    followPrimary(detail.doc, detail.index)
+  }
+
+  /** 渲染器 unload 的 e.detail (跨章连续滚动: 远处的分节被卸载, 文档随后销毁) */
+  function onSectionUnload(detail: { doc?: Document | null; index?: number } | null | undefined) {
+    const doc = detail?.doc
+    if (!doc) return
+    const layer = wgLayers.get(doc)
+    if (layer) {
+      try { layer.dispose() } catch { /* 文档已卸载 */ }
+      wgLayers.delete(doc)
+    }
+    clearVeil(doc)
+    const p = primary()
+    const next = p && p.doc !== doc ? p : null
+    const vis = host.visibleRange()
+    const visIn = next && vis && vis.startContainer?.ownerDocument === next.doc ? vis : null
+    // 换到当前主章; 还没有 (跳到未载的章, 槽位整体重建) 就等新主章的 load / section-change 接上
+    const c = controller.value
+    if (c?.active && c.doc === doc && next) {
+      c.onSectionLoad(next.doc, next.index)
+      if (visIn) c.onRelocate(visIn)
+    }
+    const l = lyric.value
+    if (l?.active && l.doc === doc && next) l.onSectionLoad(next.doc, next.index, visIn)
+    syncVeil()
+  }
+
   /** foliate relocate 的 e.detail */
   function onRelocate(detail: { range?: Range | null; reason?: string } | null | undefined) {
     const waiters = relocateWaiters
     relocateWaiters = []
     for (const w of waiters) w()
+    if (isContinuous()) {
+      // 主章切换时渲染器会立即派发一次 relocate; 没有 section-change 时也据此跟随
+      const doc = detail?.range?.startContainer?.ownerDocument
+      const slot = doc ? contentOf(doc) : null
+      if (slot) followPrimary(slot.doc, slot.index)
+    }
     controller.value?.onRelocate(detail?.range ?? null)
     lyric.value?.onRelocate(detail)
     if (wordGuideActive.value) syncWordGuide(detail?.range?.startContainer?.ownerDocument ?? null, detail?.range ?? null)
@@ -1013,6 +1241,13 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   function onSectionLoad(detail: { doc: Document; index: number } | null | undefined) {
     if (!detail?.doc) return
     ensureDocListeners(detail.doc)
+    if (isContinuous()) {
+      // 预载的邻章也会 load: 只着色 / 遮挡, 打字机 / 歌词跟随主章 (section-change)
+      if (wordGuideActive.value) syncWordGuideSlot(detail.doc, detail.index)
+      if (slots()[0]?.doc === detail.doc) followPrimary(detail.doc, detail.index)
+      syncVeil()
+      return
+    }
     controller.value?.onSectionLoad(detail.doc, detail.index)
     lyric.value?.onSectionLoad(detail.doc, detail.index)
     if (wordGuideActive.value) syncWordGuide(detail.doc, null)
@@ -1024,7 +1259,7 @@ export function useReadingModes(opts: UseReadingModesOptions) {
    * - 歌词: 传入点在分节文档里的 y (iframe 内 clientY): 点淡显的行跳过去、手动驱动按上下半屏前后一行 → 'moved';
    *   自动驱动切换暂停 → 'paused' | 'resumed'; 跟听书 → 'menu' (阅读器切换工具栏)。
    */
-  function onContentTap(at?: { y?: number | null } | null): false | 'paused' | 'resumed' | 'moved' | 'menu' {
+  function onContentTap(at?: { y?: number | null; doc?: Document | null } | null): false | 'paused' | 'resumed' | 'moved' | 'menu' {
     noteActivity()
     const s = typewriterState.value
     if (s !== 'idle') {
@@ -1036,7 +1271,8 @@ export function useReadingModes(opts: UseReadingModesOptions) {
       return 'paused'
     }
     if (lyricStarting.value) return 'menu'
-    if (lyric.value?.active) return lyric.value.tap(at?.y ?? null)
+    // y 是被点分节文档里的坐标; 跨章连续滚动时点到别的分节就不按行定位
+    if (lyric.value?.active) return lyric.value.tap(at?.doc && at.doc !== lyric.value.doc ? null : at?.y ?? null)
     return false
   }
 
@@ -1136,8 +1372,8 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     if (lyricActive.value || settings.readingMode.presets.lyric) stopLyric()
     lyric.value?.dispose()
     lyric.value = null
-    wgLayer?.dispose()
-    wgLayer = null
+    disposeWordGuides()
+    clearVeils()
     sound?.dispose()
     sound = null
     clearInterval(minuteTimer)
@@ -1190,13 +1426,11 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     readerStyle,
     renderKey,
     shellClass,
-    // ---- 版面: 沉浸 / 双栏 ----
+    // ---- 沉浸 / 单栏约束 ----
     immersive,
     toggleImmersive,
     marginalsPolicy,
     forceSingleColumn,
-    twoColumnsOn,
-    toggleTwoColumns,
     // ---- 带读: 统一控制 ----
     activeGuide,
     progressActive,
@@ -1243,6 +1477,8 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     // ---- ReaderView 事件 ----
     onRelocate,
     onSectionLoad,
+    onSectionChange,
+    onSectionUnload,
     onContentTap,
     handleKey,
     dispose,

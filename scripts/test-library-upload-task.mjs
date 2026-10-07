@@ -103,3 +103,24 @@ test('unsupported formats fail that row without stopping the queue', async () =>
   await runLibraryUpload(deps)
   assert.deepEqual(libraryUploadTask.rows.map(r => [r.status, r.error?.key]), [['failed', 'upload.unsupportedFormat'], ['success', undefined]])
 })
+
+test('folder rows load their file lazily, release it on failure and reload on retry', async () => {
+  reset()
+  let loads = 0, brokenLoads = 0
+  const deps = fakeDeps({ fail: new Set(['lazy.epub']) })
+  const lazy = { key: 'path:/books/lazy.epub', name: 'sub/lazy.epub', loadFile: async () => { loads++; return file('lazy.epub') } }
+  const broken = { key: 'path:/books/gone.pdf', name: 'gone.pdf', loadFile: async () => { brokenLoads++; throw new Error('ENOENT') } }
+  enqueueLibraryUpload(source, cap, false, [lazy, broken], deps)
+  assert.equal(brokenLoads, 0, 'later rows are not read until their turn')
+  await runLibraryUpload(deps)
+  assert.deepEqual(libraryUploadTask.rows.map(r => r.status), ['failed', 'failed'])
+  assert.deepEqual(libraryUploadTask.rows[1].error, { key: 'upload.fileUnavailable', params: {} })
+  assert.equal(deps.calls[0].fileName, 'lazy.epub', 'upload uses the real file name, not the display path')
+  assert.equal(libraryUploadTask.rows[0].file, undefined, 'failed lazy rows drop the loaded bytes')
+  deps.calls.length = 0
+  const ok = fakeDeps()
+  retryFailedLibraryUploads(ok)
+  await runLibraryUpload(ok)
+  assert.equal(loads, 2)
+  assert.equal(libraryUploadTask.rows[0].status, 'success')
+})

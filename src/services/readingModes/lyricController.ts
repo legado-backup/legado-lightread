@@ -69,7 +69,10 @@ export interface LyricConfig {
 }
 
 export interface LyricHost {
+  /** 当前显示的分节 (跨章连续滚动时为阅读线所在的主章) */
   contents(): { doc: Document; index: number; overlayer?: any } | null
+  /** 指定文档所在的已渲染分节 (跨章连续滚动时同时有多个); 不提供时只认 contents() */
+  contentOf?(doc: Document): { doc: Document; index: number; overlayer?: any } | null
   visibleRange(): Range | null
   /** 阅读区视口在宿主窗口中的位置 */
   viewportRect(): DOMRect | null
@@ -123,6 +126,8 @@ export class LyricController {
   #remaining = 0
   #anim = 0
   #selfUntil = 0
+  /** 上次定位后当前行顶在窗口中的 y: 滚动事件里当前行没动 (渲染器在视口上方插入 / 卸载分节后的补偿滚动) 不算手动滚动 */
+  #pinnedTop: number | null = null
   #detached: LyricSide | null = null
   #wasRunning = false
   #turnTimer: ReturnType<typeof setTimeout> | undefined
@@ -426,10 +431,30 @@ export class LyricController {
     }) ?? false
   }
 
+  /** 当前行在视口内 (尚未测量时视为在); 文档已卸载为 false */
+  currentInView(): boolean {
+    if (!this.active || !this.#text) return false
+    const line = this.#lines[this.#cur]
+    if (!this.#measured || !line) return true
+    const vp = this.#host.viewportRect()
+    const frame = this.#frameTop()
+    if (frame == null) return false
+    if (!vp) return true
+    return lineSide(frame + line.top, frame + line.bottom, vp.top, vp.height) == null
+  }
+
   /** 外层容器滚动 (renderer 'scroll' 事件): 区分自己的滚动与用户手动滚动 */
   onScroll() {
     if (!this.active || !this.#measured) return
     if (performance.now() < this.#selfUntil) return
+    // 章末等待进入下一节: 渲染器滚向下一节的滚动不是用户操作
+    if (this.#awaitingSection) return
+    // 当前行在窗口中的位置没变: 是渲染器的补偿滚动 (跨章连续滚动时在视口上方插入 / 卸载分节), 不是手动滚动
+    if (this.#pinnedTop != null && !this.#detached) {
+      const line = this.#lines[this.#cur]
+      const frame = this.#frameTop()
+      if (line && frame != null && Math.abs(frame + line.top - this.#pinnedTop) < 2) return
+    }
     this.#safe(() => {
       if (!this.#detached) {
         this.#wasRunning = this.#state === 'running' && this.#cfg.driver === 'pace'
@@ -454,6 +479,8 @@ export class LyricController {
     if (!this.active || !text || !range) return
     if (range.startContainer?.ownerDocument !== text.doc) return
     if (detail?.reason === 'scroll') return
+    // 自己的平滑滚动途中 (跨章连续滚动时渲染器在滚动中节流派发 relocate): 不重测, 免得打断动画直接跳过去
+    if (performance.now() < this.#selfUntil && detail?.reason !== 'navigation' && detail?.reason !== 'selection') return
     if (detail?.reason === 'navigation' || detail?.reason === 'selection') {
       this.#anchorOffset = text.offsetOf(range.startContainer, range.startOffset)
       this.#detached = null
@@ -462,8 +489,11 @@ export class LyricController {
     this.#scheduleRemeasure(60)
   }
 
-  /** foliate load: 换节 (章末自动进入下一章, 或用户跳到别的章节) */
-  onSectionLoad(doc: Document, index: number) {
+  /**
+   * foliate load: 换节 (章末自动进入下一章, 或用户跳到别的章节)。跨章连续滚动时由主章切换 (section-change) 驱动;
+   * from: 新分节里的起点 (用户滚过去时的可见范围), 不传从节首开始
+   */
+  onSectionLoad(doc: Document, index: number, from?: Range | null) {
     if (!this.active || !doc || this.#text?.doc === doc) return
     this.#safe(() => {
       clearTimeout(this.#watchdog)
@@ -471,7 +501,9 @@ export class LyricController {
       const wasTurning = this.#state === 'turning' || this.#awaitingSection
       this.#awaitingSection = false
       this.#attach(doc, index)
-      this.#anchorOffset = 0
+      this.#anchorOffset = from && from.startContainer?.ownerDocument === doc
+        ? this.#text!.offsetOf(from.startContainer, from.startOffset)
+        : 0
       this.#cur = 0
       this.#lines = []
       this.#measured = false
@@ -509,6 +541,7 @@ export class LyricController {
     this.#teardownDoc()
     this.#text = new SectionText(doc)
     this.#section = index
+    this.#pinnedTop = null
     const win = doc.defaultView as any
     if (supportsHighlights(win)) {
       const dim = new win.Highlight()
@@ -547,8 +580,17 @@ export class LyricController {
   }
 
   #overlayer(): any {
-    const c = this.#host.contents()
-    return c && this.#text && c.doc === this.#text.doc ? c.overlayer : null
+    const doc = this.#text?.doc
+    if (!doc) return null
+    const c = this.#host.contentOf ? this.#host.contentOf(doc) : this.#host.contents()
+    return c && c.doc === doc ? c.overlayer : null
+  }
+
+  /** 记下当前行此刻在窗口中的位置 (见 #pinnedTop) */
+  #notePinned() {
+    const line = this.#lines[this.#cur]
+    const frame = this.#frameTop()
+    this.#pinnedTop = line && frame != null ? frame + line.top : null
   }
 
   #frameTop(): number | null {
@@ -802,7 +844,10 @@ export class LyricController {
       // 超出视口的大图: 顶部对齐锚点
       delta = top - (vp.top + vp.height * this.#cfg.anchor)
     } else delta = pinDelta(top, bottom, vp.top, vp.height, this.#cfg.anchor)
-    if (delta == null || Math.abs(delta) < 1) return
+    if (delta == null || Math.abs(delta) < 1) {
+      this.#notePinned()
+      return
+    }
     this.#scrollBy(delta, smooth && !this.#cfg.eink)
   }
 
@@ -815,10 +860,14 @@ export class LyricController {
     const from = this.#host.getScroll()
     const to = Math.max(0, Math.min(this.#host.maxScroll(), from + delta))
     this.#cancelAnim()
-    if (Math.abs(to - from) < 1) return
+    if (Math.abs(to - from) < 1) {
+      this.#notePinned()
+      return
+    }
     const set = (px: number) => {
       this.#selfUntil = performance.now() + 160
       this.#host.setScroll(px)
+      this.#notePinned()
     }
     if (!smooth) {
       set(to)

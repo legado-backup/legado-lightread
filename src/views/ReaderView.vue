@@ -7,10 +7,10 @@ import { useSettings } from '../stores/settings'
 import { useLibrary } from '../stores/library'
 import { isTextLike } from '../services/format'
 import { convertToEpub, TEXT_EPUB_LAYOUT } from '../services/textToEpub'
-import { getReaderCSS, resolveReaderColors, resolveReaderTheme, READER_THEME_CHOICES, FONT_FAMILIES, HIGHLIGHT_COLORS } from '../services/readerTheme'
+import { getReaderCSS, resolveReaderColors, resolveReaderTheme, HIGHLIGHT_COLORS } from '../services/readerTheme'
 import { resolvedTheme } from '../services/appearance'
 import { setPageBarsDark, setSystemBarsHidden, setKeepScreenOn } from '../services/systemBars'
-import { listSystemFonts, importFontFile, injectFontIntoDoc, resolveFontFamily } from '../services/fonts'
+import { injectFontIntoDoc, resolveFontFamily } from '../services/fonts'
 import { isTauri } from '../storage/types'
 import { listVoicesSorted, warmUpSpeech, resetEdgeFailure } from '../services/tts'
 import { ListenPlayer, type ListenFeed } from '../services/listenPlayer'
@@ -20,14 +20,15 @@ import { KOKORO_VOICES, DEFAULT_KOKORO_SID, kokoroVoiceLabel } from '../services
 import { localPack, localTtsSynthesize, refreshLocalPack } from '../services/localTts'
 import LocalTtsPack from '../components/LocalTtsPack.vue'
 import { useReadingTimer } from '../composables/useReadingTimer'
-import { useMediaQuery } from '../composables/useMediaQuery'
-import { effectiveReaderLayout, portraitSpacing, PORTRAIT_QUERY } from '../services/portraitLayout'
+import { usePortraitView } from '../composables/usePortraitView'
+import { effectiveReaderLayout, portraitSpacing } from '../services/portraitLayout'
 import { toast } from '../services/toast'
 import { t } from '../i18n'
 import { searchBook, type SearchHit } from '../services/bookSearch'
 import { chatStream, aiConfigured, readerSystemPrompt, explainPrompt, providerById, type AiMessage } from '../services/ai'
 import TocList, { type TocItem } from '../components/TocList.vue'
 import ReadingModePanel from '../components/ReadingModePanel.vue'
+import TypographyPanel, { type TypographySection } from '../components/TypographyPanel.vue'
 import ReadingModeMini from '../components/ReadingModeMini.vue'
 import { useReadingModes } from '../composables/useReadingModes'
 import AmbientPanel from '../components/AmbientPanel.vue'
@@ -120,7 +121,16 @@ function togglePanel(name: PanelName) {
 function toggleSettings() {
   const next = !settingsOpen.value
   closeOverlays()
+  typoFocus.value = null
   settingsOpen.value = next
+}
+
+/** 从「模式」的场景详情跳到排版的对应分区 (docs/reader-panels.md §2) */
+const typoFocus = ref<TypographySection | null>(null)
+function openTypography(section?: TypographySection) {
+  closeOverlays()
+  typoFocus.value = section ?? null
+  settingsOpen.value = true
 }
 
 /** 手机端抽屉打开时显示遮罩 (桌面端遮罩由 CSS 隐藏) */
@@ -274,11 +284,6 @@ function useTrialAi() {
   settings.aiModel = trial.defaultModel
 }
 
-const THEME_LABEL_KEYS: Record<string, string> = {
-  light: 'reader.themeLight', sepia: 'reader.themeSepia', green: 'reader.themeGreen', dark: 'reader.themeDark', auto: 'reader.themeAuto',
-}
-const themeLabel = (name: string) => (THEME_LABEL_KEYS[name] ? t(THEME_LABEL_KEYS[name]) : name)
-
 async function openRegister() {
   const { openDownload } = await import('../services/updater')
   openDownload('https://cloud.siliconflow.cn/i/TxUlXG3u')
@@ -308,7 +313,7 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined
 const appDark = computed(() => resolvedTheme.value === 'dark')
 // 竖屏 (手机 / iPad / Surface 竖着拿): 「竖屏时单页滚动」开启时改为单栏连续滚动, 横过来恢复用户自己的翻页 / 分栏。
 // 只算生效值, 不改写保存的 settings.reader.flow; 页码、手势等凡按 flow 分支的地方都用 effectiveFlow
-const portraitView = useMediaQuery(PORTRAIT_QUERY)
+const portraitView = usePortraitView()
 const readerLayout = computed(() => effectiveReaderLayout({
   flow: settings.reader.flow,
   maxColumnCount: settings.reader.maxColumnCount,
@@ -357,6 +362,10 @@ function layoutGeometry() {
   }
 }
 let appliedGeometry = ''
+/** 竖排书 (vertical-rl 等) 暂不启用跨章连续滚动; 首个分节加载后才知道 */
+let bookVertical = false
+/** 渲染器处于跨章连续滚动 (多槽) 模式: 同时活着多个分节文档, getContents() 主章 (阅读线所在) 排第一 */
+const isContinuous = () => !!view?.renderer?.continuous
 
 function applyPrefs() {
   if (!view) return
@@ -366,6 +375,9 @@ function applyPrefs() {
     if (modes.einkActive.value) view.renderer.removeAttribute('animated')
     else view.renderer.setAttribute('animated', '')
     const layout = readerLayout.value
+    // 跨章连续滚动 (docs/continuous-scroll.md §11): 滚动模式、非固定版式、非竖排时开启; 先于 flow 设置,
+    // 切到滚动时渲染器直接进多槽模式。旧版 paginator 不认这个属性, 照常单章滚动
+    view.renderer.toggleAttribute('continuous', layout.flow === 'scrolled' && prefs.continuousScroll && !view.isFixedLayout && !bookVertical)
     view.renderer.setAttribute('flow', layout.flow)
     const geo = layoutGeometry()
     appliedGeometry = JSON.stringify(geo)
@@ -382,38 +394,6 @@ function applyPrefs() {
       }
     }
   } catch { /* 章节切换瞬间 iframe 文档可能已卸载, 下次 relocate 会重新应用 */ }
-}
-
-/** 精准输入字号, 越界收敛到 8-64 */
-function setFontSize(raw: string) {
-  const n = Math.round(Number(raw))
-  if (!Number.isFinite(n)) return
-  settings.reader.fontSize = Math.min(64, Math.max(8, n))
-}
-
-// ---- 字体选择 ----
-const systemFonts = ref<string[]>([])
-
-watch(settingsOpen, async open => {
-  if (open && isTauri() && !systemFonts.value.length) {
-    try {
-      systemFonts.value = await listSystemFonts()
-    } catch { /* 枚举失败不影响预设字体 */ }
-  }
-})
-
-async function importFont() {
-  try {
-    const font = await importFontFile()
-    if (!font) return
-    if (!settings.customFonts.some(f => f.file === font.file)) {
-      settings.customFonts.push(font)
-    }
-    settings.reader.fontFamily = `custom:${font.name}`
-    toast(t('reader.fontImported', { name: font.name }), 'success')
-  } catch (e: any) {
-    toast(t('reader.fontImportFailed', { msg: e?.message ?? e }), 'error', 5000)
-  }
 }
 
 let prefsTimer: ReturnType<typeof setTimeout> | undefined
@@ -862,7 +842,11 @@ function autoHeld() {
 function holdAutoScroll(ms: number) {
   autoHoldUntil = Math.max(autoHoldUntil, Date.now() + ms)
   autoPos = -1
+  autoCarry = 0
 }
+
+/** 跨章连续滚动时尚未推进的零头像素 (scrollBy 按整像素走, 慢速时每帧不足 1px) */
+let autoCarry = 0
 
 function autoScrollFrame(ts: number) {
   if (!autoReading.value || autoPaused.value) return
@@ -871,12 +855,30 @@ function autoScrollFrame(ts: number) {
   autoLastTs = ts
   const r = view?.renderer
   if (!r || !dt || loading.value || autoCrossing || !r.scrolled || autoHeld()) {
-    if (autoHeld()) autoPos = -1
+    if (autoHeld()) {
+      autoPos = -1
+      autoCarry = 0
+    }
     return
   }
   const size = Number(r.size) || 0
   const viewSize = Number(r.viewSize) || 0
   if (!size) return
+  // 跨章连续滚动: 在连续容器上按帧匀速推进, 章与章之间不停顿; 进度由渲染器滚动中节流派发的 relocate 更新
+  if (r.continuous) {
+    if (r.atEnd) {
+      stopAutoRead()
+      return
+    }
+    autoCarry += size / Math.max(3, settings.autoReadSeconds) * dt / 1000
+    const step = Math.floor(autoCarry)
+    if (step >= 1) {
+      autoCarry -= step
+      r.scrollBy(0, step)
+    }
+    pingReadingAuto()
+    return
+  }
   // 本节滚到底: 进入下一节 (foliate 的 next 在节尾切到下一节顶部); 全书读完则停
   if (viewSize - (r.start + size) <= 2) {
     if (fraction.value >= 0.999 || r.atEnd) {
@@ -1112,7 +1114,8 @@ const ttsBuffering = ref(false)
 /** 用户在朗读中翻页 / 跳转: 继续朗读但不再拉回视图, 提供「回到朗读位置 / 从这页听」 */
 const listenDetached = ref(false)
 const currentListenKey = ref('')
-let displayCursor: SentenceCursor | null = null
+/** 每个已渲染分节文档一个句子游标 (跨章连续滚动时同时有多个文档) */
+const slotCursors = new WeakMap<Document, SentenceCursor>()
 const offscreenDocs = new Map<number, Document>()
 const listenTexts = new Map<string, string>()
 /** 本次会话离线合成跟不上的次数; 达到 2 次在面板上给出「改用在线模型」 */
@@ -1149,22 +1152,42 @@ const listenPlayer = new ListenPlayer({
   },
 })
 
+/**
+ * 正在显示的分节 (阅读线所在的主章)。跨章连续滚动时 getContents() 返回所有已载分节,
+ * 按最近一次 relocate 的分节号挑; 单章渲染时只有一个
+ */
 function displayedContent(): { doc: Document; index: number } | null {
-  const c = view?.renderer?.getContents?.()?.[0]
+  const list: any[] = view?.renderer?.getContents?.() ?? []
+  const current = view?.lastLocation?.section?.current
+  const c = (typeof current === 'number' ? list.find(x => x.index === current && x.doc) : null) ?? list[0]
   return c?.doc ? { doc: c.doc, index: c.index } : null
+}
+
+/** 已渲染在屏上 (含连续滚动预载在上下方) 的某一分节 */
+function loadedContent(index: number): { doc: Document; index: number } | null {
+  const c = (view?.renderer?.getContents?.() ?? []).find((x: any) => x.index === index && x.doc)
+  return c ? { doc: c.doc, index: c.index } : null
+}
+
+function cursorForDoc(doc: Document): SentenceCursor {
+  let c = slotCursors.get(doc)
+  if (!c) {
+    c = new SentenceCursor(doc)
+    slotCursors.set(doc, c)
+  }
+  return c
 }
 
 function cursorForDisplayed(): { cursor: SentenceCursor; index: number } | null {
   const shown = displayedContent()
   if (!shown) return null
-  if (displayCursor?.doc !== shown.doc) displayCursor = new SentenceCursor(shown.doc)
-  return { cursor: displayCursor, index: shown.index }
+  return { cursor: cursorForDoc(shown.doc), index: shown.index }
 }
 
 /** 预读后续分节用离屏文档, 与显示文档同源同结构, 句子编号一致 */
 async function docForSection(index: number): Promise<Document | null> {
-  const shown = displayedContent()
-  if (shown?.index === index) return shown.doc
+  const shown = loadedContent(index)
+  if (shown) return shown.doc
   const cached = offscreenDocs.get(index)
   if (cached) return cached
   try {
@@ -1228,14 +1251,15 @@ const parseKey = (key: string) => {
 /** iframe 里的 Range 来自另一个全局, instanceof Range 不成立, 按特征判断 */
 const isRange = (x: unknown): x is Range => !!x && typeof (x as Range).startContainer === 'object' && typeof (x as Range).collapse === 'function'
 
-/** 当前朗读句的 Range (仅当它在显示中的分节里) */
+/** 当前朗读句的 Range (仅当它所在的分节已渲染; 跨章连续滚动时可以是主章上下方预载好的分节) */
 function listenRange(key = currentListenKey.value): Range | null {
   if (!key) return null
   const { index, pos } = parseKey(key)
-  const shown = cursorForDisplayed()
-  if (!shown || shown.index !== index) return null
-  shown.cursor.pos = pos
-  return shown.cursor.current()
+  const shown = loadedContent(index)
+  if (!shown) return null
+  const cursor = cursorForDoc(shown.doc)
+  cursor.pos = pos
+  return cursor.current()
 }
 
 /**
@@ -1264,8 +1288,8 @@ async function onListenSentence(key: string) {
   currentListenKey.value = key
   const { index } = parseKey(key)
   if (!listenDetached.value) {
-    // 朗读进入下一分节: 翻过去
-    if (displayedContent()?.index !== index) {
+    // 朗读进入下一分节: 翻过去 (跨章连续滚动时它多半已预载在下方, 直接滚过去, 不重新加载)
+    if (!loadedContent(index)) {
       try { await view.renderer.goTo({ index }) } catch { /* 留在原处, 继续读 */ }
     }
     const range = listenRange(key)
@@ -1327,7 +1351,7 @@ async function resolveBookmark(mark: ListenBookmark): Promise<{ index: number; p
     const node = isRange(target) ? target.startContainer : target
     const offset = isRange(target) ? target.startOffset : 0
     if (!c.seek(node, offset)) return null
-    return { index, pos: c.pos, range: displayedContent()?.index === index ? c.current() : null }
+    return { index, pos: c.pos, range: loadedContent(index) ? c.current() : null }
   } catch { return null }
 }
 
@@ -1338,7 +1362,12 @@ async function refreshBookmarkOnPage() {
   const visible: Range | undefined = view?.lastLocation?.range
   if (!mark || !visible) { bookmarkOnPage.value = false; return }
   const hit = await resolveBookmark(mark)
-  bookmarkOnPage.value = !!hit?.range && visible.comparePoint(hit.range.startContainer, hit.range.startOffset) === 0
+  // 跨章连续滚动时断点可能在另一个分节文档里, 跨文档 comparePoint 会抛 WrongDocumentError
+  const range = hit?.range
+  try {
+    bookmarkOnPage.value = !!range && range.startContainer.ownerDocument === visible.startContainer.ownerDocument
+      && visible.comparePoint(range.startContainer, range.startOffset) === 0
+  } catch { bookmarkOnPage.value = false }
 }
 
 const bookmarkAgo = computed(() => {
@@ -1374,18 +1403,22 @@ async function startTTS(from: ListenFrom = 'auto') {
       if (displayedContent()?.index !== index) await view.goTo(listenBookmark.value!.cfi).catch(() => {})
     } else return startTTS('page')
   } else {
-    const shown = cursorForDisplayed()
+    const visible: Range | undefined = typeof from === 'object' ? undefined : view.lastLocation?.range
+    // 跨章连续滚动时屏上有多个分节文档: 以选区 / 可见范围所在的文档为准
+    const ownerDoc = typeof from === 'object' ? from.range.startContainer.ownerDocument : visible?.startContainer.ownerDocument
+    const owner = ownerDoc ? (view.renderer.getContents?.() ?? []).find((x: any) => x.doc === ownerDoc) : null
+    const shown = owner ? { cursor: cursorForDoc(owner.doc), index: owner.index as number } : cursorForDisplayed()
     if (!shown) return
     index = shown.index
     const c = shown.cursor
     if (typeof from === 'object') {
       if (!c.seek(from.range.startContainer, from.range.startOffset)) return
     } else {
-      const visible: Range | undefined = view.lastLocation?.range
       if (!visible || !c.seek(visible.startContainer, visible.startOffset)) c.first()
       // 本页第一句若始于上一页, 从本页完整的第一句开始, 免得视图被拉回上一页
       const cur = c.current()
-      if (cur && visible && cur.compareBoundaryPoints(Range.START_TO_START, visible) < 0 && c.pos.sentence > 0) c.next()
+      if (cur && visible && cur.startContainer.ownerDocument === visible.startContainer.ownerDocument
+        && cur.compareBoundaryPoints(Range.START_TO_START, visible) < 0 && c.pos.sentence > 0) c.next()
     }
     pos = c.pos
   }
@@ -1462,7 +1495,7 @@ async function skipListen(kind: 'sentence' | 'paragraph', dir: 1 | -1) {
   listenDetached.value = false
   const nextKey = `${index}:${c.pos.block}:${c.pos.sentence}`
   currentListenKey.value = nextKey
-  if (displayedContent()?.index !== index) await view.renderer.goTo({ index }).catch(() => {})
+  if (!loadedContent(index)) await view.renderer.goTo({ index }).catch(() => {})
   const range = listenRange(nextKey)
   if (range) highlightListen(range)
   clearTimeout(skipTimer)
@@ -1482,7 +1515,7 @@ async function returnToListening() {
   const key = currentListenKey.value
   if (!key) return
   const { index } = parseKey(key)
-  if (displayedContent()?.index !== index) await view.renderer.goTo({ index }).catch(() => {})
+  if (!loadedContent(index)) await view.renderer.goTo({ index }).catch(() => {})
   const range = listenRange(key)
   if (range) highlightListen(range)
 }
@@ -1589,12 +1622,33 @@ function clearMediaSession() {
   } catch { /* 忽略 */ }
 }
 
+/** 跨章连续滚动: 主章 (阅读线所在的分节) 切换 */
+function onRendererSectionChange(e: Event) {
+  modes.onSectionChange((e as CustomEvent).detail)
+}
+
+/** 跨章连续滚动: 远处的分节被卸载 (文档随后销毁), 释放挂在上面的图层 */
+function onRendererUnload(e: Event) {
+  const detail = (e as CustomEvent).detail
+  modes.onSectionUnload(detail)
+  dj.onSectionUnload(detail)
+}
+
 function onSectionLoad(e: CustomEvent) {
   // 打字机: 在新章节首次绘制前隐藏未打出的文字
   modes.onSectionLoad(e.detail)
   dj.onSectionLoad(e.detail)
   const { doc, index } = e.detail
   for (const resolve of sectionLoadResolvers.splice(0)) resolve()
+  // 竖排书不启用跨章连续滚动 (docs/continuous-scroll.md §9): 第一次见到竖排分节时撤掉 continuous
+  if (!bookVertical) {
+    try {
+      if (doc.defaultView?.getComputedStyle(doc.body).writingMode?.startsWith('vertical')) {
+        bookVertical = true
+        if (view?.renderer?.hasAttribute?.('continuous')) setTimeout(applyPrefs, 0)
+      }
+    } catch { /* 忽略 */ }
+  }
   const custom = selectedCustomFont()
   if (custom) injectFontIntoDoc(doc, custom)
   doc.addEventListener('keydown', handleKeydown)
@@ -1636,44 +1690,19 @@ function onSectionLoad(e: CustomEvent) {
   // 触屏轻点: 触摸设备上合成 click 与 foliate 的 touch 吸附赛跑, 时有丢失/弹回
   // (Windows 触屏的"点击翻不动/翻了又弹回")。轻点在 touchend 直接判定并翻页,
   // 与滑动走同一条触摸管线; 之后的合成 click 一律吞掉。
-  let touchStart: { x: number; y: number; t: number; atTop: boolean; atBottom: boolean; crossed?: boolean } | null = null
+  let touchStart: TouchTrack | null = null
   doc.addEventListener('touchstart', (e: TouchEvent) => {
     // 自动滚动中手指按住正文: 先停住, 让人能自己拖着看 (松手后接着滚)
     if (autoReading.value) holdAutoScroll(60_000)
-    const t0 = e.changedTouches[0]
-    // 滚动模式下记下起手时是否已停在本节顶 / 底: 只有停稳后再滑才跨章, 避免惯性一滑到底就跳走
-    const r = view?.renderer
-    const scrolled = effectiveFlow.value === 'scrolled' && r
-    touchStart = t0
-      ? {
-          x: t0.clientX,
-          y: t0.clientY,
-          t: Date.now(),
-          atTop: !!scrolled && r.start <= 1,
-          atBottom: !!scrolled && r.viewSize - r.end <= 2,
-        }
-      : null
+    touchStart = beginTouch(e)
     pointerTs = Date.now()
   }, { passive: true })
-  // 滚动模式: foliate 只在一节内滚动, 滑到头就停住。停在节尾继续上滑 (手指不用抬起)
-  // 即进入下一节, 停在节首继续下滑回到上一节末尾; renderer.next / prev 在边界处切换分节
   doc.addEventListener('touchmove', (e: TouchEvent) => {
     const st = touchStart
     const t0 = e.changedTouches[0]
-    if (!st || !t0 || st.crossed || effectiveFlow.value !== 'scrolled') return
-    const dy = t0.clientY - st.y
-    if (Math.abs(dy) < 48 || Math.abs(dy) < Math.abs(t0.clientX - st.x) * 1.5) return
-    const sel = doc.getSelection()
-    if (sel && !sel.isCollapsed) return
-    if (dy < 0 && st.atBottom) {
-      st.crossed = true
-      interruptTTSForReposition()
-      view?.renderer?.next()
-    } else if (dy > 0 && st.atTop) {
-      st.crossed = true
-      interruptTTSForReposition()
-      view?.renderer?.prev()
-    }
+    if (!st || !t0) return
+    const { dx, dy } = trackTouch(st, t0)
+    crossSectionBySwipe(st, dx, dy, doc)
   }, { passive: true })
   // 捕获阶段先于 foliate 的 touchend 监听: 轻点时阻断其"吸附回当前页"动画,
   // 否则吸附动画与我们的翻页动画并发抢写滚动位置, 随机弹回 (Windows 触屏的病根)
@@ -1686,8 +1715,7 @@ function onSectionLoad(e: CustomEvent) {
     const st = touchStart
     touchStart = null
     if (!st || !t0) return
-    const dx = t0.clientX - st.x
-    const dy = t0.clientY - st.y
+    const { dx, dy } = trackTouch(st, t0)
     // 翻页模式下明显的上下滑动也翻页 (上滑下一页 / 下滑上一页), 单手竖向阅读更顺手;
     // 正在选字 (长按后拖动) 不算。foliate 对竖向滑动本无动作, 但其 touchend 会做
     // 吸附动画, 与翻页动画抢滚动位置, 先拦掉
@@ -1708,8 +1736,8 @@ function onSectionLoad(e: CustomEvent) {
       turnPage(dx < 0 ? 'right' : 'left')
       return
     }
-    // 有位移是滑动, 长按是选字, 都交给原有流程
-    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) return
+    // 有位移是滑动 (途中移动过也算, 哪怕松手时回到原处), 长按是选字, 都交给原有流程
+    if (st.moved > 10) return
     if (Date.now() - st.t > 350) return
     e.stopImmediatePropagation()
     if (panel.value !== 'none' || settingsOpen.value || activeAnnotation.value) {
@@ -1737,6 +1765,78 @@ function onSectionLoad(e: CustomEvent) {
 let pointerTs = 0
 let suppressClickUntil = 0
 
+// ---- 触摸手势 ----
+// 位移一律按屏幕坐标算。iframe 里的 clientX/Y 以正文文档为参照: 正文跟着手指滚动
+// (滚动模式上下、分页模式左右) 时两者同步移动, clientY 几乎不变, 一次快速上滑会被
+// 当成轻点, 落在左 / 右三分之一就整屏往回 / 往前翻, 与惯性滚动抢位置 (Surface 竖屏
+// "滑着滑着往回跳")。screenX/Y 不受正文滚动影响。
+interface TouchTrack {
+  sx: number
+  sy: number
+  t: number
+  /** 起手时已停在本节顶 / 底 (滚动模式) */
+  atTop: boolean
+  atBottom: boolean
+  /** 途中离起点的最大距离 */
+  moved: number
+  crossed?: boolean
+}
+
+function beginTouch(e: TouchEvent): TouchTrack | null {
+  const t0 = e.changedTouches[0]
+  if (!t0) return null
+  // 滚动模式下记下起手时是否已停在本节顶 / 底: 只有停稳后再滑才跨章, 避免惯性一滑到底就跳走
+  const r = view?.renderer
+  const scrolled = effectiveFlow.value === 'scrolled' && r
+  return {
+    sx: t0.screenX,
+    sy: t0.screenY,
+    t: Date.now(),
+    atTop: !!scrolled && r.start <= 1,
+    atBottom: !!scrolled && r.viewSize - r.end <= 2,
+    moved: 0,
+  }
+}
+
+function trackTouch(st: TouchTrack, t0: Touch): { dx: number; dy: number } {
+  const dx = t0.screenX - st.sx
+  const dy = t0.screenY - st.sy
+  st.moved = Math.max(st.moved, Math.abs(dx), Math.abs(dy))
+  return { dx, dy }
+}
+
+// 滚动模式: foliate 只在一节内滚动, 滑到头就停住。停在节尾继续上滑 (手指不用抬起)
+// 即进入下一节, 停在节首继续下滑回到上一节末尾; renderer.next / prev 在边界处切换分节
+function crossSectionBySwipe(st: TouchTrack, dx: number, dy: number, doc: Document | null) {
+  // 跨章连续滚动时章与章首尾相接, 原生滚动就能滑过去
+  if (st.crossed || effectiveFlow.value !== 'scrolled' || isContinuous()) return
+  if (Math.abs(dy) < 48 || Math.abs(dy) < Math.abs(dx) * 1.5) return
+  const sel = doc?.getSelection()
+  if (sel && !sel.isCollapsed) return
+  if (dy < 0 && st.atBottom) {
+    st.crossed = true
+    interruptTTSForReposition()
+    view?.renderer?.next()
+  } else if (dy > 0 && st.atTop) {
+    st.crossed = true
+    interruptTTSForReposition()
+    view?.renderer?.prev()
+  }
+}
+
+// 短章节 (只有标题的分部页等) 撑不满一屏, 下方空白在 iframe 之外, 触摸落在 foliate-view 上;
+// 这里同样要能滑进下一节, 否则手指按在空白处怎么滑都过不去
+let marginTouch: TouchTrack | null = null
+function onMarginTouchStart(e: TouchEvent) {
+  marginTouch = e.target === view ? beginTouch(e) : null
+}
+function onMarginTouchMove(e: TouchEvent) {
+  const t0 = e.changedTouches[0]
+  if (!marginTouch || !t0) return
+  const { dx, dy } = trackTouch(marginTouch, t0)
+  crossSectionBySwipe(marginTouch, dx, dy, null)
+}
+
 // 点正文左/右侧翻页
 let overlayDismissed = false
 
@@ -1755,7 +1855,7 @@ function onContentClick(clientX: number, doc: Document, target?: Element | null,
   // 点睛: 点到概念 / 注释时弹出解释卡, 不翻页
   if (dj.onContentTap(doc, clientX, clientY)) return
   // 打字机 / 歌词运行时轻点只切换暂停或移动当前行, 不翻页
-  const tap = modes.onContentTap({ y: clientY })
+  const tap = modes.onContentTap({ y: clientY, doc })
   if (tap) {
     if (tap === 'paused') showBars()
     else if (tap === 'menu') barsVisible.value ? hideBars() : showBars()
@@ -2257,6 +2357,8 @@ onMounted(async () => {
 
     view.addEventListener('relocate', onRelocate)
     view.addEventListener('click', onMarginClick)
+    view.addEventListener('touchstart', onMarginTouchStart, { passive: true })
+    view.addEventListener('touchmove', onMarginTouchMove, { passive: true })
     view.addEventListener('load', onSectionLoad)
     view.addEventListener('create-overlay', () => drawStoredAnnotations())
     view.addEventListener('draw-annotation', (e: CustomEvent) => {
@@ -2273,6 +2375,9 @@ onMounted(async () => {
 
     const { makeFoliateBook } = await import('../services/foliateBook')
     await view.open(await makeFoliateBook(file))
+    // 跨章连续滚动的渲染器事件 (view 不转发): 主章切换、远处分节卸载。旧版渲染器不会派发
+    view.renderer?.addEventListener?.('section-change', onRendererSectionChange)
+    view.renderer?.addEventListener?.('unload', onRendererUnload)
     toc.value = view.book?.toc ?? []
     secSizes = sectionSizes(view.book?.sections ?? [])
     bookCjk.value = view.language?.isCJK ?? true
@@ -2574,6 +2679,7 @@ onBeforeUnmount(() => {
       @start-auto="startAutoRead"
       @stop-auto="stopAutoRead"
       @open-tts="openTTSPanel"
+      @open-typography="openTypography"
       @close="modes.closePanel()"
     >
       <template #top>
@@ -2616,7 +2722,7 @@ onBeforeUnmount(() => {
       <button v-if="dj.selectionKey.value" class="btn btn-sm" @click="dj.openKeyCard(); selection = null">{{ t('dianjing.why') }}</button>
       <button v-if="!fixedLayout" class="btn btn-sm" @click="listenFromSelection"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 3a7 7 0 0 0-7 7v1.1A3.5 3.5 0 0 0 3 14.5v2A3.5 3.5 0 0 0 6.5 20H8a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-.9A5 5 0 0 1 12 5a5 5 0 0 1 4.9 6H16a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h1.5a3.5 3.5 0 0 0 3.5-3.5v-2a3.5 3.5 0 0 0-2-3.16V10a7 7 0 0 0-7-7z"/></svg>{{ t('tts.listenFromSelection') }}</button>
       <!-- 互传: 划词发送到其他设备 -->
-      <button class="btn btn-sm" @click="sendSelectionToDevices(selection.text, meta?.title); selection = null"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4z"/></svg>{{ t('transfer.sendToDevices') }}</button>
+      <button v-if="settings.features.transfer" class="btn btn-sm" @click="sendSelectionToDevices(selection.text, meta?.title); selection = null"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4z"/></svg>{{ t('transfer.sendToDevices') }}</button>
       <button class="icon-btn" :title="t('common.cancel')" :aria-label="t('common.cancel')" @click="selection = null"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg></button>
     </div>
 
@@ -2915,96 +3021,17 @@ onBeforeUnmount(() => {
       </template>
     </aside>
 
-    <!-- 排版设置浮层 -->
-    <div v-if="settingsOpen" class="settings-pop card">
-      <div class="set-row">
-        <label>{{ t('reader.fontSize') }}</label>
-        <button class="step-btn" :title="t('reader.fontSmaller')" :aria-label="t('reader.fontSmaller')" @click="setFontSize(String(settings.reader.fontSize - 1))">A−</button>
-        <input v-model.number="settings.reader.fontSize" type="range" min="8" max="64" step="1" :aria-label="t('reader.fontSize')" />
-        <button class="step-btn big" :title="t('reader.fontLarger')" :aria-label="t('reader.fontLarger')" @click="setFontSize(String(settings.reader.fontSize + 1))">A+</button>
-        <input
-          class="input set-num"
-          type="number"
-          min="8"
-          max="64"
-          step="1"
-          :value="settings.reader.fontSize"
-          @change="setFontSize(($event.target as HTMLInputElement).value)"
-        />
-      </div>
-      <div class="set-row">
-        <label>{{ t('reader.lineHeight') }}</label>
-        <input v-model.number="settings.reader.lineHeight" type="range" min="1.2" max="2.6" step="0.1" />
-        <span>{{ settings.reader.lineHeight.toFixed(1) }}</span>
-      </div>
-      <div class="set-row">
-        <label>{{ t('reader.margin') }}</label>
-        <input v-model.number="settings.reader.gap" type="range" min="2" max="16" step="1" />
-        <span>{{ settings.reader.gap }}%</span>
-      </div>
-      <div class="set-row">
-        <label>{{ t('reader.font') }}</label>
-        <select v-model="settings.reader.fontFamily" class="input">
-          <option v-for="f in FONT_FAMILIES" :key="f.labelKey" :value="f.value">{{ t(f.labelKey) }}</option>
-          <optgroup v-if="settings.customFonts.length" :label="t('reader.customFonts')">
-            <option v-for="f in settings.customFonts" :key="f.file" :value="`custom:${f.name}`">{{ f.name }}</option>
-          </optgroup>
-          <optgroup v-if="systemFonts.length" :label="t('reader.systemFonts')">
-            <option v-for="name in systemFonts" :key="name" :value="`&quot;${name}&quot;`">{{ name }}</option>
-          </optgroup>
-        </select>
-      </div>
-      <div v-if="isTauri()" class="set-row">
-        <label></label>
-        <button class="btn btn-sm" @click="importFont">{{ t('reader.importFont') }}</button>
-        <span class="font-hint">ttf / otf / woff2</span>
-      </div>
-      <div class="set-row">
-        <label>{{ t('reader.theme') }}</label>
-        <div class="theme-btns">
-          <button
-            v-for="choice in READER_THEME_CHOICES"
-            :key="choice.name"
-            class="theme-btn"
-            :class="{ active: settings.reader.theme === choice.name }"
-            :style="{ background: choice.bg, color: choice.fg }"
-            :title="themeLabel(choice.name)"
-            :aria-label="themeLabel(choice.name)"
-            @click="settings.reader.theme = choice.name"
-          >{{ t('reader.themeSample') }}</button>
-        </div>
-      </div>
-      <div class="set-row">
-        <label>{{ t('reader.mode') }}</label>
-        <div class="seg">
-          <button :class="{ active: settings.reader.flow === 'paginated' }" @click="settings.reader.flow = 'paginated'">{{ t('reader.paginated') }}</button>
-          <button :class="{ active: settings.reader.flow === 'scrolled' }" @click="settings.reader.flow = 'scrolled'">{{ t('reader.scrolled') }}</button>
-        </div>
-      </div>
-      <div class="set-row">
-        <label :title="t('reader.portraitScrollTitle')">{{ t('reader.portrait') }}</label>
-        <div class="seg" :title="t('reader.portraitScrollTitle')">
-          <button :class="{ active: settings.reader.portraitScroll }" :aria-pressed="settings.reader.portraitScroll" @click="settings.reader.portraitScroll = true">{{ t('reader.portraitScrollOn') }}</button>
-          <button :class="{ active: !settings.reader.portraitScroll }" :aria-pressed="!settings.reader.portraitScroll" @click="settings.reader.portraitScroll = false">{{ t('reader.portraitScrollOff') }}</button>
-        </div>
-      </div>
-      <p v-if="readerLayout.portraitLocked" class="set-note" role="note">{{ t('reader.portraitLockedNote') }}</p>
-      <div class="set-row">
-        <label>{{ t('reader.columns') }}</label>
-        <div class="seg">
-          <button :class="{ active: settings.reader.maxColumnCount === 1 }" @click="settings.reader.maxColumnCount = 1">{{ t('reader.singleColumn') }}</button>
-          <button :class="{ active: settings.reader.maxColumnCount === 2 }" @click="settings.reader.maxColumnCount = 2">{{ t('reader.autoTwoColumns') }}</button>
-        </div>
-      </div>
-      <div class="set-row">
-        <label>{{ t('reader.progressDisplay') }}</label>
-        <div class="seg">
-          <button :class="{ active: settings.reader.progressDisplay === 'both' }" @click="settings.reader.progressDisplay = 'both'">{{ t('reader.progressBoth') }}</button>
-          <button :class="{ active: settings.reader.progressDisplay === 'page' }" @click="settings.reader.progressDisplay = 'page'">{{ t('reader.progressPage') }}</button>
-          <button :class="{ active: settings.reader.progressDisplay === 'percent' }" @click="settings.reader.progressDisplay = 'percent'">{{ t('reader.progressPercent') }}</button>
-        </div>
-      </div>
-    </div>
+    <!-- 排版面板: 静态的外观与版式值只在这里调 (docs/reader-panels.md) -->
+    <TypographyPanel
+      v-if="settingsOpen"
+      :modes="modes"
+      :effective-flow="effectiveFlow"
+      :fixed-layout="fixedLayout"
+      :portrait-locked="readerLayout.portraitLocked"
+      :focus="typoFocus"
+      @close="settingsOpen = false"
+      @open-modes="modes.openPanel()"
+    />
   </div>
 </template>
 
@@ -3932,77 +3959,6 @@ onBeforeUnmount(() => {
   background: #ffe58f;
   border-radius: 2px;
 }
-.settings-pop {
-  position: absolute;
-  top: calc(52px + var(--safe-top));
-  right: 12px;
-  z-index: 25;
-  width: 300px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.set-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-}
-.set-row label {
-  width: 32px;
-  color: var(--text-2);
-  flex-shrink: 0;
-}
-.set-row input[type='range'] {
-  flex: 1;
-  /* 滑条默认有约 130px 的最小宽度, 字号一行 (A− 滑条 A+ 输入框) 会被撑出面板 */
-  min-width: 0;
-  accent-color: var(--brand);
-}
-.set-row span {
-  width: 42px;
-  text-align: right;
-  color: var(--text-3);
-  font-size: 12px;
-}
-.set-num {
-  width: 58px !important;
-  flex: none !important;
-  height: 26px;
-  font-size: 12px;
-  text-align: center;
-  padding: 0 4px;
-}
-.set-row .input {
-  flex: 1;
-  height: 30px;
-}
-.set-note {
-  margin: -4px 0 0 42px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-3);
-}
-.font-hint {
-  font-size: 12px;
-  color: var(--text-3);
-  width: auto !important;
-}
-.theme-btns {
-  display: flex;
-  gap: 8px;
-}
-.theme-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: 2px solid var(--border);
-  font-size: 14px;
-}
-.theme-btn.active {
-  border-color: var(--brand);
-}
 .seg {
   display: flex;
   flex: 1;
@@ -4035,24 +3991,6 @@ onBeforeUnmount(() => {
 }
 .chapter-btn {
   flex-shrink: 0;
-}
-.step-btn {
-  flex-shrink: 0;
-  width: 34px;
-  height: 30px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--card);
-  color: var(--text-2);
-  font-size: 12px;
-  font-weight: 600;
-}
-.step-btn.big {
-  font-size: 15px;
-}
-.step-btn:active {
-  background: var(--brand-light);
-  color: var(--brand);
 }
 .sheet-scrim {
   display: none;
@@ -4152,7 +4090,6 @@ onBeforeUnmount(() => {
     animation: scrim-in var(--dur) var(--ease);
   }
   .panel,
-  .settings-pop,
   .tts-panel {
     top: auto;
     left: 0;
@@ -4169,14 +4106,12 @@ onBeforeUnmount(() => {
   .panel {
     height: 72%;
   }
-  .settings-pop,
   .tts-panel {
     overflow-y: auto;
     gap: 16px;
   }
   /* 抽屉顶部的拖拽指示条 */
   .panel::before,
-  .settings-pop::before,
   .tts-panel::before {
     content: '';
     position: absolute;
@@ -4188,23 +4123,8 @@ onBeforeUnmount(() => {
     border-radius: 2px;
     background: var(--border-strong);
   }
-  .set-row {
-    font-size: 14px;
-  }
-  .set-row label {
-    width: 36px;
-  }
-  .set-row .input,
   .seg button {
     height: 36px;
-  }
-  .theme-btns {
-    flex: 1;
-    justify-content: space-between;
-  }
-  .theme-btn {
-    width: 40px;
-    height: 40px;
   }
   .anno-item,
   .search-item {
@@ -4247,7 +4167,6 @@ onBeforeUnmount(() => {
   .bar,
   .sheet-scrim,
   .panel,
-  .settings-pop,
   .tts-panel {
     transition: none;
     animation: none;

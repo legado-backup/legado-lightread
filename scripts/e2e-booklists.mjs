@@ -40,14 +40,20 @@ const searches = []
 
 const browser = await chromium.launch()
 
-async function newPage(viewport = { width: 1280, height: 900 }) {
+// booklists: 预先在「设置 → 功能」里开启书单推荐 (默认关闭)
+async function newPage(viewport = { width: 1280, height: 900 }, { booklists = true } = {}) {
   const context = await browser.newContext({ viewport })
   const page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
-  await page.addInitScript(() => {
+  await page.addInitScript(on => {
     window.__opened = []
     window.open = url => { window.__opened.push(url); return null }
-  })
+    if (on) {
+      const s = JSON.parse(localStorage.getItem('lightread-settings') || '{}')
+      s.features = { ...(s.features ?? {}), recommendedBooklists: true }
+      localStorage.setItem('lightread-settings', JSON.stringify(s))
+    }
+  }, booklists)
   await page.route('**/*', async route => {
     const url = route.request().url()
     if (url.startsWith(base + '/')) return route.continue()
@@ -90,6 +96,24 @@ async function setTheme(page, theme) {
 const shot = async (page, name) => { if (shots) await page.screenshot({ path: join(shots, `${name}.png`), fullPage: false }) }
 
 try {
+  // ---- 默认关闭: 书源页没有「书单推荐」, 也不拉远程书单; 在设置 → 功能里打开后出现 ----
+  {
+    const { context, page } = await newPage(undefined, { booklists: false })
+    const curatedFetches = []
+    page.on('request', r => { if (r.url().includes('/src/data/booklists/')) curatedFetches.push(r.url()) })
+    await page.goto(base + '/#/catalogs')
+    await page.locator('.uni-section').waitFor()
+    await page.waitForTimeout(800)
+    assert.equal(await page.locator('.curated-section').count(), 0, 'curated section hidden when the feature is off')
+    assert.deepEqual(curatedFetches, [], 'no remote booklist fetch when the feature is off')
+    await page.goto(base + '/#/settings')
+    await page.locator('#settings-features').getByRole('switch', { name: /书单推荐/ }).check()
+    await page.waitForTimeout(500)
+    await page.goto(base + '/#/catalogs')
+    await page.locator('.curated-section').getByRole('heading', { name: '书单推荐' }).waitFor()
+    await context.close()
+  }
+
   const { context, page } = await newPage()
   await page.goto(base + '/#/catalogs')
 

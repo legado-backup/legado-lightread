@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * 「阅读模式」面板 (docs/research/reading-modes-landscape.md §5.2): 桌面为顶栏下的浮层卡片, 手机为底部抽屉
+ * 「阅读模式」面板 (docs/reader-panels.md §3.2): 书页怎么动、怎么带你读。桌面为顶栏下的浮层卡片, 手机为底部抽屉
  * (遮罩由 ReaderView 的 sheet-scrim 提供)。自上而下:
- *   #top 插槽 (主会话放点睛阅读开关) → 运行进度 → 显示 (夜间 / 护眼 / 墨水屏 / 大字) → 版面 (沉浸 / 双栏)
+ *   #top 插槽 (点睛阅读开关) → 运行进度 → 场景 (夜读 / 护眼 / 墨水屏 / 大字 / 沉浸)
  *   → 带读 [自动翻页 | 打字机 | 歌词 | 听书] (同一时间只运行一个) → 实验 (仿生阅读)。
- * 显示与版面是开关卡片: 轻点开关, 点卡片角上的 ⓘ 展开这个模式改了什么、有哪些选项 (透明说明)。
- * 夜间 / 护眼 / 双栏不复制设置: 直接作用于正文主题与 maxColumnCount; 大字 / 墨水屏是记快照的预设。
+ * 场景是开关卡片: 一键套用一组「排版」里的值 (记快照, 关闭写回), 自己不保存也不提供这些值的控件;
+ * 点卡片角上的 ⓘ 展开「会调整什么」、场景自己的选项 (定时、休息提醒、大 / 特大…) 和「在排版里微调」。
  * 自动翻页沿用 ReaderView 的实现 (props/emits), 容器保留 .auto-panel 类名供 e2e 使用。
  */
 import { computed, ref } from 'vue'
@@ -15,7 +15,8 @@ import type { ReadingModes, ReadingModeTab } from '../composables/useReadingMode
 import { TYPING_SOUND_PRESETS } from '../services/readingModes/soundPresets'
 import { previewTypingSound } from '../services/readingModes/sound'
 import type { ReadingModeProgress } from '../services/readingModes/progress'
-import { DIM_MAX } from '../services/readingModes/eyeCare'
+import { largeTextValues } from '../services/readingModes/presets'
+import type { TypographySection } from './TypographyPanel.vue'
 
 const props = defineProps<{
   modes: ReadingModes
@@ -37,6 +38,8 @@ const emit = defineEmits<{
   'update:autoReadSeconds': [value: number]
   /** 「听书」分段的主按钮: 打开现有听书面板 */
   'open-tts': []
+  /** 场景详情的「在排版里微调」: 打开排版面板并滚到对应分区 */
+  'open-typography': [section: TypographySection]
   close: []
 }>()
 
@@ -55,44 +58,72 @@ const lyActive = computed(() => props.modes.lyricActive.value)
 const lyState = computed(() => props.modes.lyricState.value)
 const supported = computed(() => props.modes.supported.value)
 
-// ---- 显示 / 版面卡片 ----
-type CardId = 'night' | 'eyeCare' | 'eink' | 'largeText' | 'immersive' | 'twoColumns'
-const detail = ref<CardId | null>(null)
+// ---- 场景卡片 ----
+type SceneId = 'night' | 'eyeCare' | 'eink' | 'largeText' | 'immersive'
+const detail = ref<SceneId | null>(null)
 
-const displayCards = computed(() => [
-  { id: 'night' as const, key: 'readingMode.modeNight', on: props.modes.nightOn.value, toggle: props.modes.toggleNight },
-  { id: 'eyeCare' as const, key: 'readingMode.modeEyeCare', on: props.modes.eyeCareOn.value, toggle: props.modes.toggleEyeCare },
-  { id: 'eink' as const, key: 'readingMode.modeEink', on: props.modes.einkActive.value, toggle: props.modes.toggleEink },
-  { id: 'largeText' as const, key: 'readingMode.modeLargeText', on: props.modes.largeTextOn.value, toggle: props.modes.toggleLargeText },
-])
-const layoutCards = computed(() => [
-  { id: 'immersive' as const, key: 'readingMode.modeImmersive', on: props.modes.immersive.value, toggle: props.modes.toggleImmersive, blocked: false },
-  {
-    id: 'twoColumns' as const,
-    key: 'readingMode.modeTwoColumns',
-    on: props.modes.twoColumnsOn.value && !props.modes.forceSingleColumn.value,
-    toggle: props.modes.toggleTwoColumns,
-    blocked: props.modes.forceSingleColumn.value,
-  },
-])
+interface SceneCard {
+  id: SceneId
+  key: string
+  on: boolean
+  toggle: () => void
+  /** 「在排版里微调」跳到的分区; 不改排版值的场景没有 */
+  tune?: TypographySection
+}
 
-function toggleCard(c: { id: CardId; on: boolean; toggle: () => void }) {
+const sceneCards = computed<SceneCard[]>(() => [
+  { id: 'night', key: 'readingMode.modeNight', on: props.modes.nightOn.value, toggle: props.modes.toggleNight, tune: 'color' },
+  { id: 'eyeCare', key: 'readingMode.modeEyeCare', on: props.modes.eyeCareOn.value, toggle: props.modes.toggleEyeCare, tune: 'color' },
+  { id: 'eink', key: 'readingMode.modeEink', on: props.modes.einkActive.value, toggle: props.modes.toggleEink },
+  { id: 'largeText', key: 'readingMode.modeLargeText', on: props.modes.largeTextOn.value, toggle: props.modes.toggleLargeText, tune: 'text' },
+  { id: 'immersive', key: 'readingMode.modeImmersive', on: props.modes.immersive.value, toggle: props.modes.toggleImmersive },
+])
+const detailCard = computed(() => sceneCards.value.find(c => c.id === detail.value) ?? null)
+
+function toggleCard(c: SceneCard) {
   c.toggle()
-  // 刚打开的卡片顺带展开它的选项; 关掉时收起
+  // 刚打开的卡片顺带展开它的详情; 关掉时收起
   detail.value = c.on ? (detail.value === c.id ? null : detail.value) : c.id
 }
-function toggleDetail(id: CardId) {
+function toggleDetail(id: SceneId) {
   detail.value = detail.value === id ? null : id
 }
 
-const largeSize = computed(() => (settings.readingMode.largeText.size === 'xlarge' ? 30 : 24))
+/** 场景会调整的东西 (只读说明; 数值在排版里调) */
+const sceneChanges = computed<string[]>(() => {
+  switch (detail.value) {
+    case 'night':
+      return [t('readingMode.chgTheme', { name: t('reader.themeDark') })]
+    case 'eyeCare':
+      return [t('readingMode.chgTheme', { name: t(eye.value.theme === 'green' ? 'reader.themeGreen' : 'reader.themeSepia') })]
+    case 'eink':
+      return ['chgEinkColors', 'chgBold', 'chgNoAnimation', 'chgTypewriterSentence', 'chgLyricJump'].map(k => t(`readingMode.${k}`))
+    case 'largeText': {
+      const lt = settings.readingMode.largeText
+      const v = largeTextValues(lt.size, lt.custom)
+      return [
+        t('readingMode.chgFontSize', { n: Number(v['reader.fontSize']) }),
+        t('readingMode.chgLineHeight'),
+        t('readingMode.chgLetterSpacing'),
+        t('readingMode.chgMargin', { n: Number(v['reader.gap']) }),
+        t('readingMode.chgHeiti'),
+        t('readingMode.chgNoJustify'),
+        t('readingMode.chgSingleColumn'),
+        t('readingMode.chgLargeUi'),
+      ]
+    }
+    case 'immersive':
+      return ['chgHideHeader', 'chgAutoHideBars', 'chgSystemBars'].map(k => t(`readingMode.${k}`))
+    default:
+      return []
+  }
+})
+
+function tune(section: TypographySection) {
+  emit('open-typography', section)
+}
 
 const reminderIntervals = [20, 30, 45] as const
-
-function onDim(e: Event) {
-  const n = Number((e.target as HTMLInputElement).value)
-  if (Number.isFinite(n)) settings.readingMode.eyeCare.dim = Math.min(DIM_MAX, Math.max(0, Math.round(n)))
-}
 
 function onClock(which: 'from' | 'to', e: Event) {
   const v = (e.target as HTMLInputElement).value
@@ -100,12 +131,13 @@ function onClock(which: 'from' | 'to', e: Event) {
 }
 
 // ---- 带读 ----
-const guideTabs = [
-  { value: 'auto', key: 'readingMode.tabAuto' },
-  { value: 'typewriter', key: 'readingMode.tabTypewriter' },
-  { value: 'lyric', key: 'readingMode.tabLyric' },
-  { value: 'tts', key: 'readingMode.tabTts' },
-] as const
+const guideTabs = computed(() => [
+  // 滚动方式下自动翻页是匀速滚动, 页签随之改名
+  { value: 'auto' as const, key: props.autoScrolled ? 'readingMode.tabAutoScroll' : 'readingMode.tabAuto' },
+  { value: 'typewriter' as const, key: 'readingMode.tabTypewriter' },
+  { value: 'lyric' as const, key: 'readingMode.tabLyric' },
+  { value: 'tts' as const, key: 'readingMode.tabTts' },
+])
 
 const runningTab = computed<ReadingModeTab | null>(() => {
   if (props.autoReading) return 'auto'
@@ -212,11 +244,11 @@ function onSpeedInput(e: Event) {
       </div>
     </div>
 
-    <!-- 显示 -->
-    <section class="rm-group" :aria-label="t('readingMode.groupDisplay')">
-      <h3 class="rm-group-title">{{ t('readingMode.groupDisplay') }}</h3>
+    <!-- 场景: 一键套用一组排版值, 关闭恢复; 数值本身在「排版」里调 -->
+    <section class="rm-group" :aria-label="t('readingMode.groupScenes')">
+      <h3 class="rm-group-title">{{ t('readingMode.groupScenes') }}</h3>
       <div class="rm-cards">
-        <div v-for="c in displayCards" :key="c.id" class="rm-card" :class="{ on: c.on, open: detail === c.id }">
+        <div v-for="c in sceneCards" :key="c.id" class="rm-card" :class="{ on: c.on, open: detail === c.id }">
           <button
             type="button"
             class="rm-card-main"
@@ -227,7 +259,8 @@ function onSpeedInput(e: Event) {
             <svg v-if="c.id === 'night'" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M11.2 3.05a1 1 0 0 1 .3 1.06A7 7 0 0 0 19.9 12.5a1 1 0 0 1 1.36 1.06A9.5 9.5 0 1 1 10.15 2.73a1 1 0 0 1 1.05.32zM8.96 5.3a7.5 7.5 0 1 0 9.74 9.74A9 9 0 0 1 8.96 5.3z"/></svg>
             <svg v-else-if="c.id === 'eyeCare'" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0-7a1 1 0 0 1 1 1v1.5a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1zm0 17.5a1 1 0 0 1 1 1V21a1 1 0 1 1-2 0v-.5a1 1 0 0 1 1-1zM3 11h1.5a1 1 0 1 1 0 2H3a1 1 0 1 1 0-2zm16.5 0H21a1 1 0 1 1 0 2h-1.5a1 1 0 1 1 0-2z"/></svg>
             <svg v-else-if="c.id === 'eink'" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M7 2h10a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3zm0 2a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H7zm2 3h6a1 1 0 1 1 0 2H9a1 1 0 0 1 0-2zm0 4h6a1 1 0 1 1 0 2H9a1 1 0 1 1 0-2zm0 4h3a1 1 0 1 1 0 2H9a1 1 0 1 1 0-2z"/></svg>
-            <svg v-else viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M8.9 4.4a1 1 0 0 1 1.86 0l5.5 14.2a1 1 0 1 1-1.87.72L12.9 15.5H6.76l-1.5 3.82a1 1 0 0 1-1.86-.72L8.9 4.4zM7.54 13.5h4.58L9.83 7.6l-2.3 5.9zM18.5 10a1 1 0 0 1 1 1v1.5H21a1 1 0 1 1 0 2h-1.5V16a1 1 0 1 1-2 0v-1.5H16a1 1 0 1 1 0-2h1.5V11a1 1 0 0 1 1-1z"/></svg>
+            <svg v-else-if="c.id === 'largeText'" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M8.9 4.4a1 1 0 0 1 1.86 0l5.5 14.2a1 1 0 1 1-1.87.72L12.9 15.5H6.76l-1.5 3.82a1 1 0 0 1-1.86-.72L8.9 4.4zM7.54 13.5h4.58L9.83 7.6l-2.3 5.9zM18.5 10a1 1 0 0 1 1 1v1.5H21a1 1 0 1 1 0 2h-1.5V16a1 1 0 1 1-2 0v-1.5H16a1 1 0 1 1 0-2h1.5V11a1 1 0 0 1 1-1z"/></svg>
+            <svg v-else viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M4 3h4a1 1 0 0 1 0 2H6.41l3.3 3.3a1 1 0 0 1-1.42 1.4L5 6.42V8a1 1 0 0 1-2 0V4a1 1 0 0 1 1-1zm12 0h4a1 1 0 0 1 1 1v4a1 1 0 1 1-2 0V6.41l-3.3 3.3a1 1 0 1 1-1.4-1.42L17.58 5H16a1 1 0 1 1 0-2zM9.7 14.3a1 1 0 0 1 0 1.4L6.42 19H8a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1v-4a1 1 0 1 1 2 0v1.59l3.3-3.3a1 1 0 0 1 1.4 0zm4.6 0a1 1 0 0 1 1.4 0l3.3 3.29V16a1 1 0 1 1 2 0v4a1 1 0 0 1-1 1h-4a1 1 0 1 1 0-2h1.59l-3.3-3.3a1 1 0 0 1 0-1.4z"/></svg>
             <span class="rm-card-name">{{ t(c.key) }}</span>
             <span class="rm-card-state">{{ c.on ? t('readingMode.stateOn') : t('readingMode.stateOff') }}</span>
           </button>
@@ -243,65 +276,48 @@ function onSpeedInput(e: Event) {
           </button>
         </div>
       </div>
+      <p v-if="!detailCard" class="rm-hint">{{ t('readingMode.scenesHint') }}</p>
 
-      <!-- 夜间: 说明 + 定时 -->
-      <div v-if="detail === 'night'" class="rm-detail">
-        <p class="rm-hint">{{ t('readingMode.nightDesc') }}</p>
-        <label class="rm-toggle">
-          <span>{{ t('readingMode.nightSchedule') }}</span>
-          <span class="rm-switch">
-            <input v-model="settings.readingMode.night.schedule" type="checkbox" role="switch" :aria-checked="settings.readingMode.night.schedule" />
-            <span class="rm-switch-track" aria-hidden="true"></span>
-          </span>
-        </label>
-        <div v-if="settings.readingMode.night.schedule" class="rm-row rm-clock">
-          <span class="rm-label">{{ t('readingMode.nightFrom') }}</span>
-          <input class="rm-time" type="time" :value="settings.readingMode.night.from" :aria-label="t('readingMode.nightFrom')" @change="onClock('from', $event)" />
-          <span>{{ t('readingMode.nightTo') }}</span>
-          <input class="rm-time" type="time" :value="settings.readingMode.night.to" :aria-label="t('readingMode.nightTo')" @change="onClock('to', $event)" />
+      <div v-else class="rm-detail">
+        <!-- 会调整什么 (只读) -->
+        <div class="rm-changes">
+          <span class="rm-changes-label">{{ t('readingMode.sceneChanges') }}</span>
+          <span v-for="chg in sceneChanges" :key="chg" class="rm-change">{{ chg }}</span>
         </div>
-        <p v-if="settings.readingMode.night.schedule" class="rm-hint">{{ t('readingMode.nightScheduleHint') }}</p>
-      </div>
+        <p v-if="detail === 'night'" class="rm-hint">{{ t('readingMode.nightDesc') }}</p>
+        <p v-else-if="detail === 'eyeCare'" class="rm-hint">{{ t('readingMode.eyeCareDesc') }}</p>
+        <p v-else-if="detail === 'eink'" class="rm-hint">{{ t('readingMode.einkDesc') }}</p>
+        <p v-else-if="detail === 'largeText'" class="rm-hint">{{ t('readingMode.largeTextDesc') }}</p>
+        <p v-else class="rm-hint">{{ t('readingMode.immersiveDesc') }}</p>
 
-      <!-- 护眼: 底色 / 调暗 / 休息提醒 -->
-      <div v-else-if="detail === 'eyeCare'" class="rm-detail">
-        <p class="rm-hint">{{ t('readingMode.eyeCareDesc') }}</p>
-        <div class="rm-row">
-          <span class="rm-label">{{ t('readingMode.eyeCareTheme') }}</span>
-          <div class="segmented">
-            <button type="button" :class="{ active: eye.theme === 'sepia' }" :aria-pressed="eye.theme === 'sepia'" @click="modes.setEyeCareTheme('sepia')">
-              {{ t('reader.themeSepia') }}
-            </button>
-            <button type="button" :class="{ active: eye.theme === 'green' }" :aria-pressed="eye.theme === 'green'" @click="modes.setEyeCareTheme('green')">
-              {{ t('reader.themeGreen') }}
-            </button>
+        <!-- 夜读: 定时开启 -->
+        <template v-if="detail === 'night'">
+          <label class="rm-toggle">
+            <span>{{ t('readingMode.nightSchedule') }}</span>
+            <span class="rm-switch">
+              <input v-model="settings.readingMode.night.schedule" type="checkbox" role="switch" :aria-checked="settings.readingMode.night.schedule" />
+              <span class="rm-switch-track" aria-hidden="true"></span>
+            </span>
+          </label>
+          <div v-if="settings.readingMode.night.schedule" class="rm-row rm-clock">
+            <span class="rm-label">{{ t('readingMode.nightFrom') }}</span>
+            <input class="rm-time" type="time" :value="settings.readingMode.night.from" :aria-label="t('readingMode.nightFrom')" @change="onClock('from', $event)" />
+            <span>{{ t('readingMode.nightTo') }}</span>
+            <input class="rm-time" type="time" :value="settings.readingMode.night.to" :aria-label="t('readingMode.nightTo')" @change="onClock('to', $event)" />
           </div>
-        </div>
-        <div class="rm-row">
-          <span class="rm-label">{{ t('readingMode.dim') }}</span>
-          <input
-            class="rm-range"
-            type="range"
-            min="0"
-            :max="DIM_MAX"
-            step="5"
-            :value="eye.dim"
-            :aria-label="t('readingMode.dim')"
-            :aria-valuetext="`${eye.dim}%`"
-            @input="onDim"
-          />
-          <span class="rm-value">{{ eye.dim }}%</span>
-        </div>
-        <label class="rm-toggle">
-          <span>{{ t('readingMode.reminder') }}</span>
-          <span class="rm-switch">
-            <input v-model="settings.readingMode.eyeCare.reminder" type="checkbox" role="switch" :aria-checked="eye.reminder" />
-            <span class="rm-switch-track" aria-hidden="true"></span>
-          </span>
-        </label>
-        <div v-if="eye.reminder" class="rm-row">
-          <span class="rm-label"></span>
-          <div class="segmented">
+          <p v-if="settings.readingMode.night.schedule" class="rm-hint">{{ t('readingMode.nightScheduleHint') }}</p>
+        </template>
+
+        <!-- 护眼: 休息提醒 -->
+        <template v-else-if="detail === 'eyeCare'">
+          <label class="rm-toggle">
+            <span>{{ t('readingMode.reminder') }}</span>
+            <span class="rm-switch">
+              <input v-model="settings.readingMode.eyeCare.reminder" type="checkbox" role="switch" :aria-checked="eye.reminder" />
+              <span class="rm-switch-track" aria-hidden="true"></span>
+            </span>
+          </label>
+          <div v-if="eye.reminder" class="segmented rm-self-start">
             <button
               v-for="n in reminderIntervals"
               :key="n"
@@ -313,18 +329,10 @@ function onSpeedInput(e: Event) {
               {{ t('readingMode.minutes', { n }) }}
             </button>
           </div>
-        </div>
-      </div>
+        </template>
 
-      <!-- 墨水屏 -->
-      <div v-else-if="detail === 'eink'" class="rm-detail">
-        <p class="rm-hint">{{ t('readingMode.einkDesc') }}</p>
-      </div>
-
-      <!-- 大字: 大 / 特大 -->
-      <div v-else-if="detail === 'largeText'" class="rm-detail">
-        <p class="rm-hint">{{ t('readingMode.largeTextDesc', { size: largeSize }) }}</p>
-        <div class="segmented">
+        <!-- 大字: 大 / 特大 (选哪一套, 不是字号本身) -->
+        <div v-else-if="detail === 'largeText'" class="segmented rm-self-start">
           <button
             type="button"
             :class="{ active: settings.readingMode.largeText.size === 'large' }"
@@ -342,52 +350,20 @@ function onSpeedInput(e: Event) {
             {{ t('readingMode.sizeXLarge') }} 30
           </button>
         </div>
-      </div>
-    </section>
 
-    <!-- 版面 -->
-    <section class="rm-group" :aria-label="t('readingMode.groupLayout')">
-      <h3 class="rm-group-title">{{ t('readingMode.groupLayout') }}</h3>
-      <div class="rm-cards">
-        <div v-for="c in layoutCards" :key="c.id" class="rm-card" :class="{ on: c.on, open: detail === c.id, blocked: c.blocked }">
-          <button
-            type="button"
-            class="rm-card-main"
-            role="switch"
-            :aria-checked="c.on"
-            :aria-disabled="c.blocked"
-            @click="toggleCard(c)"
-          >
-            <svg v-if="c.id === 'immersive'" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M4 3h4a1 1 0 0 1 0 2H6.41l3.3 3.3a1 1 0 0 1-1.42 1.4L5 6.42V8a1 1 0 0 1-2 0V4a1 1 0 0 1 1-1zm12 0h4a1 1 0 0 1 1 1v4a1 1 0 1 1-2 0V6.41l-3.3 3.3a1 1 0 1 1-1.4-1.42L17.58 5H16a1 1 0 1 1 0-2zM9.7 14.3a1 1 0 0 1 0 1.4L6.42 19H8a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1v-4a1 1 0 1 1 2 0v1.59l3.3-3.3a1 1 0 0 1 1.4 0zm4.6 0a1 1 0 0 1 1.4 0l3.3 3.29V16a1 1 0 1 1 2 0v4a1 1 0 0 1-1 1h-4a1 1 0 1 1 0-2h1.59l-3.3-3.3a1 1 0 0 1 0-1.4z"/></svg>
-            <svg v-else viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v14h6V5H5zm8 0v14h6V5h-6z"/></svg>
-            <span class="rm-card-name">{{ t(c.key) }}</span>
-            <span class="rm-card-state">{{ c.on ? t('readingMode.stateOn') : t('readingMode.stateOff') }}</span>
-          </button>
-          <button
-            type="button"
-            class="rm-card-info"
-            :aria-expanded="detail === c.id"
-            :aria-label="t('readingMode.details', { name: t(c.key) })"
-            :title="t('readingMode.details', { name: t(c.key) })"
-            @click="toggleDetail(c.id)"
-          >
-            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm0 6a1 1 0 0 1 1 1v5a1 1 0 1 1-2 0v-5a1 1 0 0 1 1-1zm0-4a1.25 1.25 0 1 1 0 2.5A1.25 1.25 0 0 1 12 6z"/></svg>
-          </button>
-        </div>
-      </div>
-      <div v-if="detail === 'immersive'" class="rm-detail">
-        <p class="rm-hint">{{ t('readingMode.immersiveDesc') }}</p>
-        <label class="rm-toggle">
+        <!-- 沉浸: 连页码也隐藏 -->
+        <label v-else-if="detail === 'immersive'" class="rm-toggle">
           <span>{{ t('readingMode.hideFooter') }}</span>
           <span class="rm-switch">
             <input v-model="settings.readingMode.immersive.hideFooter" type="checkbox" role="switch" :aria-checked="settings.readingMode.immersive.hideFooter" />
             <span class="rm-switch-track" aria-hidden="true"></span>
           </span>
         </label>
-      </div>
-      <div v-else-if="detail === 'twoColumns'" class="rm-detail">
-        <p class="rm-hint">{{ t('readingMode.twoColumnsDesc') }}</p>
-        <p v-if="modes.forceSingleColumn.value" class="rm-note" role="note">{{ t('readingMode.twoColumnsBlocked') }}</p>
+
+        <button v-if="detailCard.tune" type="button" class="rm-tune" @click="tune(detailCard.tune)">
+          {{ t('readingMode.tuneInTypography') }}
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M9.3 6.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 1 1-1.4-1.4L13.58 12 9.3 7.7a1 1 0 0 1 0-1.4z"/></svg>
+        </button>
       </div>
     </section>
 
@@ -1161,6 +1137,11 @@ function onSpeedInput(e: Event) {
   }
 }
 
+/* 点睛开关 (插槽) 自带下边线, 与下方分组的上边线重复: 只留一条 */
+.rm-panel :slotted(.dj-toggle) {
+  border-bottom: none;
+}
+
 /* ---- 分组与开关卡片 ---- */
 .rm-group {
   display: flex;
@@ -1178,8 +1159,8 @@ function onSpeedInput(e: Event) {
 }
 .rm-cards {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
 }
 .rm-card {
   position: relative;
@@ -1188,7 +1169,8 @@ function onSpeedInput(e: Event) {
 .rm-card-main {
   width: 100%;
   min-height: 72px;
-  padding: 10px 4px 8px;
+  /* 顶部留出角上 ⓘ 的位置 */
+  padding: 14px 2px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--card);
@@ -1218,9 +1200,6 @@ function onSpeedInput(e: Event) {
 .rm-card.open .rm-card-main {
   box-shadow: 0 0 0 1px var(--brand) inset;
 }
-.rm-card.blocked .rm-card-main {
-  opacity: 0.55;
-}
 .rm-card-name {
   max-width: 100%;
   overflow: hidden;
@@ -1239,10 +1218,10 @@ function onSpeedInput(e: Event) {
 }
 .rm-card-info {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 26px;
-  height: 26px;
+  top: 1px;
+  right: 1px;
+  width: 24px;
+  height: 24px;
   border: none;
   border-radius: 50%;
   background: transparent;
@@ -1265,6 +1244,51 @@ function onSpeedInput(e: Event) {
 }
 .rm-detail .rm-toggle + .rm-toggle {
   border-top: none;
+}
+.rm-changes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.rm-changes-label {
+  margin-right: 2px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.rm-change {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.rm-self-start {
+  align-self: flex-start;
+}
+.rm-tune {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 28px;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  color: var(--brand);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+}
+.rm-tune:hover {
+  text-decoration: underline;
+}
+.rm-tune:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
 }
 .rm-clock {
   flex-wrap: wrap;
@@ -1320,16 +1344,19 @@ function onSpeedInput(e: Event) {
 }
 @media (pointer: coarse) {
   .rm-card-info {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     top: 0;
     right: 0;
   }
-  /* 触屏: 可点区域补到 44px (看起来不变, 用透明外扩) */
+  /* 触屏: 可点区域往卡片外扩 (卡片中部仍归开关) */
   .rm-card-info::before {
     content: '';
     position: absolute;
-    inset: -5px;
+    inset: -6px -6px 0 0;
+  }
+  .rm-tune {
+    min-height: 44px;
   }
   .rm-panel .segmented button {
     min-height: 40px;
@@ -1361,7 +1388,7 @@ function onSpeedInput(e: Event) {
 }
 @media (max-width: 360px) {
   .rm-cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getStorage } from '../storage'
-import type { BookMeta, BooklistRec, CatalogSourceRec } from '../storage/types'
+import type { BookFormat, BookMeta, BooklistRec, CatalogSourceRec } from '../storage/types'
 import { EPUB_CONVERTIBLE } from '../services/format'
 import { discoverLibraryUpload, LibraryUploadError, type LibraryUploadCapability } from '../services/libraryUpload'
 import {
   enqueueLibraryUpload, isFinished, libraryUploadTask, retryFailedLibraryUploads, type UploadTaskInput,
 } from '../services/libraryUploadTask'
+import { planFolderPick, type FolderPlan } from '../services/folderPick'
+import { canPickFolder, loadFolderFile, scanFromFileList, scanNativeFolder, useNativeFolderPicker, type FolderFile, type FolderScan } from '../services/folderSource'
+import FolderPickDialog from './FolderPickDialog.vue'
 import { t } from '../i18n'
 
 const props = defineProps<{ source?: CatalogSourceRec; bookIds?: string[] }>()
@@ -115,6 +118,41 @@ function chooseFiles(event: Event) {
   }
   input.value = ''
 }
+// 选择文件夹: 按书库支持的格式与大小上限挑书, 同一本书只传最推荐的格式, 确认后直接进后台队列
+const folderInput = ref<HTMLInputElement>()
+const folderSupported = canPickFolder()
+const folderPick = ref<{ scanning: boolean; scan?: FolderScan; plan?: FolderPlan<FolderFile> } | null>(null)
+const uploadFormats = computed(() => accept.value.split(',').filter(Boolean).map(ext => ext.slice(1)) as BookFormat[])
+async function chooseFolder() {
+  if (!useNativeFolderPicker()) { folderInput.value?.click(); return }
+  try {
+    const scan = await scanNativeFolder(name => { folderPick.value = { scanning: true, scan: { name, entries: [], truncated: false } } })
+    if (scan && !disposed) showFolderPlan(scan); else folderPick.value = null
+  } catch (error) {
+    folderPick.value = null
+    connectionError.value = t('folder.scanFailed', { msg: error instanceof Error ? error.message : String(error) })
+  }
+}
+function onFolderPick(event: Event) {
+  const input = event.target as HTMLInputElement
+  const scan = input.files ? scanFromFileList(input.files) : null
+  input.value = ''
+  if (scan) showFolderPlan(scan)
+}
+function showFolderPlan(scan: FolderScan) {
+  const cap = capability.value
+  if (!cap) return
+  folderPick.value = { scanning: false, scan, plan: planFolderPick(scan.entries, { formats: uploadFormats.value, maxBytes: cap.maxFileBytes }) }
+}
+function confirmFolderUpload() {
+  const selected = folderPick.value?.plan?.selected ?? []
+  folderPick.value = null
+  const source = target.value, cap = capability.value
+  if (!source || !cap || !selected.length) return
+  enqueueLibraryUpload(source, cap, convertFirst.value && canConvert.value, selected.map(e => e.file
+    ? { key: `file:${e.file.name}:${e.file.size}:${e.file.lastModified}`, name: e.path, file: e.file }
+    : { key: `path:${e.absPath}`, name: e.path, loadFile: () => loadFolderFile(e) }))
+}
 function upload() {
   const source = target.value, cap = capability.value
   if (!source || !cap || !queue.value.length) return
@@ -126,6 +164,8 @@ function upload() {
 <template>
   <Teleport to="body">
     <div class="upload-overlay" @click.self="close" @keydown="keydown">
+      <!-- 选文件夹的输入框放在对话框外: 对话框里只有一个文件输入框 (e2e 依赖) -->
+      <input v-if="folderSupported && capability" ref="folderInput" type="file" webkitdirectory hidden data-folder-input @change="onFolderPick" />
       <section ref="panel" class="upload-dialog card" role="dialog" aria-modal="true" aria-labelledby="library-upload-title" tabindex="-1">
         <header class="upload-header"><h2 id="library-upload-title">{{ t('upload.title') }}</h2><button class="btn btn-sm" @click="close">{{ t('upload.close') }}</button></header>
         <div class="upload-body">
@@ -144,7 +184,7 @@ function upload() {
             <p class="upload-muted">{{ t('upload.localHint') }}</p>
             <label v-if="canConvert" class="upload-convert"><input v-model="convertFirst" type="checkbox" /><span>{{ t('upload.convertFirst') }}<small>{{ t('upload.convertHint') }}</small></span></label>
             <div class="segmented upload-tabs"><button :class="{ active: mode === 'device' }" @click="mode = 'device'">{{ t('upload.device') }}</button><button :class="{ active: mode === 'existing' }" @click="mode = 'existing'">{{ t('upload.existing') }}</button></div>
-            <div v-if="mode === 'device'" class="upload-device"><input ref="picker" type="file" multiple :accept="accept" hidden @change="chooseFiles" /><button class="btn" @click="picker?.click()">{{ t('upload.chooseFiles') }}</button></div>
+            <div v-if="mode === 'device'" class="upload-device"><input ref="picker" type="file" multiple :accept="accept" hidden @change="chooseFiles" /><button class="btn" @click="picker?.click()">{{ t('upload.chooseFiles') }}</button><button v-if="folderSupported" class="btn upload-folder" @click="chooseFolder()">{{ t('folder.choose') }}</button></div>
             <div v-else class="upload-existing">
               <input v-model="query" class="input" type="search" :placeholder="t('upload.search')" :aria-label="t('upload.search')" />
               <div class="upload-filters"><select v-model="listFilter" class="input" :aria-label="t('upload.allBooks')"><option value="">{{ t('upload.allBooks') }}</option><option v-for="list in booklists" :key="list.id" :value="list.id">{{ list.name }}</option></select><label><input v-model="pinnedOnly" type="checkbox" /> {{ t('upload.pinned') }}</label></div>
@@ -160,11 +200,21 @@ function upload() {
       </section>
     </div>
   </Teleport>
+  <FolderPickDialog
+    v-if="folderPick"
+    action="upload"
+    :scanning="folderPick.scanning"
+    :scan="folderPick.scan"
+    :plan="folderPick.plan"
+    :max-mb="capability ? Math.floor(capability.maxFileBytes / 1048576) : undefined"
+    @confirm="confirmFolderUpload"
+    @cancel="folderPick = null"
+  />
 </template>
 
 <style scoped>
 .upload-overlay{position:fixed;inset:0;z-index:1100;background:var(--overlay, color-mix(in srgb,var(--text) 35%,transparent));display:flex;align-items:center;justify-content:center;padding:16px}
 .upload-dialog{width:min(680px,100%);max-height:calc(100dvh - 32px);display:flex;flex-direction:column;background:var(--card);outline:none;padding:0;overflow:hidden}
-.upload-header,.upload-footer{padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0}.upload-header{border-bottom:1px solid var(--border)}.upload-header h2{font-size:18px;margin:0}.upload-body{padding:16px 20px;overflow:auto;min-height:0}.upload-field{display:grid;gap:8px}.upload-muted{font-size:13px;line-height:1.6;color:var(--text-2);margin:8px 0}.upload-url{overflow-wrap:anywhere}.upload-error{color:var(--danger);line-height:1.6}.upload-success{color:var(--success)}.upload-tabs{margin:16px 0}.upload-convert{display:flex;align-items:flex-start;gap:8px;margin:12px 0 0;font-size:14px;cursor:pointer}.upload-convert input{margin-top:3px}.upload-convert small{display:block;margin-top:2px;color:var(--text-2);font-size:12px;line-height:1.5}.upload-device{padding:8px 0}.upload-existing{display:grid;gap:10px}.upload-filters,.upload-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.upload-filters select{flex:1;min-width:130px}.upload-filters label{font-size:13px;white-space:nowrap}.upload-books{max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px}.upload-book{display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);cursor:pointer}.upload-book:last-child{border:0}.upload-book span,.upload-queue li>div{min-width:0;flex:1}.upload-book strong,.upload-queue strong{font-size:14px;display:block;overflow-wrap:anywhere}.upload-book small,.upload-queue small{display:block;margin-top:4px;color:var(--text-2);font-size:12px;overflow-wrap:anywhere}.upload-queue{margin-top:18px}.upload-queue h3{font-size:14px}.upload-queue ul{padding:0;margin:0;list-style:none;max-height:240px;overflow:auto}.upload-queue li{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)}.upload-queue .upload-error{color:var(--danger)}.upload-queue .upload-success{color:var(--success)}.upload-footer{border-top:1px solid var(--border);flex-wrap:wrap}.upload-footer>div:first-child{font-size:13px}.upload-footer progress{display:block;width:100%;margin-top:6px;accent-color:var(--brand)}
+.upload-header,.upload-footer{padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0}.upload-header{border-bottom:1px solid var(--border)}.upload-header h2{font-size:18px;margin:0}.upload-body{padding:16px 20px;overflow:auto;min-height:0}.upload-field{display:grid;gap:8px}.upload-muted{font-size:13px;line-height:1.6;color:var(--text-2);margin:8px 0}.upload-url{overflow-wrap:anywhere}.upload-error{color:var(--danger);line-height:1.6}.upload-success{color:var(--success)}.upload-tabs{margin:16px 0}.upload-convert{display:flex;align-items:flex-start;gap:8px;margin:12px 0 0;font-size:14px;cursor:pointer}.upload-convert input{margin-top:3px}.upload-convert small{display:block;margin-top:2px;color:var(--text-2);font-size:12px;line-height:1.5}.upload-device{padding:8px 0;display:flex;gap:8px;flex-wrap:wrap}.upload-existing{display:grid;gap:10px}.upload-filters,.upload-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.upload-filters select{flex:1;min-width:130px}.upload-filters label{font-size:13px;white-space:nowrap}.upload-books{max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px}.upload-book{display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);cursor:pointer}.upload-book:last-child{border:0}.upload-book span,.upload-queue li>div{min-width:0;flex:1}.upload-book strong,.upload-queue strong{font-size:14px;display:block;overflow-wrap:anywhere}.upload-book small,.upload-queue small{display:block;margin-top:4px;color:var(--text-2);font-size:12px;overflow-wrap:anywhere}.upload-queue{margin-top:18px}.upload-queue h3{font-size:14px}.upload-queue ul{padding:0;margin:0;list-style:none;max-height:240px;overflow:auto}.upload-queue li{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)}.upload-queue .upload-error{color:var(--danger)}.upload-queue .upload-success{color:var(--success)}.upload-footer{border-top:1px solid var(--border);flex-wrap:wrap}.upload-footer>div:first-child{font-size:13px}.upload-footer progress{display:block;width:100%;margin-top:6px;accent-color:var(--brand)}
 @media(max-width:600px){.upload-overlay{padding:8px}.upload-dialog{max-height:calc(100dvh - 16px)}.upload-header,.upload-body,.upload-footer{padding:14px}.upload-tabs{display:flex}.upload-tabs button{flex:1;white-space:normal}.upload-footer .upload-actions{width:100%}.upload-footer .btn{flex:1}.upload-books{max-height:180px}}
 </style>

@@ -42,12 +42,18 @@ test('每个默认设置都已归类 (sync / secret / local), 归类表没有多
     'readingMode.eink', 'readingMode.largeText',
   ]) assert.ok(LOCAL_SETTING_PATHS.includes(p), `${p} 应只属于本机`)
   for (const p of ['reader.theme', 'reader.fontSize', 'appearance', 'language', 'webdavUrl', 'webdavUser',
-    'webdavProvider', 'aiProvider', 'aiBaseUrl', 'aiModel', 'readingMode.typewriter.cpm', 'ambient.layers']) {
+    'webdavProvider', 'aiProvider', 'aiBaseUrl', 'aiModel', 'readingMode.typewriter.cpm', 'ambient.layers',
+    'features.recommendedBooklists', 'features.transfer']) {
     assert.ok(ALL_SYNC_PATHS.includes(p), `${p} 应同步`)
   }
   const values = readSyncedSettings(settingsDefaults())
   assert.deepEqual(Object.keys(values).sort(), [...ALL_SYNC_PATHS])
   assert.ok(!('libraryRoot' in values) && !('reader' in values))
+})
+
+test('可选功能 (书单推荐 / 互传) 默认关闭, 作为使用偏好随同步', () => {
+  assert.deepEqual(settingsDefaults().features, { recommendedBooklists: false, transfer: false })
+  assert.deepEqual(SETTINGS_SYNC_SPEC.features, { recommendedBooklists: 'sync', transfer: 'sync' })
 })
 
 // ---- 预设 ----

@@ -42,6 +42,7 @@ export const SETTINGS_SYNC_SPEC: SettingsSpec = {
     flow: SYNC,
     maxColumnCount: SYNC,
     portraitScroll: SYNC,
+    continuousScroll: SYNC,
     /** 字体名: 别的设备没有这个字体时按 CSS 回退, 照样同步 */
     fontFamily: SYNC,
     justify: SYNC,
@@ -159,6 +160,11 @@ export const SETTINGS_SYNC_SPEC: SettingsSpec = {
     duckWithVoice: SYNC,
     duckLevel: SYNC,
     pauseWhenHidden: SYNC,
+  },
+  /** 可选功能开关 (书单推荐 / 互传) 是使用偏好, 随同步带到其他设备 */
+  features: {
+    recommendedBooklists: SYNC,
+    transfer: SYNC,
   },
 }
 

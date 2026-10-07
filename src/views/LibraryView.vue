@@ -2,7 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLibrary } from '../stores/library'
-import { importFiles } from '../services/importer'
+import { importFiles, type LazyImportFile } from '../services/importer'
+import { IMPORT_FORMATS, planFolderPick, type FolderPlan } from '../services/folderPick'
+import { canPickFolder, loadFolderFile, scanFromFileList, scanNativeFolder, useNativeFolderPicker, type FolderFile, type FolderScan } from '../services/folderSource'
 import { importFromUrl } from '../services/urlImport'
 import { sendBookToDevices } from '../services/transfer'
 import { ACCEPT, SUPPORTED_EXTS, canConvertToEpub } from '../services/format'
@@ -12,6 +14,7 @@ import { readerPath } from '../services/readerRoute'
 import { loadDaily, localDay, onReadingLogChange } from '../services/readingLog'
 import BookCard from '../components/BookCard.vue'
 import LibraryUploadDialog from '../components/LibraryUploadDialog.vue'
+import FolderPickDialog from '../components/FolderPickDialog.vue'
 import BooklistWantedPanel from '../components/BooklistWantedPanel.vue'
 import BooklistShareDialog from '../components/BooklistShareDialog.vue'
 import BooklistImportDialog from '../components/BooklistImportDialog.vue'
@@ -147,7 +150,8 @@ async function refreshToday() {
   }
 }
 const todayMinutes = computed(() => Math.floor(todaySeconds.value / 60))
-const goalMinutes = computed(() => Math.max(0, Math.round(useSettings().dailyGoalMinutes || 0)))
+const settings = useSettings()
+const goalMinutes = computed(() => Math.max(0, Math.round(settings.dailyGoalMinutes || 0)))
 const todayRatio = computed(() => (goalMinutes.value > 0 ? Math.min(1, todaySeconds.value / (goalMinutes.value * 60)) : 0))
 const todayDone = computed(() => goalMinutes.value > 0 && todayRatio.value >= 1)
 const TODAY_RING_C = 2 * Math.PI * 5.5
@@ -239,7 +243,7 @@ const filtered = computed(() => {
   ]
 })
 
-async function handleFiles(files: FileList | File[]) {
+async function handleFiles(files: FileList | Array<File | LazyImportFile>) {
   if (!files.length || importing.value) return
   const kind = pageKind.value
   const booklistId = kind === 'book' ? activeBooklistId.value : ''
@@ -264,6 +268,44 @@ function onPick(e: Event) {
   const input = e.target as HTMLInputElement
   if (input.files) handleFiles(input.files)
   input.value = ''
+}
+
+// 选择文件夹: 递归找出书, 同一本书多种格式只留最推荐的, 先确认再导入
+const folderInput = ref<HTMLInputElement>()
+const folderSupported = canPickFolder()
+const folderPick = ref<{ scanning: boolean; scan?: FolderScan; plan?: FolderPlan<FolderFile> } | null>(null)
+
+async function chooseFolder() {
+  importMenu.value = false
+  if (importing.value) return
+  if (!useNativeFolderPicker()) { folderInput.value?.click(); return }
+  try {
+    const scan = await scanNativeFolder(name => { folderPick.value = { scanning: true, scan: { name, entries: [], truncated: false } } })
+    if (scan) showFolderPlan(scan); else folderPick.value = null
+  } catch (e: any) {
+    folderPick.value = null
+    toast(t('folder.scanFailed', { msg: e?.message ?? String(e) }), 'error', 6000)
+  }
+}
+
+function onFolderPick(e: Event) {
+  const input = e.target as HTMLInputElement
+  const scan = input.files ? scanFromFileList(input.files) : null
+  input.value = ''
+  if (scan) showFolderPlan(scan)
+}
+
+function showFolderPlan(scan: FolderScan) {
+  const kind = pageKind.value
+  // 藏书里已有同名文件的不再导入 (导入流程本身不做内容去重)
+  const existing = library.books.filter(b => (b.kind ?? 'book') === kind).map(b => b.fileName)
+  folderPick.value = { scanning: false, scan, plan: planFolderPick(scan.entries, { formats: IMPORT_FORMATS, existingFileNames: existing }) }
+}
+
+function confirmFolderImport() {
+  const selected = folderPick.value?.plan?.selected ?? []
+  folderPick.value = null
+  if (selected.length) void handleFiles(selected.map(e => e.file ?? { name: e.name, load: () => loadFolderFile(e) }))
 }
 
 function onDrop(e: DragEvent) {
@@ -665,6 +707,10 @@ async function batchClearTags() {
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M4 6a3 3 0 0 1 3-3h3.6a3 3 0 0 1 2.1.9L14.4 5.6a1 1 0 0 0 .7.3H17a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V6zm3-1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8.9a1 1 0 0 0-1-1h-1.9a3 3 0 0 1-2.1-.9L11.3 5.3a1 1 0 0 0-.7-.3H7z"/></svg>
             {{ t('library.importLocal') }}
           </button>
+          <button v-if="folderSupported" role="menuitem" class="import-folder" @click="chooseFolder()">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M8 11h8M8 15h5"/></svg>
+            {{ t('folder.choose') }}
+          </button>
           <button role="menuitem" @click="importMenu = false; showUrlModal = true">
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M10.6 13.4a1 1 0 0 1 0-1.4l2.8-2.8a1 1 0 0 1 1.4 1.4l-2.8 2.8a1 1 0 0 1-1.4 0zM7 17a3 3 0 0 1 0-4.24l2.12-2.12a1 1 0 1 1 1.42 1.42L8.4 14.17a1 1 0 0 0 1.42 1.42l2.12-2.12a1 1 0 1 1 1.41 1.41L11.24 17A3 3 0 0 1 7 17zm10-10a3 3 0 0 1 0 4.24l-2.12 2.12a1 1 0 1 1-1.42-1.42l2.12-2.11a1 1 0 0 0-1.42-1.42l-2.12 2.12a1 1 0 0 1-1.41-1.41L12.76 7A3 3 0 0 1 17 7z"/></svg>
             {{ t('library.urlImportTitle') }}
@@ -673,8 +719,8 @@ async function batchClearTags() {
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 18H5a4 4 0 0 1-.6-8 7 7 0 0 1 13.4-2 5 5 0 0 1 1.2 10h-2M12 20V10m-4 4 4-4 4 4"/></svg>
             {{ t('library.uploadToCloud') }}
           </button>
-          <!-- 互传入口 (手机底部标签栏没有「互传」) -->
-          <button role="menuitem" @click="importMenu = false; router.push('/transfer')">
+          <!-- 互传入口 (手机底部标签栏没有「互传」); 设置里关闭互传时隐藏 -->
+          <button v-if="settings.features.transfer" role="menuitem" @click="importMenu = false; router.push('/transfer')">
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16.3 3.3a1 1 0 0 1 1.4 0l3 3a1 1 0 0 1 0 1.4l-3 3a1 1 0 1 1-1.4-1.4L17.58 8H5a1 1 0 0 1 0-2h12.59l-1.3-1.3a1 1 0 0 1 0-1.4zM7.7 13.3a1 1 0 0 1 0 1.4L6.42 16H19a1 1 0 1 1 0 2H6.41l1.3 1.3a1 1 0 1 1-1.42 1.4l-3-3a1 1 0 0 1 0-1.4l3-3a1 1 0 0 1 1.42 0z"/></svg>
             {{ t('transfer.libraryEntry') }}
           </button>
@@ -683,6 +729,8 @@ async function batchClearTags() {
       <!-- 手机端换行点: 标题+导入 一行, 搜索+排序+管理 一行 -->
       <span class="row-break" aria-hidden="true" />
       <input ref="fileInput" type="file" multiple :accept="ACCEPT" hidden @change="onPick" />
+      <!-- 选文件夹: 不带 multiple, e2e 的 input[type=file][multiple] 仍只指向上面的文件输入框 -->
+      <input v-if="folderSupported" ref="folderInput" type="file" webkitdirectory hidden data-folder-input @change="onFolderPick" />
     </header>
     <p class="add-books-hint">{{ t('library.addFormatsHint') }}<span v-if="activeBooklist"> · {{ t('library.addIntoBooklist', { name: activeBooklist.name }) }}</span></p>
 
@@ -787,6 +835,7 @@ async function batchClearTags() {
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M11 13H5a1 1 0 1 1 0-2h6V5a1 1 0 1 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6z"/></svg>
           {{ t(paperMode ? 'library.importPapers' : 'library.import') }}
         </button>
+        <button v-if="folderSupported" class="btn" @click="chooseFolder()">{{ t('folder.choose') }}</button>
         <router-link to="/catalogs" class="btn">{{ t('library.browseCatalogs') }}</router-link>
       </div>
     </div>
@@ -828,6 +877,7 @@ async function batchClearTags() {
         :show-booklists="!paperMode"
         :convertible="canConvertToEpub(book.format)"
         :converting="!!converting"
+        :sendable="settings.features.transfer"
         @open="openBook(book)"
         @remove="removeBook(book)"
         @toggle-select="toggleSelect(book.id)"
@@ -881,6 +931,15 @@ async function batchClearTags() {
     <BooklistImportDialog v-if="showBooklistImport" @close="showBooklistImport = false" @imported="id => (activeBooklistId = id)" />
 
     <LibraryUploadDialog v-if="showCloudUpload" :book-ids="cloudBookIds" @close="showCloudUpload = false" />
+    <FolderPickDialog
+      v-if="folderPick"
+      action="import"
+      :scanning="folderPick.scanning"
+      :scan="folderPick.scan"
+      :plan="folderPick.plan"
+      @confirm="confirmFolderImport"
+      @cancel="folderPick = null"
+    />
 
     <!-- 新建书单 -->
     <div v-if="showBooklistCreate" class="modal-mask" @click.self="showBooklistCreate = false">

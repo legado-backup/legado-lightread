@@ -2,6 +2,7 @@
 
 > 2026-10-04 · 状态：设计稿，尚未实现 · 范围：可重排书籍（foliate：EPUB/MOBI/AZW3/FB2 + TXT/MD/HTML）
 > 相关：`docs/产品设计.md`、`src/views/ReaderView.vue`（自动阅读、听书）、`node_modules/foliate-js/{paginator,tts,overlayer}.js`
+> 2026-10-07：「阅读模式」与「排版」两个面板的分工（场景卡片、每个设置只有一个入口）见 `docs/reader-panels.md`。
 
 ## 1. 结论
 

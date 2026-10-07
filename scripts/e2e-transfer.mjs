@@ -106,12 +106,16 @@ const LINK = 'https://example.com/books/sample.epub'
 
 const browser = await chromium.launch()
 const errors = []
-async function device(name, { viewport = { width: 1280, height: 800 }, settings, scheme = 'light' } = {}) {
+// transfer: 预先在「设置 → 功能」里开启互传 (默认关闭)
+async function device(name, { viewport = { width: 1280, height: 800 }, settings, scheme = 'light', transfer = true } = {}) {
   const context = await browser.newContext({ viewport, colorScheme: scheme, acceptDownloads: true })
-  await context.addInitScript(([api, s]) => {
+  await context.addInitScript(([api, s, on]) => {
     localStorage.setItem('lightread-sync-api', api)
-    if (s && !localStorage.getItem('lightread-settings')) localStorage.setItem('lightread-settings', JSON.stringify(s))
-  }, [API, settings ?? null])
+    const raw = localStorage.getItem('lightread-settings')
+    const cur = raw ? JSON.parse(raw) : (s ?? {})
+    if (on) cur.features = { ...(cur.features ?? {}), transfer: true }
+    if (raw || s || on) localStorage.setItem('lightread-settings', JSON.stringify(cur))
+  }, [API, settings ?? null, transfer])
   const page = await context.newPage()
   page.on('pageerror', e => errors.push(`[${name}] ${e.message}`))
   page.on('dialog', d => d.accept())
@@ -159,6 +163,16 @@ const assert = (cond, msg) => { if (!cond) throw new Error(msg) }
 
 try {
   if (SHOTS) mkdirSync(SHOTS, { recursive: true })
+
+  // ---------------- 功能开关: 默认关闭 ----------------
+  const Z = await device('Z', { transfer: false })
+  assert(await Z.locator('.sidebar .nav-item', { hasText: '互传' }).count() === 0, '默认关闭: 侧栏不应有「互传」')
+  await openTransfer(Z)
+  await Z.getByRole('button', { name: '开启互传' }).click()
+  await Z.getByRole('button', { name: '取件码', exact: true }).waitFor()
+  await Z.locator('.sidebar .nav-item', { hasText: '互传' }).waitFor()
+  await Z.context().close()
+  ok('互传默认关闭: 侧栏无入口, 互传页提示开启; 点「开启互传」后页面与侧栏入口出现')
 
   // ---------------- 轻阅账号 ----------------
   const A = await device('A')

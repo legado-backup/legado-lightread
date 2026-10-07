@@ -2,6 +2,7 @@
 // Run after building and starting the preview (default http://localhost:4173, override with E2E_BASE).
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
+import { readFileSync } from 'node:fs'
 import { strToU8, zipSync } from 'fflate'
 
 const base = process.env.E2E_BASE ?? 'http://localhost:4173'
@@ -12,6 +13,45 @@ let failArchive = false
 let metadataCalls = 0
 let githubTreeCalls = 0
 const philosophyDownloads = []
+const textbookDownloads = []
+const wendianRequests = []
+
+/** 最小可解析的单页 PDF (内容流里垫空格, 好拆成两卷模拟教材仓库的分卷) */
+function tinyPdf() {
+  const content = `BT /F1 18 Tf 20 100 Td (Textbook) Tj ET\n${' '.repeat(6000)}`
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ]
+  let pdf = '%PDF-1.4\n'
+  const offsets = objects.map((body, i) => {
+    const offset = pdf.length
+    pdf += `${i + 1} 0 obj\n${body}\nendobj\n`
+    return offset
+  })
+  const xref = pdf.length
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map(o => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  return Buffer.from(pdf, 'latin1')
+}
+const textbookPdf = tinyPdf()
+const textbookParts = [textbookPdf.subarray(0, 4000), textbookPdf.subarray(4000)]
+const bnuDir = '初中/数学/北师大版-北京师范大学出版社/七年级/义务教育教科书·数学七年级上册.pdf_merge_folder/'
+const textbookTree = [
+  { type: 'blob', path: 'README.md', size: 4000 },
+  { type: 'blob', path: '初中/数学/人教版-人民教育出版社/七年级/义务教育教科书·数学七年级上册.pdf', size: 9975261 },
+  { type: 'blob', path: '初中/数学/人教版-人民教育出版社/七年级/义务教育教科书·数学七年级下册.pdf', size: 15100000 },
+  { type: 'blob', path: `${bnuDir}义务教育教科书·数学七年级上册.pdf.2`, size: textbookParts[1].length },
+  { type: 'blob', path: `${bnuDir}义务教育教科书·数学七年级上册.pdf.1`, size: textbookParts[0].length },
+  { type: 'blob', path: '初中/语文/统编版-人民教育出版社/七年级/义务教育教科书·语文七年级上册.pdf', size: 12000000 },
+]
+/** 研辞问典: 真实页面存档 (scripts/fixtures) */
+const wendianPages = {
+  'https://wendian.dicomp.net/ancient/detail.php?id=1171': 'wendian-ancient-1171.html',
+}
 
 /** 最小可导入 EPUB (Early Modern Texts 给 EPUB 标 text/html, 这里统一照样模拟) */
 function epubBytes(title) {
@@ -35,6 +75,18 @@ await page.route('**/*', async route => {
   const parsed = new URL(requestUrl)
   const url = parsed.hostname === 'catalog-proxy.test' ? parsed.searchParams.get('url') : requestUrl
   const json = body => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) })
+  if (url.includes('api.github.com/repos/TapXWorld/ChinaTextbook/git/trees/')) return json({ tree: textbookTree, truncated: false })
+  if (url.startsWith('https://raw.githubusercontent.com/TapXWorld/ChinaTextbook/')) {
+    const part = Number(url.split('.').pop())
+    textbookDownloads.push(part)
+    return route.fulfill({ contentType: 'application/octet-stream', headers: { 'access-control-allow-origin': '*' }, body: textbookParts[part - 1] })
+  }
+  if (url.startsWith('https://wendian.dicomp.net/')) {
+    wendianRequests.push({ url, proxied: parsed.hostname === 'catalog-proxy.test' })
+    const file = wendianPages[url]
+    if (!file) return route.fulfill({ status: 404, body: 'not found' })
+    return route.fulfill({ contentType: 'text/html; charset=utf-8', body: readFileSync(new URL(`./fixtures/${file}`, import.meta.url), 'utf8') })
+  }
   if (url.includes('api.github.com/repos/') && url.includes('/git/trees/')) {
     githubTreeCalls++
     return json({ tree: [{ type: 'blob', path: '陋室 /?&铭.txt', size: 2048 }], truncated: false })
@@ -62,6 +114,8 @@ try {
   const search = page.getByRole('searchbox', { name: '统一搜书' })
   assert.equal(await page.getByRole('checkbox', { name: 'GitHub', exact: true }).isChecked(), true)
   assert.equal(await page.getByRole('checkbox', { name: '哲学文库', exact: true }).isChecked(), true, '哲学文库 is a default source')
+  assert.equal(await page.getByRole('checkbox', { name: '教材', exact: true }).isChecked(), true, 'textbooks are a default source')
+  assert.equal(await page.getByRole('checkbox', { name: '研辞问典', exact: true }).isChecked(), true, '研辞问典 is a default source')
   assert.equal(await page.getByText('维基文库').count(), 0, 'Wikisource has been removed')
   await search.fill('陋室 /?&铭')
   await page.getByRole('button', { name: '搜索', exact: true }).click()
@@ -100,6 +154,38 @@ try {
   assert.deepEqual(philosophyDownloads.map(d => d.proxied), [false])
   assert.match(philosophyDownloads[0].url, /^https:\/\/standardebooks\.org\/ebooks\/david-hume\/an-enquiry-concerning-human-understanding\/downloads\/.+\.epub\?source=download$/)
 
+  // 教材: 年级 + 学科从整条路径里匹配; 两个分卷合并成一行
+  await search.fill('七年级 数学')
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  const textbooks = page.locator('.uni-group').filter({ hasText: '教材 ·' })
+  await textbooks.getByText('初中 · 数学 · 七年级 · 北师大版', { exact: false }).waitFor()
+  assert.equal(await textbooks.locator('.gh-item').count(), 3, 'two parts of one book are a single row')
+  const bnu = textbooks.locator('.gh-item').filter({ hasText: '北师大版' })
+  assert.equal(await bnu.count(), 1)
+  await bnu.getByText(/分 2 卷/).waitFor()
+  assert.match(await textbooks.locator('.gh-item').first().innerText(), /数学七年级上册[\s\S]*人教版/)
+  // 上一次导入的提示消失后再点, 免得把旧提示当成这次的结果
+  await page.getByText(/成功导入 1 本|已导入 1 本/).first().waitFor({ state: 'detached', timeout: 15000 })
+  await bnu.getByRole('button', { name: '下载到藏书' }).click()
+  await page.getByText(/成功导入 1 本|已导入 1 本/).first().waitFor({ timeout: 20000 })
+  assert.deepEqual(textbookDownloads, [1, 2], 'parts are downloaded in order')
+
+  // 研辞问典: 本地索引搜索, 网页版无代理时只给「查看原站」, 不请求原站
+  await search.fill('千字文')
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  const wendian = page.locator('.uni-group').filter({ hasText: '研辞问典 ·' })
+  const qzw = wendian.locator('.gh-item').filter({ hasText: '千字文' }).first()
+  await qzw.waitFor()
+  assert.match(await qzw.innerText(), /周興嗣/)
+  assert.equal(await qzw.getByRole('button', { name: '导入', exact: true }).count(), 0, 'web without proxy cannot import')
+  await qzw.getByRole('button', { name: '查看原站' }).click()
+  assert.equal((await page.evaluate(() => window.__openedBooks)).at(-1), 'https://wendian.dicomp.net/mengxue/book.php?book=%E5%8D%83%E5%AD%97%E6%96%87&var=%E5%8D%97%E5%8C%97%E6%9C%9D')
+  await search.fill('论语')
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await wendian.locator('.gh-item').first().filter({ hasText: '论语' }).waitFor()
+  assert.match(await wendian.locator('.gh-item').first().innerText(), /四书五经/)
+  assert.equal(wendianRequests.length, 0, 'searching never touches the site')
+
   await search.fill('陋室 /?&铭')
   await page.getByRole('checkbox', { name: 'Open Library', exact: true }).check()
   await page.getByRole('button', { name: '搜索', exact: true }).click()
@@ -131,8 +217,30 @@ try {
   await page.waitForFunction(() => document.body.innerText.match(/成功导入 1 本|已导入 1 本/g)?.length >= 1)
   await page.waitForTimeout(500)
   assert.ok(philosophyDownloads.some(d => d.proxied && d.url === 'https://www.marxists.org/ebooks/hegel/hegels-logic.epub'), 'marxists.org download goes through the configured proxy')
+  // 研辞问典经代理导入: 只取这一页 → 生成 EPUB → 打开阅读
+  await search.fill('三归五戒慈心厌离功德经')
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  const sutra = page.locator('.uni-group').filter({ hasText: '研辞问典 ·' }).locator('.gh-item').filter({ hasText: '三归五戒慈心厌离功德经' }).first()
+  await sutra.getByRole('button', { name: '导入', exact: true }).click()
+  await page.waitForSelector('foliate-view', { timeout: 20000 })
+  await page.waitForFunction(() => {
+    const view = document.querySelector('foliate-view')
+    const doc = view?.renderer?.getContents?.()?.[0]?.doc
+    return !!doc?.body?.textContent?.includes('三归五戒慈心厌离功德经')
+  }, null, { timeout: 20000 })
+  assert.deepEqual(wendianRequests, [{ url: 'https://wendian.dicomp.net/ancient/detail.php?id=1171', proxied: true }])
+  await page.click('button[title="目录"]')
+  await page.locator('.toc-item').filter({ hasText: '三归五戒慈心厌离功德经' }).first().waitFor({ timeout: 5000 })
+  await page.locator('.toc-item').filter({ hasText: '三归五戒慈心厌离功德经' }).first().click()
+  await page.waitForFunction(() => {
+    const view = document.querySelector('foliate-view')
+    return (view?.renderer?.getContents?.() ?? []).some(content => content.doc?.body?.textContent?.includes('闻如是。一时佛在舍卫国'))
+  }, null, { timeout: 15000 })
+
   await page.goto(base + '/#/library')
-  await page.getByText('Public Archive Book', { exact: true }).waitFor()
+  await page.getByText('义务教育教科书·数学七年级上册', { exact: true }).first().waitFor()
+  await page.getByText('三归五戒慈心厌离功德经', { exact: true }).first().waitFor()
+  await page.getByText('Public Archive Book', { exact: true }).first().waitFor()
   await page.getByText('An Enquiry Concerning Human Understanding', { exact: true }).first().waitFor()
   await page.getByText("Hegel's Logic", { exact: true }).first().waitFor()
   await page.goto(base + '/#/catalogs')
@@ -142,7 +250,7 @@ try {
   await page.getByText('请至少选择一个搜索来源。').waitFor()
   assert.equal(await page.getByRole('button', { name: '搜索', exact: true }).isDisabled(), true)
   assert.deepEqual(errors, [])
-  console.log('PASS: public catalog search, 哲学文库 local index + downloads, lazy formats, browser fallback, import, partial failure, mobile layout')
+  console.log('PASS: public catalog search, 哲学文库 local index + downloads, 教材 merged parts + import, 研辞问典 local index + EPUB import, lazy formats, browser fallback, import, partial failure, mobile layout')
 } finally {
   await browser.close()
 }

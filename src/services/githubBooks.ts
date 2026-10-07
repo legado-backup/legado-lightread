@@ -7,6 +7,7 @@ import { fetchRemote } from './net'
 import { detectFormat } from './format'
 import { compactKey, queryTerms, titleRelevance } from './bookQuery'
 import bundledSources from '../../booksources.json'
+import { groupTextbookFiles, searchTextbookBooks, splitPartOf, TEXTBOOK_REPO, type TextbookBook, type TextbookHit } from './chinaTextbook'
 
 export interface GithubBookHit {
   repo: string
@@ -80,8 +81,9 @@ async function fetchRepoTree(repo: string): Promise<TreeCacheEntry> {
 
   const data = await requestGithub(`https://api.github.com/repos/${repo}/git/trees/HEAD?recursive=1`, response => response.json())
   if (!Array.isArray(data.tree)) throw new Error('Invalid GitHub file tree')
+  // 分卷 (书名.pdf.1 …) 也留着: 教材仓库把大书拆成多卷, 搜索时合并成一本
   const candidates = data.tree.filter((n: any) => n.type === 'blob' && n.mode !== '120000'
-    && validFilePath(n.path) && detectFormat(n.path) && includedPath(repo, n.path)
+    && validFilePath(n.path) && (detectFormat(n.path) || splitPartOf(n.path)) && includedPath(repo, n.path)
     && Number.isFinite(n.size) && n.size > 0)
   const files: TreeCacheEntry['files'] = []
   for (const node of candidates) {
@@ -127,7 +129,7 @@ export async function searchGithubBooks(repos: string[], keyword: string): Promi
       const tree = await fetchRepoTree(repo)
       if (tree.truncated) result.truncated = true
       for (const file of tree.files) {
-        if (!includedPath(repo, file.path)) continue
+        if (!includedPath(repo, file.path) || !detectFormat(file.path)) continue
         const lower = `${file.path} ${activeSources.get(repo.toLowerCase())?.note ?? ''}`.normalize('NFKC').toLowerCase()
         // 文件名常把「思考，快与慢」写成「思考快与慢」: 去掉标点空格后再比一次
         const compact = compactKey(lower)
@@ -151,6 +153,15 @@ export async function searchGithubBooks(repos: string[], keyword: string): Promi
     .sort((a, b) => b.score - a.score || a.hit.name.localeCompare(b.hit.name, 'zh'))
     .map(entry => entry.hit)
   return result
+}
+
+let textbookBooks: { at: number; books: TextbookBook[] } | undefined
+
+/** 中小学及大学教材 (TapXWorld/ChinaTextbook): 同一套文件树缓存, 分卷合并后按整条路径搜索 */
+export async function searchChinaTextbooks(query: string, limit = 60): Promise<TextbookHit[]> {
+  const tree = await fetchRepoTree(TEXTBOOK_REPO)
+  if (textbookBooks?.at !== tree.at) textbookBooks = { at: tree.at, books: groupTextbookFiles(tree.files) }
+  return searchTextbookBooks(textbookBooks.books, query, limit)
 }
 
 export const fmtBytes = (n: number) =>

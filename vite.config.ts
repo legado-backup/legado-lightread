@@ -1,18 +1,38 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 import { cloudflare } from '@cloudflare/vite-plugin'
 import { BROWSER_TARGET, legacyCssFallbacks, legacyRegexRewrite } from './vite.legacy.ts'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 
+/**
+ * 跨章连续滚动: foliate-js 的 view.js 用 `import('./paginator.js')` 加载渲染器,
+ * 这里把它 (以及直接 import 的 foliate-js/paginator.js) 指向 src/vendor/foliate/paginator.js 的 fork。
+ * 设计见 docs/continuous-scroll.md。
+ */
+function foliatePaginatorFork(): Plugin {
+  const fork = fileURLToPath(new URL('./src/vendor/foliate/paginator.js', import.meta.url))
+  return {
+    name: 'lightread:foliate-paginator-fork',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (source === 'foliate-js/paginator.js') return fork
+      if (source === './paginator.js' && importer
+        && /[\\/]foliate-js[\\/]view\.js(?:\?|$)/.test(importer)) return fork
+      return null
+    },
+  }
+}
+
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
-  plugins: [legacyRegexRewrite(), vue(), VitePWA({
+  plugins: [foliatePaginatorFork(), legacyRegexRewrite(), vue(), VitePWA({
     // 桌面/移动端 (Tauri) 资源都在本地, 不需要 PWA 离线缓存; Windows WebView2
     // 会把 Service Worker 缓存的旧版界面存进用户数据目录, 升级后仍加载旧代码。
     // 自毁型 SW 让已装机器上的旧 SW 在更新检查时自动注销并清缓存。
@@ -61,6 +81,10 @@ export default defineConfig({
     // 目前没有模块 Worker (DjVu.js 的 Worker 由函数源码拼成 Blob, 走主包降级结果);
     // 显式写明, 以后新增 `new Worker(new URL(..., import.meta.url))` 时沿用同一目标的 ES 模块产物
     format: 'es',
+  },
+  // 开发模式不预构建 foliate-js: 预构建产物里 view.js 的 ./paginator.js 不经过上面的 fork 重定向
+  optimizeDeps: {
+    exclude: ['foliate-js'],
   },
   // Tauri 开发时使用固定端口
   server: {

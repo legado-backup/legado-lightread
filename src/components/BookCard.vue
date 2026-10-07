@@ -16,6 +16,8 @@ const props = defineProps<{
   convertible?: boolean
   /** 正在转换: 按钮禁用 */
   converting?: boolean
+  /** 显示「发送到其他设备」(设置里开启了互传) */
+  sendable?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -204,6 +206,7 @@ function onKeydown(e: KeyboardEvent) {
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 18H5a4 4 0 0 1-.6-8 7 7 0 0 1 13.4-2 5 5 0 0 1 1.2 10h-2M12 20V10m-4 4 4-4 4 4"/></svg>
         </button>
         <button
+          v-if="sendable"
           type="button"
           class="action send"
           :title="t('transfer.sendToDevices')"

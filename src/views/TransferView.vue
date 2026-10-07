@@ -23,6 +23,8 @@ const router = useRouter()
 const settings = useSettings()
 
 const initialCode = typeof route.query.code === 'string' ? codeFromLink(route.query.code) : null
+/** 设置 → 功能 里关闭互传时: 只显示说明与「开启互传」, 不收取、不联网 */
+const enabled = computed(() => settings.features.transfer)
 const tab = ref<'devices' | 'drop'>(initialCode ? 'drop' : 'devices')
 
 // ---- 我的设备 ----
@@ -38,6 +40,7 @@ const channels = computed<DeviceChannelId[]>(() => {
 const via = ref<DeviceChannelId>(channels.value[0] ?? 'account')
 watch(channels, list => {
   if (list.length && !list.includes(via.value)) via.value = list[0]
+  if (!enabled.value) return
   for (const id of list) void loadDevices(id)
   void refreshTransfers()
 })
@@ -184,13 +187,18 @@ async function copy(text: string) {
 
 // ---- 生命周期 ----
 
-onMounted(() => {
-  transferState.pageOpen = true
+function start() {
   transferState.unread = 0
   void refreshTransfers()
   for (const id of channels.value) void loadDevices(id)
   if (initialCode) void pickUp()
+}
+onMounted(() => {
+  transferState.pageOpen = true
+  if (enabled.value) start()
 })
+// 在本页点「开启互传」后立即开始 (深链取件码随之取件)
+watch(enabled, on => { if (on) start() })
 onBeforeUnmount(() => {
   transferState.pageOpen = false
 })
@@ -204,6 +212,7 @@ onBeforeUnmount(() => {
         <p class="subtitle">{{ t('transfer.subtitle') }}</p>
       </div>
       <button
+        v-if="enabled"
         type="button"
         class="btn btn-ghost btn-icon refresh"
         :title="t('transfer.refresh')"
@@ -215,6 +224,19 @@ onBeforeUnmount(() => {
       </button>
     </header>
 
+    <!-- 互传未开启 -->
+    <div v-if="!enabled" class="card setup empty">
+      <div class="empty-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M16.3 3.3a1 1 0 0 1 1.4 0l3 3a1 1 0 0 1 0 1.4l-3 3a1 1 0 1 1-1.4-1.4L17.58 8H5a1 1 0 0 1 0-2h12.59l-1.3-1.3a1 1 0 0 1 0-1.4zM7.7 13.3a1 1 0 0 1 0 1.4L6.42 16H19a1 1 0 1 1 0 2H6.41l1.3 1.3a1 1 0 1 1-1.42 1.4l-3-3a1 1 0 0 1 0-1.4l3-3a1 1 0 0 1 1.42 0z" /></svg>
+      </div>
+      <p class="empty-title">{{ t('transfer.disabledTitle') }}</p>
+      <p class="setup-desc">{{ t('transfer.disabledDesc') }}</p>
+      <div class="empty-actions">
+        <button type="button" class="btn btn-primary" @click="settings.features.transfer = true">{{ t('transfer.enable') }}</button>
+      </div>
+    </div>
+
+    <template v-else>
     <div class="segmented tabs" role="group" :aria-label="t('transfer.title')">
       <button type="button" :class="{ active: tab === 'devices' }" :aria-pressed="tab === 'devices'" @click="tab = 'devices'">{{ t('transfer.tabDevices') }}</button>
       <button type="button" :class="{ active: tab === 'drop' }" :aria-pressed="tab === 'drop'" @click="tab = 'drop'">{{ t('transfer.tabDrop') }}</button>
@@ -408,6 +430,7 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </section>
+    </template>
   </div>
 </template>
 

@@ -7,6 +7,40 @@
 /** 竖屏: 视口高于宽 (旋转设备、把桌面窗口拉成竖长条都会实时切换) */
 export const PORTRAIT_QUERY = '(orientation: portrait)'
 
+export interface PortraitProbe {
+  /** 视口 (CSS px) */
+  width: number
+  height: number
+  /** screen.width / height (CSS px); iOS 上不随旋转交换, 只用来判断窗口是否占满屏宽 */
+  screenWidth?: number
+  screenHeight?: number
+  /** screen.orientation.type, 如 'portrait-primary'; 不支持时缺省 */
+  orientationType?: string
+  /** 旧 WebView 的 window.orientation (0/180 竖, ±90 横) */
+  legacyOrientation?: number
+}
+
+/**
+ * 是否按竖屏排版。窗口占满屏宽时 (手机、平板、最大化 / 全屏的 Surface) 按屏幕方向判断:
+ * 软键盘弹出、点墨这类屏幕键盘停靠在底部都会把视口压矮, 只看视口宽高比会误判成横屏,
+ * 正文随之从单栏滚动切成双栏翻页、位置乱跳。桌面上随意拉伸的窗口仍按视口宽高比
+ * (把窗口拉成竖长条照样切到竖屏排版)。
+ */
+export function isPortraitView(p: PortraitProbe): boolean {
+  const viewport = p.height >= p.width
+  const sw = p.screenWidth ?? 0
+  const sh = p.screenHeight ?? 0
+  if (!(sw > 0 && sh > 0)) return viewport
+  const screenPortrait = p.orientationType
+    ? p.orientationType.startsWith('portrait')
+    : typeof p.legacyOrientation === 'number'
+      ? Math.abs(p.legacyOrientation) !== 90
+      : sh >= sw
+  // iOS 的 screen 尺寸恒为竖放时的值, 按方向取当前的屏宽
+  const screenInline = screenPortrait ? Math.min(sw, sh) : Math.max(sw, sh)
+  return p.width >= screenInline * 0.9 ? screenPortrait : viewport
+}
+
 export type ReaderFlow = 'paginated' | 'scrolled'
 
 export interface ReaderLayoutInput {

@@ -56,8 +56,8 @@ import {
 import { useLibrary } from '../stores/library'
 import { useSettings } from '../stores/settings'
 import { useReadingTimer } from '../composables/useReadingTimer'
-import { useMediaQuery } from '../composables/useMediaQuery'
-import { effectivePdfLayout, PORTRAIT_QUERY } from '../services/portraitLayout'
+import { usePortraitView } from '../composables/usePortraitView'
+import { effectivePdfLayout } from '../services/portraitLayout'
 import { toast } from '../services/toast'
 import { printPdf, revealStoredBook, savePdfAs } from '../services/pdfFileActions'
 import {
@@ -151,7 +151,7 @@ const presentationMode = ref(false)
  * 竖屏 (手机 / 平板 / Surface 竖着拿) 且开启「竖屏时单页滚动」时, 生效为单页连续滚动; 横过来恢复
  * settings.pdf.mode / spreadMode。只算生效值, 不改写用户保存的设置。
  */
-const portraitView = useMediaQuery(PORTRAIT_QUERY)
+const portraitView = usePortraitView()
 const pdfEffective = computed(() => effectivePdfLayout({
   mode: settings.pdf.mode,
   spreadMode: settings.pdf.spreadMode,

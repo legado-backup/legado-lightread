@@ -45,8 +45,10 @@ export interface TypewriterConfig {
 
 /** 控制器对阅读器的全部依赖 (由 useReadingModes 用 foliate-view 实现) */
 export interface TypewriterHost {
-  /** 当前显示的分节: renderer.getContents()[0] */
+  /** 当前显示的分节: renderer.getContents()[0] (跨章连续滚动时为阅读线所在的主章) */
   contents(): { doc: Document; index: number; overlayer?: any } | null
+  /** 指定文档所在的已渲染分节 (跨章连续滚动时同时有多个); 不提供时只认 contents() */
+  contentOf?(doc: Document): { doc: Document; index: number; overlayer?: any } | null
   /** 最近一次 relocate 的可见范围 (view.lastLocation.range) */
   visibleRange(): Range | null
   scrolled(): boolean
@@ -55,7 +57,7 @@ export interface TypewriterHost {
   /** 翻到下一页 (到节末时进入下一节) */
   nextPage(): unknown
   nextSection(): unknown
-  /** 滚动模式: 向前滚动 px; 实现方需保证只在本节内滚动, 不跨节 */
+  /** 滚动模式: 向前滚动 px; 单章渲染时实现方需保证只在本节内滚动, 不跨节 */
   scrollForward(px: number): void
   /** 阅读区视口在宿主窗口中的位置 (滚动跟随用) */
   viewportRect(): DOMRect | null
@@ -118,6 +120,8 @@ export class TypewriterController {
   /** 当前分节文档 (选区监听等用) */
   get doc(): Document | null { return this.#text?.doc ?? null }
   get cursor(): number { return this.#cursor }
+  /** 当前分节序号 */
+  get section(): number { return this.#section }
   get config(): Readonly<TypewriterConfig> { return this.#cfg }
 
   /** 从当前页第一个可见字开始; 本页先全部隐藏再从页首打出。没有可用的分节时返回 false */
@@ -248,6 +252,24 @@ export class TypewriterController {
     }
   }
 
+  /** 光标所在行在视口内 (跨章连续滚动时据此判断用户是否滚去了别的分节); 文档已卸载为 false */
+  cursorInView(): boolean {
+    const text = this.#text
+    if (!this.active || !text) return false
+    const frame = (text.doc.defaultView?.frameElement as Element | null | undefined)?.getBoundingClientRect()
+    if (!frame) return false
+    const vp = this.#host.viewportRect()
+    if (!vp || vp.height <= 0) return true
+    const off = Math.min(this.#cursor, text.length)
+    const r = text.length ? text.range(Math.max(0, off - 1), Math.max(off, 1)) : null
+    const rects = r?.getClientRects()
+    const rect = rects?.length ? rects[rects.length - 1] : null
+    if (!rect) return true
+    const top = frame.top + rect.top
+    const bottom = frame.top + rect.bottom
+    return bottom > vp.top && top < vp.top + vp.height
+  }
+
   /** 选区越过了光标: 把光标推进到选区末尾 (只能选已显示的文字) */
   revealSelection(range: Range) {
     const text = this.#text
@@ -308,7 +330,7 @@ export class TypewriterController {
     this.#section = index
     this.#layer = createRevealLayer(doc, {
       getOverlayer: () => {
-        const c = this.#host.contents()
+        const c = this.#host.contentOf ? this.#host.contentOf(doc) : this.#host.contents()
         return c && c.doc === doc ? c.overlayer : null
       },
       colors: () => this.#host.colors(),

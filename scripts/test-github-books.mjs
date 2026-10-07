@@ -6,6 +6,7 @@ import ts from 'typescript'
 const source = await readFile(new URL('../src/services/githubBooks.ts', import.meta.url), 'utf8')
 const formatSource = await readFile(new URL('../src/services/format.ts', import.meta.url), 'utf8')
 const bookQuerySource = await readFile(new URL('../src/services/bookQuery.ts', import.meta.url), 'utf8')
+const textbookSource = await readFile(new URL('../src/services/chinaTextbook.ts', import.meta.url), 'utf8')
 const bundled = JSON.parse(await readFile(new URL('../booksources.json', import.meta.url), 'utf8'))
 const compile = text => ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
 const dataModule = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
@@ -23,6 +24,8 @@ async function harness(fetchRemote, cache = new Map()) {
     .replace("'./net'", JSON.stringify(dataModule(`export const fetchRemote = (...args) => globalThis[${JSON.stringify(hook)}](...args)`)))
     .replace("'./format'", JSON.stringify(dataModule(compile(formatSource))))
     .replace("'./bookQuery'", JSON.stringify(dataModule(compile(bookQuerySource))))
+    .replace("'./chinaTextbook'", JSON.stringify(dataModule(compile(textbookSource)
+      .replace("'./bookQuery.ts'", JSON.stringify(dataModule(compile(bookQuerySource)))))))
     .replace("'../../booksources.json'", JSON.stringify(dataModule(`export default ${JSON.stringify(bundled)}`)))
   return { service: await import(dataModule(code)), cache }
 }
@@ -151,4 +154,27 @@ test('punctuation in the query is ignored and exact titles rank first', async ()
     const thinking = await service.searchGithubBooks(['owner/books'], query)
     assert.deepEqual(thinking.hits.map(hit => hit.name).sort(), ['思考快与慢.epub', '思考，快与慢（丹尼尔·卡尼曼）.pdf'].sort(), query)
   }
+})
+
+test('split parts stay out of generic results but are merged for the textbook source', async () => {
+  let calls = 0
+  const { service } = await harness(async url => {
+    calls++
+    assert.match(url, /repos\/TapXWorld\/ChinaTextbook\/git\/trees\/HEAD\?recursive=1$/)
+    return json({ tree: [
+      blob('README.md', 3000),
+      blob('初中/数学/人教版-人民教育出版社/七年级/义务教育教科书·数学七年级上册.pdf'),
+      blob('初中/数学/北师大版-北京师范大学出版社/七年级/义务教育教科书·数学七年级上册.pdf_merge_folder/义务教育教科书·数学七年级上册.pdf.2', 300),
+      blob('初中/数学/北师大版-北京师范大学出版社/七年级/义务教育教科书·数学七年级上册.pdf_merge_folder/义务教育教科书·数学七年级上册.pdf.1', 4000),
+    ] })
+  })
+  const generic = await service.searchGithubBooks(['TapXWorld/ChinaTextbook'], '数学')
+  assert.deepEqual(generic.hits.map(hit => hit.name), ['义务教育教科书·数学七年级上册.pdf'])
+  const textbooks = await service.searchChinaTextbooks('七年级 数学')
+  assert.equal(calls, 1, 'the textbook source reuses the cached file tree')
+  assert.equal(textbooks.length, 2)
+  const merged = textbooks.find(book => book.parts.length === 2)
+  assert.equal(merged.size, 4300)
+  assert.deepEqual(merged.parts.map(part => part.path.at(-1)), ['1', '2'])
+  assert.equal(textbooks[0].edition, '人教版')
 })

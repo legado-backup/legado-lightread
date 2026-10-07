@@ -204,8 +204,8 @@ export class DianjingEngine {
     return s
   }
 
-  /** foliate load: 已渲染的分节文档 */
-  attach(index: number, doc: Document) {
+  /** foliate load: 已渲染的分节文档。keep: 仍在屏上的分节 (跨章连续滚动时同时渲染多个), 不因离得远被清掉 */
+  attach(index: number, doc: Document, keep?: ReadonlySet<number>) {
     const old = this.sections.get(index)
     old?.layer?.dispose()
     const s = this.#buildSection(index, doc, true)
@@ -219,7 +219,7 @@ export class DianjingEngine {
     }
     this.sections.set(index, s)
     // 只保留附近的分节, 防止长时间阅读内存增长
-    for (const k of [...this.sections.keys()]) if (Math.abs(k - index) > 2) {
+    for (const k of [...this.sections.keys()]) if (Math.abs(k - index) > 2 && !keep?.has(k)) {
       this.sections.get(k)?.layer?.dispose()
       this.sections.delete(k)
     }

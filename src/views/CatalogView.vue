@@ -17,12 +17,17 @@ import {
   calibreCoverUrl, pickBestFormat, type CalibreBook,
 } from '../services/calibre'
 import {
-  searchGithubBooks, isValidRepo, fmtBytes, fetchCommunityRepos,
+  searchGithubBooks, isValidRepo, fmtBytes, fetchCommunityRepos, searchChinaTextbooks,
   BUNDLED_COMMUNITY, COMMUNITY_LIST_PAGE,
   type GithubBookHit, type CommunityRepo,
 } from '../services/githubBooks'
 import { openDownload } from '../services/updater'
 import { searchPhilosophyArchive, type PhilosophyWork } from '../services/philosophyArchive'
+import { downloadTextbook, textbookSubtitle, TextbookDownloadError, type TextbookHit } from '../services/chinaTextbook'
+import { buildWendianEpub, fetchWendianBook, searchWendian, type WendianWork } from '../services/wendian'
+import { sanitizeFileName } from '../services/epubWriter'
+import { fetchRemote } from '../services/net'
+import { importFile } from '../services/importer'
 import { searchOpenLibrary, type OpenLibraryBook } from '../services/openLibrary'
 import { searchInternetArchive, loadArchivePublication, type ArchiveBook } from '../services/internetArchive'
 import { WEB_BOOK_SOURCES, webBookSourceUrl } from '../services/webBookSources'
@@ -122,10 +127,12 @@ async function importGhBook(hit: GithubBookHit) {
 
 // ---- 统一搜书: 默认优先免登录的公开图书 ----
 const uniQuery = ref('')
-const uniScopes = reactive({ github: true, gutenberg: true, archive: true, philosophy: true, openlibrary: false, arxiv: false })
+const uniScopes = reactive({ github: true, textbook: true, gutenberg: true, archive: true, philosophy: true, wendian: true, openlibrary: false, arxiv: false })
 const hasSearchScope = computed(() =>
   Object.values(uniScopes).some(Boolean) || myLibraries.value.some(s => myScopeOn(s.id)))
 const uniPhilosophy = ref<PhilosophyWork[]>([])
+const uniWendian = ref<WendianWork[]>([])
+const uniTextbook = ref<TextbookHit[]>([])
 const uniArchive = ref<ArchiveBook[]>([])
 const uniOpenLibrary = ref<OpenLibraryBook[]>([])
 const archivePublications = reactive<Record<string, OpdsPublication>>(Object.create(null))
@@ -167,29 +174,33 @@ let uniSession = 0
 const uniActiveQuery = ref('')
 
 // ---- 各公开书源的状态: 搜索中 / 有结果 / 未找到 / 出错, 分组按结果相关度排序 ----
-type UniSource = 'philosophy' | 'archive' | 'github' | 'gutenberg' | 'openlibrary' | 'arxiv'
+type UniSource = 'philosophy' | 'wendian' | 'archive' | 'github' | 'textbook' | 'gutenberg' | 'openlibrary' | 'arxiv'
 /** 同等相关度时的默认顺序 */
-const UNI_SOURCES: UniSource[] = ['philosophy', 'archive', 'github', 'gutenberg', 'openlibrary', 'arxiv']
+const UNI_SOURCES: UniSource[] = ['philosophy', 'wendian', 'archive', 'github', 'textbook', 'gutenberg', 'openlibrary', 'arxiv']
 const uniStatus = reactive<Record<UniSource, 'idle' | 'loading' | 'done' | 'error'>>({
-  philosophy: 'idle', archive: 'idle', github: 'idle', gutenberg: 'idle', openlibrary: 'idle', arxiv: 'idle',
+  philosophy: 'idle', wendian: 'idle', archive: 'idle', github: 'idle', textbook: 'idle', gutenberg: 'idle', openlibrary: 'idle', arxiv: 'idle',
 })
 /** 搜索范围里的公开来源 (顺序即显示顺序) */
 const publicScopeChips = computed(() => ([
   { key: 'philosophy', name: t('catalog.philosophy'), title: t('catalog.philosophyHint') },
+  { key: 'wendian', name: t('catalog.wendian'), title: t('catalog.wendianHint') },
   { key: 'gutenberg', name: t('catalog.gutenberg') },
   { key: 'archive', name: 'Internet Archive' },
   { key: 'arxiv', name: 'arXiv' },
   { key: 'openlibrary', name: 'Open Library' },
+  { key: 'textbook', name: t('catalog.textbook'), title: t('catalog.textbookHint') },
   { key: 'github', name: 'GitHub' },
 ] as Array<{ key: UniSource; name: string; title?: string }>))
 const uniSourceName = (key: UniSource) => ({
-  philosophy: t('catalog.philosophy'), archive: 'Internet Archive', github: 'GitHub',
+  philosophy: t('catalog.philosophy'), wendian: t('catalog.wendian'), archive: 'Internet Archive', github: 'GitHub', textbook: t('catalog.textbook'),
   gutenberg: t('catalog.gutenberg'), openlibrary: 'Open Library', arxiv: 'arXiv',
 })[key]
 
 function uniTitles(key: UniSource): string[] {
   switch (key) {
     case 'philosophy': return uniPhilosophy.value.map(b => b.title)
+    case 'wendian': return uniWendian.value.map(b => b.title)
+    case 'textbook': return uniTextbook.value.map(b => b.title)
     case 'archive': return uniArchive.value.map(b => b.title)
     case 'github': return uniGithub.value.map(h => h.name)
     case 'gutenberg': return uniGutenberg.value.map(p => p.title)
@@ -201,6 +212,8 @@ function uniTitles(key: UniSource): string[] {
 /** 该来源最贴切的一条结果的相关度 (哲学文库在本地索引里已算好, 含繁简归一; 其余按书名比对) */
 function uniBestRelevance(key: UniSource): number {
   if (key === 'philosophy') return Math.max(0, ...uniPhilosophy.value.map(b => b.relevance))
+  if (key === 'wendian') return Math.max(0, ...uniWendian.value.map(b => b.relevance))
+  if (key === 'textbook') return Math.max(0, ...uniTextbook.value.map(b => b.relevance))
   // Open Library 只是书目: 只有能公开阅读/借阅的记录才算数, 免得「暂无电子版」排到可下载的来源前面
   const titles = key === 'openlibrary'
     ? uniOpenLibrary.value.filter(b => b.access === 'public' || b.access === 'borrowable').map(b => b.title)
@@ -253,6 +266,8 @@ async function uniSearch() {
   uniSearching.value = true
   uniSearched.value = true
   uniPhilosophy.value = []
+  uniWendian.value = []
+  uniTextbook.value = []
   uniArchive.value = []
   uniOpenLibrary.value = []
   uniErrors.value = []
@@ -291,6 +306,12 @@ async function uniSearch() {
   }
   if (uniScopes.gutenberg) run('gutenberg', () => searchGutenberg(query, 24), pubs => { uniGutenberg.value = pubs })
   if (uniScopes.philosophy) run('philosophy', () => searchPhilosophyArchive(query), works => { uniPhilosophy.value = works })
+  if (uniScopes.wendian) run('wendian', () => searchWendian(query), works => { uniWendian.value = works })
+  if (uniScopes.textbook) {
+    run('textbook', () => searchChinaTextbooks(query).catch(e => {
+      throw /\b(403|429)\b|rate limit/i.test(String(e?.message)) ? new Error(t('catalog.githubRateLimited')) : e
+    }), hits => { uniTextbook.value = hits })
+  }
   if (uniScopes.archive) run('archive', () => searchInternetArchive(query), books => { uniArchive.value = books })
   if (uniScopes.openlibrary) run('openlibrary', () => searchOpenLibrary(query), books => { uniOpenLibrary.value = books })
   if (uniScopes.arxiv) {
@@ -320,6 +341,85 @@ const philosophyAcqs = (work: PhilosophyWork) => work.publication.acquisitions
 function downloadPhilosophy(work: PhilosophyWork, acq: OpdsPublication['acquisitions'][number]) {
   if (philosophyInBrowser(work)) openBookWebsite(acq.href)
   else void uniDownloadPub(work.publication, acq, t('catalog.philosophy'))
+}
+
+// ---- 教材 (TapXWorld/ChinaTextbook): 分卷依次下载、核对大小后合并成一本 PDF ----
+const textbookBusy = ref('')
+async function importTextbook(hit: TextbookHit) {
+  if (textbookBusy.value) return
+  textbookBusy.value = hit.path
+  try {
+    const file = await downloadTextbook(hit, url => fetchRemote(url, undefined, { headers: { accept: '*/*' } }), p => {
+      const pct = p.total ? Math.min(100, p.received / p.total * 100).toFixed(0) : '0'
+      const mb = (p.received / 1048576).toFixed(1)
+      ghProgress.value = p.parts > 1
+        ? t('catalog.textbookDownloadingParts', { part: p.part, parts: p.parts, pct, mb })
+        : t('library.urlDownloading', { pct, mb })
+    })
+    const result = await importFile(file, t('catalog.textbook'), {
+      title: hit.title,
+      author: hit.publisher || hit.edition,
+      description: textbookSubtitle(hit),
+    })
+    if (!result.ok) throw new Error(result.error)
+    await library.refresh()
+    const bookId = result.bookId
+    toast(t('library.importSuccess', { count: 1 }), 'success', 5000,
+      bookId ? { label: t('booklist.open'), run: () => openLibraryBook({ id: bookId, format: hit.ext }) } : undefined)
+  } catch (e: any) {
+    const msg = e instanceof TextbookDownloadError
+      ? (e.code === 'size' ? t('catalog.textbookPartMismatch', { n: e.part }) : t('catalog.textbookNotPdf'))
+      : sourceErrorText(e)
+    toast(t('library.urlImportFailed', { msg }), 'error', 6000)
+  } finally {
+    textbookBusy.value = ''
+    ghProgress.value = ''
+  }
+}
+
+// ---- 研辞问典: 只取选中的这一本, 解析正文生成 EPUB 后导入并打开 ----
+const wendianBusy = ref('')
+/** 原站不允许跨域: 网页版没配书源代理时只能查看原站 */
+const wendianInBrowser = computed(() => publicDownloadInBrowser.value)
+function charsLabel(chars: number): string {
+  const n = settings.language === 'en'
+    ? (chars >= 1000 ? `${Math.round(chars / 1000)}k` : String(chars))
+    : (chars >= 10000 ? `${(chars / 10000).toFixed(1)} 万` : String(chars))
+  return t('catalog.charsApprox', { n })
+}
+async function importWendianWork(work: WendianWork) {
+  if (wendianBusy.value) return
+  wendianBusy.value = work.id
+  ghProgress.value = t('catalog.wendianFetching', { title: work.title })
+  try {
+    const book = await fetchWendianBook(
+      work,
+      async url => (await fetchRemote(url, undefined, { headers: { accept: 'text/html,application/xhtml+xml,*/*' } })).text(),
+      p => {
+        if (p.total > 1) ghProgress.value = t('catalog.wendianFetchingParts', { title: work.title, done: p.done, total: p.total })
+      },
+    )
+    ghProgress.value = t('catalog.wendianBuilding', { title: book.title })
+    const bytes = await buildWendianEpub(book, {
+      note: [t('catalog.wendianNoteSource', { url: book.url }), t('catalog.wendianNoteTerms')],
+      tocTitle: t('reader.toc'),
+    })
+    const file = new File([bytes as BlobPart], sanitizeFileName(book.title, 'epub'), { type: 'application/epub+zip' })
+    const result = await importFile(file, t('catalog.wendian'), {
+      title: book.title,
+      author: book.author,
+      description: [book.category, book.url].filter(Boolean).join(' · '),
+    })
+    if (!result.ok || !result.bookId) throw new Error(result.error)
+    await library.refresh()
+    toast(t('library.importSuccess', { count: 1 }), 'success')
+    openLibraryBook({ id: result.bookId, format: 'epub' })
+  } catch (e: any) {
+    toast(t('library.urlImportFailed', { msg: e?.message === 'empty' ? t('catalog.wendianEmpty') : sourceErrorText(e) }), 'error', 6000)
+  } finally {
+    wendianBusy.value = ''
+    ghProgress.value = ''
+  }
 }
 
 /** 统一搜书里下载 OPDS/arXiv 出版物 */
@@ -644,7 +744,8 @@ watch(() => syncState.running, running => {
 onMounted(() => {
   refreshSources()
   refreshCommunity()
-  void refreshCurated()
+  // 书单推荐 (设置 → 功能, 默认关): 关闭时不显示也不联网拉取
+  if (settings.features.recommendedBooklists) void refreshCurated()
   library.refresh()
   // 藏书页待找条目的「找书」: /catalogs?q=书名 作者
   const q = typeof route.query.q === 'string' ? route.query.q.trim() : ''
@@ -1078,6 +1179,32 @@ async function removeSource(s: CatalogSourceRec) {
                 </div>
               </template>
 
+              <template v-else-if="key === 'wendian'">
+                <p v-if="uniStatus.wendian === 'done'" class="uni-group-msg">{{ t('catalog.wendianTerms') }}<template v-if="wendianInBrowser"> {{ t('catalog.wendianWebHint') }}</template></p>
+                <div v-for="work in shownOf(key, uniWendian)" :key="work.id" class="gh-item uni-pub" :class="{ busy: wendianBusy === work.id }">
+                  <div class="uni-pub-main">
+                    <span class="gh-name">{{ work.title }}</span>
+                    <span class="gh-meta"><template v-if="work.author">{{ work.author }} · </template>{{ work.category }}<template v-if="work.chars"> · {{ charsLabel(work.chars) }}</template></span>
+                  </div>
+                  <span class="uni-acts">
+                    <button v-if="!wendianInBrowser" class="btn btn-sm btn-accent" :disabled="!!wendianBusy" :aria-busy="wendianBusy === work.id" @click="importWendianWork(work)">{{ wendianBusy === work.id ? t('catalog.downloading') : t('catalog.wendianImport') }}</button>
+                    <button class="btn btn-sm btn-ghost" @click="openBookWebsite(work.url)">{{ t('catalog.viewOriginal') }}</button>
+                  </span>
+                </div>
+              </template>
+
+              <template v-else-if="key === 'textbook'">
+                <div v-for="hit in shownOf(key, uniTextbook)" :key="hit.path" class="gh-item uni-pub textbook-item" :class="{ busy: textbookBusy === hit.path }">
+                  <div class="uni-pub-main">
+                    <span class="gh-name">{{ hit.title }}</span>
+                    <span class="gh-meta">{{ textbookSubtitle(hit) }} · {{ fmtBytes(hit.size) }}<template v-if="hit.parts.length > 1"> · {{ t('catalog.textbookParts', { n: hit.parts.length }) }}</template></span>
+                  </div>
+                  <span class="uni-acts">
+                    <button class="btn btn-sm btn-accent" :disabled="!!textbookBusy" :aria-busy="textbookBusy === hit.path" @click="importTextbook(hit)">{{ textbookBusy === hit.path ? t('catalog.downloading') : t('catalog.importToLibrary') }}</button>
+                  </span>
+                </div>
+              </template>
+
               <template v-else-if="key === 'archive'">
                 <div v-for="book in shownOf(key, uniArchive)" :key="book.identifier" class="gh-item uni-pub">
                   <div class="uni-pub-main">
@@ -1169,7 +1296,7 @@ async function removeSource(s: CatalogSourceRec) {
       </section>
 
       <!-- 书单推荐: 精选书单 (自带 + 远程更新) -->
-      <section v-show="!curatedOpen" ref="curatedSectionEl" class="cat-section curated-section">
+      <section v-if="settings.features.recommendedBooklists" v-show="!curatedOpen" ref="curatedSectionEl" class="cat-section curated-section">
         <div class="section-head">
           <div>
             <h2>{{ t('booklist.curatedTitle') }}</h2>
@@ -1392,7 +1519,7 @@ async function removeSource(s: CatalogSourceRec) {
       </section>
 
       <!-- 推荐书单详情 -->
-      <template v-if="curatedOpen">
+      <template v-if="curatedOpen && settings.features.recommendedBooklists">
         <header class="toolbar dir-toolbar">
           <button class="btn btn-sm" @click="closeCurated">
             <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M14.7 6.3a1 1 0 0 1 0 1.4L10.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4l-5-5a1 1 0 0 1 0-1.4l5-5a1 1 0 0 1 1.42 0z"/></svg>
