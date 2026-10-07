@@ -502,7 +502,7 @@ export default {
   'transfer.expired': '已过期',
   'transfer.showMore': '展开',
   'transfer.showLess': '收起',
-  'transfer.privacy': '只有本账号的设备能看到，传输全程加密，7 天后自动删除，也可以随时删除。',
+  'transfer.privacy': '只有本账号的设备能看到，经 HTTPS 传输，7 天后自动删除，也可以随时删除。',
   'transfer.privacyWebdav': '经你自己的 WebDAV 网盘中转，7 天后由你的设备自动清理。',
   'transfer.channelWebdav': 'WebDAV',
   'transfer.channelDrop': '取件码',
