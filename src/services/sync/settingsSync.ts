@@ -346,6 +346,20 @@ export function recordSettingsChanges(meta: SettingsSyncMeta, values: Record<str
   return changed
 }
 
+/**
+ * 深拷贝设置值。设置状态是 Vue 的响应式对象, 读出的对象 / 数组是 Proxy, 浏览器的 structuredClone
+ * 遇到 Proxy 会抛 DataCloneError (「#<Object> could not be cloned」, 安卓 v1.14.0 账号同步报错);
+ * 设置值都是可 JSON 化的普通数据, 失败时退回按 JSON 复制, 结果等价。
+ */
+export function cloneValue<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value
+  try {
+    return structuredClone(value)
+  } catch {
+    return JSON.parse(JSON.stringify(value)) as T
+  }
+}
+
 // ---- 文档 ----
 
 /**
@@ -362,7 +376,7 @@ export function buildSettingsRegs(local: LocalSettings, deviceId: string, includ
     const s = local.stamps[path]
     const value = local.values[path]
     if (!s || !(s.t > 0) || value === undefined || value === null) continue
-    out[path] = { value: structuredClone(value), stamp: { t: s.t, d: s.d || deviceId } }
+    out[path] = { value: cloneValue(value), stamp: { t: s.t, d: s.d || deviceId } }
   }
   return out
 }
@@ -399,7 +413,7 @@ export function planSettingsApply(
     if (!sameShape(local.values[path], reg.value)) continue
     out.push({
       path,
-      value: structuredClone(reg.value),
+      value: cloneValue(reg.value),
       stamp: { ...reg.stamp },
       changed: !same(local.values[path], reg.value),
     })
@@ -409,7 +423,7 @@ export function planSettingsApply(
       const reg = merged[path]
       if (out.some(e => e.path === path) || !reg || !sameShape(local.values[path], reg.value)) continue
       if (same(local.values[path], reg.value)) continue
-      out.push({ path, value: structuredClone(reg.value), stamp: { ...reg.stamp }, changed: true })
+      out.push({ path, value: cloneValue(reg.value), stamp: { ...reg.stamp }, changed: true })
     }
     out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   }
@@ -440,12 +454,12 @@ export function createSettingsSyncPort(opts: SettingsPortOptions): SettingsSyncP
     read() {
       const values = readSyncedSettings(opts.state())
       if (recordSettingsChanges(meta, values, now()).length) opts.onMetaChange?.()
-      return { values, stamps: structuredClone(meta.stamps) }
+      return { values, stamps: cloneValue(meta.stamps) }
     },
     apply(entries) {
       const state = opts.state()
       for (const e of entries) {
-        if (e.changed && !writeSyncedSetting(state, e.path, structuredClone(e.value))) continue
+        if (e.changed && !writeSyncedSetting(state, e.path, cloneValue(e.value))) continue
         meta.stamps[e.path] = { t: e.stamp.t, d: e.stamp.d }
         meta.snap[e.path] = stableKey(e.value)
       }

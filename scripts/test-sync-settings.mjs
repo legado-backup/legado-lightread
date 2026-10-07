@@ -470,3 +470,13 @@ test('新设备登录账号: 先从账号拉到设置 (含 WebDAV 配置), 随�
   assert.equal(E.settings.webdavPass, '')
   assert.equal(webdavReady(E), false)
 })
+
+test('响应式 (Proxy) 的对象 / 数组设置也能写进同步文档, 不抛 DataCloneError', async () => {
+  const { buildSettingsRegs, cloneValue } = await import('../src/services/sync/settingsSync.ts')
+  const proxied = new Proxy([{ id: 'rain', volume: 0.4 }], {})
+  assert.throws(() => structuredClone(proxied), /could not be cloned|DataCloneError/)
+  assert.deepEqual(cloneValue(proxied), [{ id: 'rain', volume: 0.4 }])
+  const path = 'ambient.layers'
+  const regs = buildSettingsRegs({ values: { [path]: proxied }, stamps: { [path]: { t: 5, d: 'dev' } } }, 'dev', false)
+  assert.deepEqual(regs[path]?.value, [{ id: 'rain', volume: 0.4 }])
+})
