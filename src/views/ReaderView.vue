@@ -3806,6 +3806,8 @@ onBeforeUnmount(() => {
 }
 .set-row input[type='range'] {
   flex: 1;
+  /* 滑条默认有约 130px 的最小宽度, 字号一行 (A− 滑条 A+ 输入框) 会被撑出面板 */
+  min-width: 0;
   accent-color: var(--brand);
 }
 .set-row span {
