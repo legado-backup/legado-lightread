@@ -195,11 +195,19 @@ function lyricAndGuideCSS(colors: ReaderThemeColors, theme: string, intensity = 
   const altLight = alt
   const altNormal = alt
   const tail = withAlpha(colors.fg, guideTailAlpha(intensity))
+  // 重点词 (点睛阅读): 全书第一次出现强 (着色更足 + 浅底), 之后弱 (只着色); 都随明显程度变化, 只改颜色不重排
+  const t = Math.min(1, Math.max(0, intensity))
+  const accent = guideAccent(color, theme)
+  const kwStrong = mixHex(colors.fg, accent, Math.min(1, t + 0.2))
+  const kwStrongBg = withAlpha(accent, Math.round((0.05 + 0.13 * t) * 1000) / 1000)
+  const kwWeak = mixHex(colors.fg, accent, Math.round(t * 0.75 * 100) / 100)
   return `
     ::highlight(lr-ly-dim) { color: ${dim}; -webkit-text-fill-color: ${dim}; text-shadow: none; text-decoration-color: ${dim}; }
     ::highlight(lr-ly-hide) { color: transparent; -webkit-text-fill-color: transparent; text-shadow: none; text-decoration-color: transparent; }
     ::highlight(lr-wg-alt-l) { color: ${altLight}; -webkit-text-fill-color: ${altLight}; }
     ::highlight(lr-wg-alt-n) { color: ${altNormal}; -webkit-text-fill-color: ${altNormal}; }
     ::highlight(lr-wg-tail) { color: ${tail}; -webkit-text-fill-color: ${tail}; }
+    ::highlight(lr-wg-kw-s) { color: ${kwStrong}; -webkit-text-fill-color: ${kwStrong}; background-color: ${kwStrongBg}; }
+    ::highlight(lr-wg-kw-w) { color: ${kwWeak}; -webkit-text-fill-color: ${kwWeak}; }
   `
 }

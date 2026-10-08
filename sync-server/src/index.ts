@@ -17,7 +17,7 @@
  */
 
 import ADMIN_HTML from './admin.html'
-import { MAX_STATS_DAYS, beijingDay, computeStats, parsePing, recordPing, rollupStatements } from './stats'
+import { MAX_STATS_DAYS, beijingDay, computeStats, djRollupStatements, parsePing, recordPing, rollupStatements } from './stats'
 import { accountTransferCleanup, cleanupExpired, isTransferRoute, routeDrops, routeTransfers } from './transfer'
 
 // ---- 运行时类型 (只声明用到的部分, 免装 @cloudflare/workers-types) ----
@@ -95,7 +95,8 @@ const MAX_DOC_BYTES = 8 * 1024 * 1024
 /** 登录类请求体很小, 超过即视为非法 */
 const MAX_AUTH_BODY = 4 * 1024
 /** 匿名统计: 心跳请求体上限; 每个 IP 每个北京日最多 120 次 (客户端每天至多 2 次, 约 60 个安装共用一个出口 IP) */
-const MAX_PING_BODY = 1024
+/** 心跳体积上限: 基本字段约 120 字节, 点睛汇总每天约 100 字节 (最多补报 3 天) */
+const MAX_PING_BODY = 2048
 const PING_IP_DAILY = 120
 export const DEVICE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -558,10 +559,10 @@ export async function ipRateKey(env: Env, prefix: string, ip: string, day: strin
 }
 
 async function handlePing(request: Request, env: Env): Promise<Response> {
-  const ping = parsePing(await readJson(request, MAX_PING_BODY))
-  if (!ping) return fail(400, 'invalid_ping')
   const now = Date.now()
   const day = beijingDay(now)
+  const ping = parsePing(await readJson(request, MAX_PING_BODY), day)
+  if (!ping) return fail(400, 'invalid_ping')
   const ip = request.headers.get('cf-connecting-ip') ?? 'unknown'
   if ((await bump(env.DB, await ipRateKey(env, 'ping', ip, day), day)) > PING_IP_DAILY) {
     return fail(429, 'rate_limited', secondsToBeijingMidnight(now))
@@ -676,6 +677,7 @@ export default {
         ...rollupStatements(env.DB, beijingDay(now)),
       ]),
     )
+    ctx.waitUntil(env.DB.batch(djRollupStatements(env.DB, beijingDay(now))).catch(e => console.warn('dj rollup failed', e?.message)))
     ctx.waitUntil(cleanupExpired(env, now))
   },
 }

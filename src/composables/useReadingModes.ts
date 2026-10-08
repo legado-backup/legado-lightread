@@ -124,7 +124,24 @@ import {
 } from '../services/readingModes/eyeCare'
 import { WordGuideLayer } from '../services/readingModes/wordGuideLayer'
 import { guideIntensity } from '../services/readingModes/wordGuideIntensity'
-import { normalizeLevel } from '../services/dianjing/level'
+import { normalizeLevel, smartOnFor } from '../services/dianjing/level'
+import { KeyWordLayer, looksChinese, type KwSmartInput } from '../services/readingModes/keyWordsLayer'
+import { disposeKeyWordService, keyWordService, type KwBookHost } from '../services/readingModes/keyWordsClient'
+import type { KwLevel } from '../services/readingModes/keyWords'
+
+/**
+ * 「重点词」的数据来源 (由阅读器在点睛阅读接好后设置, 见 setKeyWordSource):
+ * 书 id 与分节 (后台全书统计)、体裁 (小说不剧透)、智能版的 AI 词与分块。
+ */
+export interface KeyWordSource extends KwBookHost {
+  bookId: string
+  /** 小说等叙事作品: 关键度只用读到当前章为止的文本 */
+  fiction(): boolean
+  /** 智能版: 本节的 AI 词与分块; 还没有时返回 null (先全用离线结果) */
+  smart(doc: Document, section: number): KwSmartInput | null
+  /** 选词结果到了 (使用统计) */
+  onPicked?(info: { section: number; aiChunks: number; chunks: number; ms: number }): void
+}
 
 /** 「带读」分段: 自动翻页 / 打字机 / 歌词 / 听书 */
 export type ReadingModeTab = 'auto' | 'typewriter' | 'lyric' | 'tts'
@@ -951,10 +968,32 @@ export function useReadingModes(opts: UseReadingModesOptions) {
 
   /** Highlight API 可用 (旧 WebView 画不了按词着色) */
   const wordGuideSupported = ref(true)
-  const wordGuideActive = computed(() => !!settings.readingMode.wordGuide.enabled
-    && normalizeLevel(settings.dianjing.level) === 'basic' && supported.value)
+  /** 「重点词」的数据来源 (阅读器设置) */
+  const kwSource = shallowRef<KeyWordSource | null>(null)
+  /** 这本书的正文以中文为主 (「重点词」只支持中文; 按当前分节的文字判断) */
+  const keyWordsSupported = ref(true)
+  /** 智能版在这本书上开着, 且标记里勾了重点词 */
+  const smartKeyWords = computed(() => {
+    const src = kwSource.value
+    const dj = settings.dianjing
+    return !!src && normalizeLevel(dj.level) === 'smart' && smartOnFor(dj, src.bookId) && dj.kinds?.kw !== false
+  })
+  /**
+   * 基础版 / 智能版在正文上画什么: 词与词 (交替着色)、重点词 (基础版: 离线; 智能版: AI 词 + 离线兜底), 或不画。
+   * 基础版选了重点词但这本书不是中文: 改画词与词 (面板上说明一次)。
+   */
+  const guideKind = computed<'off' | 'boundary' | 'keywords' | 'smart'>(() => {
+    if (!supported.value) return 'off'
+    const level = normalizeLevel(settings.dianjing.level)
+    if (level === 'basic') {
+      if (!settings.readingMode.wordGuide.enabled) return 'off'
+      return settings.readingMode.wordGuide.mark === 'keywords' && keyWordsSupported.value && kwSource.value ? 'keywords' : 'boundary'
+    }
+    return smartKeyWords.value && keyWordsSupported.value ? 'smart' : 'off'
+  })
+  const wordGuideActive = computed(() => guideKind.value !== 'off')
   /** 每个分节文档一层 (跨章连续滚动时上下预载的邻章也要着色; 单章渲染时只留当前文档) */
-  const wgLayers = new Map<Document, WordGuideLayer>()
+  const wgLayers = new Map<Document, WordGuideLayer | KeyWordLayer>()
   function disposeWordGuides(keep?: ReadonlySet<Document>) {
     for (const [doc, layer] of wgLayers) {
       if (keep?.has(doc)) continue
@@ -962,14 +1001,63 @@ export function useReadingModes(opts: UseReadingModesOptions) {
       wgLayers.delete(doc)
     }
   }
-  function wordGuideFor(doc: Document): WordGuideLayer | null {
+  function sectionIndexOf(doc: Document): number {
+    return contentOf(doc)?.index ?? (host.contents()?.doc === doc ? host.contents()?.index : undefined) ?? -1
+  }
+  function wordGuideFor(doc: Document): WordGuideLayer | KeyWordLayer | null {
     let layer = wgLayers.get(doc) ?? null
+    const kind = guideKind.value
+    const wantKw = kind === 'keywords' || kind === 'smart'
+    if (layer && (layer instanceof KeyWordLayer) !== wantKw) {
+      try { layer.dispose() } catch { /* 文档已卸载 */ }
+      wgLayers.delete(doc)
+      layer = null
+    }
     if (!layer) {
-      layer = WordGuideLayer.create(doc, wgOptions())
+      const src = kwSource.value
+      const section = sectionIndexOf(doc)
+      if (wantKw && src && section >= 0) {
+        layer = KeyWordLayer.create(doc, {
+          section,
+          service: keyWordService(src.bookId),
+          host: src,
+          params: () => kwParams(doc, section),
+          onPicked: info => src.onPicked?.(info),
+        })
+      } else if (!wantKw) layer = WordGuideLayer.create(doc, wgOptions())
+      else return null
       wordGuideSupported.value = !!layer
       if (layer) wgLayers.set(doc, layer)
     }
     return layer
+  }
+
+  function kwParams(doc: Document, section: number): { level: KwLevel; spoilerSafe: boolean; smart: KwSmartInput | null } {
+    const src = kwSource.value
+    const d = settings.dianjing.density
+    const level: KwLevel = d === 'low' || d === 'high' ? d : 'normal'
+    return {
+      level,
+      spoilerSafe: !!src?.fiction(),
+      smart: guideKind.value === 'smart' && src ? src.smart(doc, section) : null,
+    }
+  }
+
+  /** 重点词: 参数或 AI 结果变了, 各层重新取词 (请求没变的层不动) */
+  function refreshKeyWords() {
+    for (const layer of wgLayers.values()) if (layer instanceof KeyWordLayer) layer.refresh()
+  }
+
+  /** 按当前分节的文字判断这本书是不是中文 (「重点词」能不能用) */
+  function refreshKeyWordSupport(doc: Document | null | undefined) {
+    if (!doc?.body) return
+    const zh = looksChinese(doc, host.lang())
+    if (zh !== keyWordsSupported.value) keyWordsSupported.value = zh
+  }
+
+  function setKeyWordSource(src: KeyWordSource | null) {
+    kwSource.value = src
+    if (!src) disposeKeyWordService()
   }
 
   const wgOptions = () => ({
@@ -1025,14 +1113,20 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     settings.readingMode.wordGuide.enabled = on
   }
 
-  watch(wordGuideActive, () => syncWordGuide())
+  watch(guideKind, () => {
+    // 换了画法 (词与词 / 重点词 / 智能): 旧层全部换掉
+    disposeWordGuides()
+    syncWordGuide()
+  })
   watch(
     () => [settings.readingMode.wordGuide.style, settings.readingMode.wordGuide.strength],
     () => {
-      for (const layer of wgLayers.values()) layer.setOptions(wgOptions())
+      for (const layer of wgLayers.values()) if (layer instanceof WordGuideLayer) layer.setOptions(wgOptions())
       syncWordGuide()
     },
   )
+  // 重点词: 密度档、体裁变了就重新取词
+  watch(() => [settings.dianjing.density, kwSource.value?.fiction()], () => refreshKeyWords())
 
   // =====================================================================
   // 休息提醒 (20-20-20) 与夜间定时
@@ -1236,6 +1330,7 @@ export function useReadingModes(opts: UseReadingModesOptions) {
   function onSectionLoad(detail: { doc: Document; index: number } | null | undefined) {
     if (!detail?.doc) return
     ensureDocListeners(detail.doc)
+    if (!isContinuous() || slots()[0]?.doc === detail.doc) refreshKeyWordSupport(detail.doc)
     if (isContinuous()) {
       // 预载的邻章也会 load: 只着色 / 遮挡, 打字机 / 歌词跟随主章 (section-change)
       if (wordGuideActive.value) syncWordGuideSlot(detail.doc, detail.index)
@@ -1368,6 +1463,7 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     lyric.value?.dispose()
     lyric.value = null
     disposeWordGuides()
+    disposeKeyWordService()
     clearVeils()
     sound?.dispose()
     sound = null
@@ -1459,10 +1555,14 @@ export function useReadingModes(opts: UseReadingModesOptions) {
     returnToCurrentLine,
     followRange,
     setFollowPaused,
-    // ---- 按词着色 (点睛阅读基础版) ----
+    // ---- 按词着色 / 重点词 (点睛阅读) ----
     wordGuideActive,
     wordGuideSupported,
     setWordGuide,
+    guideKind,
+    keyWordsSupported,
+    setKeyWordSource,
+    refreshKeyWords,
     // ---- 休息提醒 ----
     reminderDue,
     dismissReminder,

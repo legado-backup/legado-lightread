@@ -75,6 +75,49 @@ CREATE TABLE IF NOT EXISTS ping_daily (
   PRIMARY KEY (day, platform, version)
 );
 
+-- 点睛阅读的按天汇总 (心跳里可选的 dj 字段; 客户端只补报已过完的日子). 只有数字, 不含书名、正文、具体的词.
+-- min_*: 读中文书的分钟 (关 / 词与词 / 重点词 / 智能); lv_*: 用重点词时各密度档的分钟;
+-- ai_ok / ai_all: 智能版 AI 重点词可用的块 / 请求了重点词的块; kw_missing / kw_all: AI 给的词在正文中找不到的 / 总数
+CREATE TABLE IF NOT EXISTS dj_daily (
+  day        TEXT    NOT NULL,
+  install_id TEXT    NOT NULL,
+  platform   TEXT    NOT NULL,
+  version    TEXT    NOT NULL,
+  min_off    INTEGER NOT NULL DEFAULT 0,
+  min_words  INTEGER NOT NULL DEFAULT 0,
+  min_key    INTEGER NOT NULL DEFAULT 0,
+  min_smart  INTEGER NOT NULL DEFAULT 0,
+  lv_low     INTEGER NOT NULL DEFAULT 0,
+  lv_mid     INTEGER NOT NULL DEFAULT 0,
+  lv_high    INTEGER NOT NULL DEFAULT 0,
+  ai_ok      INTEGER NOT NULL DEFAULT 0,
+  ai_all     INTEGER NOT NULL DEFAULT 0,
+  kw_missing INTEGER NOT NULL DEFAULT 0,
+  kw_all     INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, install_id)
+);
+
+-- 90 天前的 dj_daily 按 (天, 版本) 聚合 (定时任务写入)
+CREATE TABLE IF NOT EXISTS dj_rollup (
+  day         TEXT    NOT NULL,
+  version     TEXT    NOT NULL,
+  installs    INTEGER NOT NULL,
+  users_key   INTEGER NOT NULL,
+  users_smart INTEGER NOT NULL,
+  min_off     INTEGER NOT NULL,
+  min_words   INTEGER NOT NULL,
+  min_key     INTEGER NOT NULL,
+  min_smart   INTEGER NOT NULL,
+  lv_low      INTEGER NOT NULL,
+  lv_mid      INTEGER NOT NULL,
+  lv_high     INTEGER NOT NULL,
+  ai_ok       INTEGER NOT NULL,
+  ai_all      INTEGER NOT NULL,
+  kw_missing  INTEGER NOT NULL,
+  kw_all      INTEGER NOT NULL,
+  PRIMARY KEY (day, version)
+);
+
 -- ---- 互传 (docs/device-transfer.md) ----
 -- 文件本体在 R2: 账号互传 transfer/<accountId>/<id>, 取件码 drop/<id>. 过期行与 R2 对象由每日 Cron 删除
 

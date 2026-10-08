@@ -30,6 +30,8 @@ export interface ChunkRecord {
   lengths: Record<string, number>
   /** 模型给出的体裁判断 (首块) */
   fiction?: boolean
+  /** 这一块的 AI 重点词可用 (dj2 起; 旧记录没有, 按不可用处理) */
+  kw?: boolean
   /** 流完整结束 (中断的块不写缓存, 这里恒为 true) */
   complete: true
   at: number

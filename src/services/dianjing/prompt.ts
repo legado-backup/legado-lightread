@@ -8,7 +8,9 @@
  * 改提示词或输出协议时递增 PROMPT_VERSION: 它进入缓存键, 旧缓存不会与新协议混用。
  */
 
-export const PROMPT_VERSION = 'dj1'
+export const PROMPT_VERSION = 'dj2'
+/** 上一版 (没有重点词): 已读部分的旧缓存仍可用于要句 / 概念 / 注, 重点词改用离线结果 */
+export const LEGACY_PROMPT_VERSIONS: readonly string[] = ['dj1']
 
 /** 内置通道默认模型 (SiliconFlow) 与备用模型 */
 export const DJ_MODEL = 'deepseek-ai/DeepSeek-V4-Flash'
@@ -44,6 +46,8 @@ export interface DjRequest {
   text: string
   /** 同书已释义的概念 (避免重复), 最多 30 个 */
   knownTerms?: string[]
+  /** mark: 另外挑出本块的重点词 ({"t":"kw"} 行, 用来在正文里点亮); 只对中文正文 (dj2 起) */
+  keywords?: boolean
 }
 
 export interface ChatMessage {
@@ -91,6 +95,10 @@ const GENRE_EN = '\n- First output one line {"t":"meta","fiction":true|false}: i
 const TR_ZH = '\n- 另为每条 key 输出一行译文 {"t":"tr","s":"同一编号","text":"{LANG}译文"}（紧跟在该 key 之后）。'
 const TR_EN = '\n- For every key also output {"t":"tr","s":"same number","text":"translation into {LANG}"} right after it.'
 
+// 重点词 (llm-keyword-selection.md §6.1): 只用来点亮, 不带释义; 放在最后输出, 不打乱按句号的顺序
+const KW_ZH = '\n- 全部行输出完后，再输出本块的重点词，每词一行 {"t":"kw","q":"词","r":2}：只挑人物（含「赵太爷」这类称谓式人名）、地名、机构、专有名词、术语、反复出现的核心概念或关键物件；q 是正文里一字不差的 2–8 字词，同一个词只输出一次；r 为重要度 1-3（3=全书或本段核心）；约每 100 字 1 个，宁缺毋滥，不要普通常用词、一般动词形容词、短语和句子。'
+const KW_EN = '\n- After all other lines, output this passage\'s key words, one per line {"t":"kw","q":"word","r":2}: only people (including titled names), places, organisations, proper nouns, terms, recurring core concepts or key objects; q must be an exact 2-8 character substring of the text (in its original language), each word once; r = importance 1-3; about one per 100 characters, fewer is better; no common words, ordinary verbs or adjectives, phrases or sentences.'
+
 const SYSTEM_SUMMARY_ZH = `你为读者写章首「要义」。输入是本章（或已读部分）的段意与要句，句前有编号。
 只输出 NDJSON：
 {"t":"sum","text":"≤120字，一段话说明本章讲什么"}
@@ -122,6 +130,7 @@ export function buildMessages(req: DjRequest): ChatMessage[] {
       + (req.fiction ? (en ? FICTION_EN : FICTION_ZH) : '')
       + (req.askGenre ? (en ? GENRE_EN : GENRE_ZH) : '')
       + (tr ? (en ? TR_EN : TR_ZH) : '')
+      + (req.keywords ? (en ? KW_EN : KW_ZH) : '')
   }
   system = system.split('{LANG}').join(langName)
 
@@ -179,6 +188,7 @@ export function sanitizeRequest(body: any): DjRequest {
     askGenre: !!body.askGenre,
     text: String(body.text),
     knownTerms: Array.isArray(body.knownTerms) ? body.knownTerms.map((s: unknown) => clip(String(s), 16)).slice(0, MAX_KNOWN_TERMS) : [],
+    keywords: body.mode === 'mark' && body.keywords === true,
   }
 }
 

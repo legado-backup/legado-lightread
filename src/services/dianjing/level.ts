@@ -54,6 +54,19 @@ export function migrateLevel(saved: any): { level: DjLevel; wordGuideEnabled: bo
   return { level: 'basic', wordGuideEnabled: false }
 }
 
+/** 基础版标什么: 词与词 (交替着色) / 重点词 (离线挑出要紧的词) */
+export type BasicMark = 'boundary' | 'keywords'
+/** 新安装的默认 */
+export const BASIC_MARK_DEFAULT: BasicMark = 'keywords'
+
+/**
+ * 已有存档里的「标什么」: 这个字段是 v1.15 新加的, 老用户存档里没有 → 保持原来的词与词 (不升 SETTINGS_VERSION)。
+ * 新安装没有存档, 直接用默认 (重点词)。
+ */
+export function savedBasicMark(v: unknown): BasicMark {
+  return v === 'keywords' || v === 'boundary' ? v : 'boundary'
+}
+
 /** 开关相关的全部状态 (基础版开关 + 智能版的按书开关与「所有书」) */
 export interface DjSwitchState {
   level: DjLevel

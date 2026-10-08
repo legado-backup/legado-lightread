@@ -13,13 +13,15 @@ import {
   DEVICE_DAILY_CHARS,
   DJ_MODEL,
   estimateTokens,
+  LEGACY_PROMPT_VERSIONS,
+  MAX_TOKENS,
   needsTranslation,
   PROMPT_VERSION,
   sanitizeRequest,
   validateRequest,
 } from '../src/services/dianjing/prompt.ts'
 import { chunkSection, hashText, numberBlocks, requestOrder, resolveSentence, chunkIndexForBlock } from '../src/services/dianjing/chunker.ts'
-import { findTermSpan, NdjsonParser, resolveItem, selectKeys, selectTerms, SseDeltaParser } from '../src/services/dianjing/protocol.ts'
+import { chunkPlainText, findTermSpan, keyWordsUsable, NdjsonParser, resolveItem, selectKeys, selectTerms, SseDeltaParser, wantsKeyWords } from '../src/services/dianjing/protocol.ts'
 import { decideFiction, fictionFromMeta, fictionFromText } from '../src/services/dianjing/fiction.ts'
 import { bookRange, cacheKey, createMemoryCache, feedbackKey, sectionKey } from '../src/services/dianjing/cache.ts'
 import { dianjingCSS, djColors, djThemeName, DJ_PRIORITY } from '../src/services/dianjing/theme.ts'
@@ -429,4 +431,54 @@ test('同意「所有书开启」: 智能版对其他书也开着; 在某本书�
   // 基础版是全局的: 其他书也是基础版开着
   assert.ok(isOnFor(r.state, 'b'))
   assert.deepEqual(effectiveLevels({ level: r.state.level, basicOn: r.state.basicOn, smartOn: smartOnFor(r.state, 'b') }), { basic: true, smart: false })
+})
+
+// ---- 重点词 (dj2) ----
+
+test('重点词: 提示词版本升到 dj2 (旧版 dj1 的缓存仍可用于要句); 只有 keywords 时才加 kw 行要求', () => {
+  assert.equal(PROMPT_VERSION, 'dj2')
+  assert.deepEqual([...LEGACY_PROMPT_VERSIONS], ['dj1'])
+  const base = { promptVersion: PROMPT_VERSION, mode: 'mark', book: {}, text: '[1.1] 阿Q走进未庄。' }
+  assert.doesNotMatch(buildMessages({ ...base, lang: 'zh' })[0].content, /"t":"kw"/)
+  const zh = buildMessages({ ...base, lang: 'zh', keywords: true })[0].content
+  assert.match(zh, /\{"t":"kw","q":"词","r":2\}/)
+  assert.match(zh, /一字不差的 2–8 字词/)
+  assert.match(zh, /全部行输出完后/)
+  const en = buildMessages({ ...base, lang: 'en', keywords: true })[0].content
+  assert.match(en, /"t":"kw"/)
+  // relay: 只有 mark 模式且显式 true 才保留 (旧客户端不带, 输出不变, 不会触发旧客户端的坏行重试)
+  assert.equal(sanitizeRequest({ mode: 'mark', lang: 'zh', text: 'x', keywords: true }).keywords, true)
+  assert.equal(sanitizeRequest({ mode: 'mark', lang: 'zh', text: 'x', keywords: 'yes' }).keywords, false)
+  assert.equal(sanitizeRequest({ mode: 'summary', lang: 'zh', text: 'x', keywords: true }).keywords, false)
+  assert.equal(sanitizeRequest({ mode: 'mark', lang: 'zh', text: 'x' }).keywords, false)
+  // 输出上限: 每块 ≤ 1500 字, 加上重点词 (约每百字 1 个) 仍远低于 max_tokens
+  assert.ok(MAX_TOKENS >= 1200)
+  assert.equal(buildChatBody({ ...base, lang: 'zh', keywords: true }).max_tokens, MAX_TOKENS)
+})
+
+test('重点词: 只对中文正文请求; 解析时在整块里定位, 找不到计数但不算坏行; 可用性判定', () => {
+  assert.equal(wantsKeyWords('zh-CN', '[1.1] 阿Q走进未庄，看见赵太爷在门口，心里很不平。人们都笑了起来，说他又在胡闹。'), true)
+  assert.equal(wantsKeyWords('', '[1.1] 阿Q走进未庄，看见赵太爷在门口，心里很不平。人们都笑了起来，说他又在胡闹。'), true)
+  assert.equal(wantsKeyWords('en', '[1.1] The quick brown fox jumps over the lazy dog. It was a bright cold day in April.'), false)
+  assert.equal(wantsKeyWords('ja', '[1.1] 吾輩は猫である。名前はまだ無い。どこで生れたかとんと見当がつかぬ。'), false)
+  const c = chunkSection(blocksOf(PARAS), { first: 10000, target: 10000 })[0]
+  assert.ok(chunkPlainText(c).includes('机会成本'))
+  const stats = { dropped: 0 }
+  const kw = resolveItem({ t: 'kw', q: '机会成本', r: 3 }, c, stats)
+  assert.deepEqual({ t: kw.t, q: kw.q, r: kw.r }, { t: 'kw', q: '机会成本', r: 3 })
+  assert.equal(resolveItem({ t: 'kw', q: ' 机会 成本 ' }, c, stats)?.q, '机会成本')
+  assert.equal(resolveItem({ t: 'kw', q: '《稀缺资源》', r: 9 }, c, stats)?.r, 3)
+  assert.equal(resolveItem({ t: 'kw', q: '精神胜利法' }, c, stats), null)
+  assert.equal(resolveItem({ t: 'kw', q: 12 }, c, stats), null)
+  assert.equal(stats.dropped, 0, '找不到的重点词不计入坏行')
+  assert.equal(stats.kwLines, 5)
+  assert.equal(stats.kwMissing, 2)
+  assert.equal(resolveItem({ t: 'kw', q: '机会成本' }, c).id, kw.id, 'id 稳定 (去重用)')
+  // 可用性: 没有 → 不可用 (模型没理会); 一半以上找不到 → 不可用; 多得离谱 (重复循环) → 不可用
+  assert.equal(keyWordsUsable(0, 0, 1000), false)
+  assert.equal(keyWordsUsable(8, 1, 1000), true)
+  assert.equal(keyWordsUsable(3, 4, 1000), false)
+  assert.equal(keyWordsUsable(2, 2, 1000), true)
+  assert.equal(keyWordsUsable(60, 0, 1000), false)
+  assert.equal(keyWordsUsable(40, 0, 1000), true)
 })

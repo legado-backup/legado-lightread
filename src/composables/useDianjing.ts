@@ -98,7 +98,11 @@ export interface UseDianjingOptions {
     set: (on: boolean) => void
     /** 当前系统能画按词着色 (旧 WebView 不能) */
     supported: () => boolean
+    /** 这本书能用「重点词」(中文书); 不给视为能 */
+    keyWordsSupported?: () => boolean
   }
+  /** AI 重点词变了 (某节有块完成、从缓存补齐, 或全书词表变了): 阅读器让「重点词」层重新取词 */
+  onKeyWords?: (section: number | null) => void
 }
 
 export interface DjCardState {
@@ -205,6 +209,7 @@ export function useDianjing(opts: UseDianjingOptions) {
     concurrency: () => (isMobile() ? 2 : 3),
     batchPaint: () => !!opts.isEink?.() || reducedMotion,
     onChange: bump,
+    onKeyWords: section => opts.onKeyWords?.(section),
   })
 
   /** 选的版本: 基础 (按词着色) / 智能 (AI) */
@@ -215,6 +220,8 @@ export function useDianjing(opts: UseDianjingOptions) {
   /** 点睛阅读开着 (按所选版本) */
   const on = computed(() => basicOn.value || enabled.value)
   const basicSupported = computed(() => opts.basic?.supported() ?? true)
+  /** 这本书能用「重点词」(中文书) */
+  const keyWordsSupported = computed(() => opts.basic?.keyWordsSupported?.() ?? true)
 
   const status = computed<DjStatus>(() => {
     void tick.value
@@ -690,6 +697,7 @@ export function useDianjing(opts: UseDianjingOptions) {
     on,
     basicOn,
     basicSupported,
+    keyWordsSupported,
     enabled,
     active,
     supported,

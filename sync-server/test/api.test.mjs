@@ -1186,3 +1186,45 @@ test('定时清理: 过期的互传 / 取件连同 R2 文件删除, 未过期的
   const devs = (await env.DB.prepare('SELECT device_id FROM devices WHERE account_id = ?1').bind(acct).all()).results.map(r => r.device_id)
   assert.deepEqual(devs, ['new-dev'])
 })
+
+test('心跳: 点睛汇总 dj 可选; 合法的日子入库, 不合法的那天丢掉, 心跳照常; 统计接口给出合计', async () => {
+  const env = await server.getWorker().getEnv()
+  await env.DB.prepare('DELETE FROM dj_daily').run()
+  const T = beijingDay()
+  const id = randomUUID()
+  const day = n => addDays(T, -n)
+  const good = { d: day(1), m: [30, 0, 45, 15], lv: [0, 45, 15], ai: [9, 10], nf: [1, 40] }
+  const res = await call('POST', '/v1/ping', {
+    body: pingBody({
+      id,
+      dj: [
+        good,
+        { ...good, d: day(1), m: [1, 1, 1, 1] }, // 同一天第二条: 忽略
+        { ...good, d: T }, // 今天还没过完: 丢掉
+        { ...good, d: day(9) }, // 太旧: 丢掉
+      ],
+    }),
+  })
+  assert.equal(res.status, 204)
+  const rows = (await env.DB.prepare('SELECT * FROM dj_daily WHERE install_id = ?1').bind(id).all()).results
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].day, day(1))
+  assert.deepEqual([rows[0].min_off, rows[0].min_words, rows[0].min_key, rows[0].min_smart], [30, 0, 45, 15])
+  assert.deepEqual([rows[0].lv_low, rows[0].lv_mid, rows[0].lv_high, rows[0].ai_ok, rows[0].ai_all, rows[0].kw_missing, rows[0].kw_all], [0, 45, 15, 9, 10, 1, 40])
+  // 不合法的 dj 不影响心跳本身
+  for (const dj of ['x', [{ d: day(1), m: [1, 2, 3] }], [{ ...good, m: [2000, 0, 0, 0] }], [{ ...good, ai: [11, 10] }], [{ ...good, nf: [-1, 3] }]]) {
+    const other = randomUUID()
+    assert.equal((await call('POST', '/v1/ping', { body: pingBody({ id: other, dj }) })).status, 204, JSON.stringify(dj))
+    assert.equal((await env.DB.prepare('SELECT COUNT(*) AS n FROM dj_daily WHERE install_id = ?1').bind(other).first()).n, 0)
+  }
+  // 体积: 3 天的汇总在上限内
+  const three = await call('POST', '/v1/ping', { body: pingBody({ dj: [1, 2, 3].map(n => ({ ...good, d: day(n) })) }) })
+  assert.equal(three.status, 204)
+  const stats = await jsonOf(await admin('/v1/admin/stats?days=7'))
+  assert.ok(stats.dianjing)
+  const t = stats.dianjing.totals
+  assert.ok(t.minutes.key >= 45)
+  assert.ok(t.keyAdoption > 0 && t.keyAdoption <= 1)
+  assert.ok(t.aiUsable > 0 && t.aiUsable <= 1)
+  assert.equal(stats.dianjing.daily.find(r => r.day === day(1)).usersKey, 2)
+})

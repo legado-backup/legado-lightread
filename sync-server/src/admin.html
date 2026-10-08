@@ -186,10 +186,16 @@ footer { margin-top: 24px; color: var(--text-3); font-size: 12px; text-align: ce
         <div class="tablewrap"><table id="cohorts"></table></div>
         <p class="note" id="note"></p>
       </section>
+
+      <section class="card" style="margin-top:12px">
+        <h2>点睛阅读 <small>只算读中文书的时间；按「安装·天」汇总</small></h2>
+        <div class="ret-sum" id="dj-sum"></div>
+        <div class="tablewrap"><table id="dj-table"></table></div>
+      </section>
     </div>
   </main>
 
-  <footer>数据只含随机安装 ID、平台、版本、语言（以及当天是否打开过阅读器）；不记录 IP、设备信息、账号或任何阅读内容。</footer>
+  <footer>数据只含随机安装 ID、平台、版本、语言（以及当天是否打开过阅读器）、点睛阅读的按天汇总数字；不记录 IP、设备信息、账号或任何阅读内容。</footer>
 </div>
 
 <script>
@@ -316,6 +322,34 @@ footer { margin-top: 24px; color: var(--text-3); font-size: 12px; text-align: ce
         }).join('') + '</tbody>'
       : '<tbody><tr><td class="na">还没有可计算留存的新增安装。</td></tr></tbody>'
     $('note').textContent = d.note
+    renderDianjing(d.dianjing)
+  }
+
+  function renderDianjing(dj) {
+    if (!dj || !dj.daily) { $('dj-sum').innerHTML = '<div>暂无数据</div>'; $('dj-table').innerHTML = ''; return }
+    var t = dj.totals
+    $('dj-sum').innerHTML = [
+      ['重点词采用率', t.keyAdoption, '用过重点词的安装·天 / 读中文书的安装·天'],
+      ['智能版采用率', t.smartAdoption, '同上'],
+      ['时长：关', t.minuteShare.off, fmt(t.minutes.off) + ' 分钟'],
+      ['时长：词与词', t.minuteShare.words, fmt(t.minutes.words) + ' 分钟'],
+      ['时长：重点词', t.minuteShare.key, fmt(t.minutes.key) + ' 分钟'],
+      ['时长：智能', t.minuteShare.smart, fmt(t.minutes.smart) + ' 分钟'],
+      ['密度：少 / 适中 / 多', null, pct(t.densityShare.low, 0) + ' / ' + pct(t.densityShare.normal, 0) + ' / ' + pct(t.densityShare.high, 0)],
+      ['AI 重点词可用块', t.aiUsable, '智能版请求了重点词的块里'],
+      ['AI 词找不到', t.kwMissing, 'AI 给的词在正文里找不到的比例'],
+    ].map(function (x) {
+      return '<div>' + esc(x[0]) + '<b>' + (x[1] === null ? '' : pct(x[1])) + '</b><small>' + esc(x[2]) + '</small></div>'
+    }).join('')
+    var rows = dj.daily.slice().reverse()
+    $('dj-table').innerHTML = rows.length
+      ? '<thead><tr><th>日期</th><th>上报安装</th><th>词与词</th><th>重点词</th><th>智能</th><th>分钟 关/词与词/重点词/智能</th><th>AI 可用块</th><th>找不到</th></tr></thead><tbody>' +
+        rows.map(function (r) {
+          return '<tr><td>' + esc(r.day) + '</td><td>' + fmt(r.installs) + '</td><td>' + fmt(r.usersWords) + '</td><td>' + fmt(r.usersKey) +
+            '</td><td>' + fmt(r.usersSmart) + '</td><td>' + [r.minutes.off, r.minutes.words, r.minutes.key, r.minutes.smart].map(fmt).join(' / ') +
+            '</td><td>' + fmt(r.ai.usable) + ' / ' + fmt(r.ai.chunks) + '</td><td>' + fmt(r.kw.missing) + ' / ' + fmt(r.kw.total) + '</td></tr>'
+        }).join('') + '</tbody>'
+      : '<tbody><tr><td class="na">还没有点睛阅读的上报。</td></tr></tbody>'
   }
 
   function cell(rate, count) {

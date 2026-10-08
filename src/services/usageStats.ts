@@ -2,8 +2,9 @@
  * 匿名使用统计 (设置 → 隐私, 默认开启, 可随时关闭; 方案见 docs/usage-stats-plan.md)。
  *
  * 每天最多上报两次「心跳」到 sync.jiangshu.ai/v1/ping: 打开应用时一次, 当天第一次打开书时再一次 (reader=true)。
- * 只含: 随机安装 ID (与账号、AI 通道的设备 ID 都无关, 可在设置里重置)、平台、版本号、界面语言、当天是否打开过书。
- * 不含书名、内容、阅读时长、账号、IP 以外的任何信息 (IP 服务端只用于限流, 不落库)。
+ * 只含: 随机安装 ID (与账号、AI 通道的设备 ID 都无关)、平台、版本号、界面语言、当天是否打开过书,
+ * 以及点睛阅读的按天汇总数字 (usageCounters.ts: 各状态的阅读分钟、密度档、AI 重点词可用率)。
+ * 不含书名、正文、书的 ID、具体的词、账号; IP 服务端只用于限流, 不落库。
  * 网络失败静默跳过, 不重试、不排队。
  */
 import { useSettings } from '../stores/settings'
@@ -14,6 +15,7 @@ const ID_KEY = 'lightread-install-id'
 const SENT_KEY = 'lightread-ping-sent'
 
 import { beijingDay, detectPlatform, isTestEnvironment, needsPing, type PingBody } from './usageStatsCore'
+import { markDjSent, pendingDj } from './usageCounters'
 export { beijingDay, detectPlatform, needsPing, type PingBody, type StatsPlatform } from './usageStatsCore'
 
 function store(): Storage | null {
@@ -63,6 +65,8 @@ export async function pingUsage(reader = false): Promise<void> {
     lang: settings.language === 'en' ? 'en' : 'zh',
     reader,
   }
+  const dj = pendingDj()
+  if (dj.length) body.dj = dj
   try {
     const res = await fetch(PING_ENDPOINT, {
       method: 'POST',
@@ -70,6 +74,9 @@ export async function pingUsage(reader = false): Promise<void> {
       body: JSON.stringify(body),
       keepalive: true,
     })
-    if (res.ok) s?.setItem(SENT_KEY, `${day}:${reader ? 'reader' : 'app'}`)
+    if (res.ok) {
+      s?.setItem(SENT_KEY, `${day}:${reader ? 'reader' : 'app'}`)
+      if (dj.length) markDjSent(dj.map(x => x.d))
+    }
   } catch { /* 离线 / 被拦截: 静默跳过 */ }
 }

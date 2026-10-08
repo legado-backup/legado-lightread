@@ -3,6 +3,7 @@
  * 编号与术语锚定到「本节 (段, 句) + 句内偏移」, 以及按密度档过滤。
  */
 import { resolveParagraph, resolveSentence, sentenceText, type Chunk } from './chunker.ts'
+import { locateTerm } from '../readingModes/keyWords.ts'
 
 export type Density = 'low' | 'normal' | 'high'
 export type DjKind = 'key' | 'term' | 'note'
@@ -18,11 +19,13 @@ export interface TermItem extends SentencePos { t: 'term'; id: string; r: 1 | 2 
 export interface NoteItem extends SentencePos { t: 'note'; id: string; q: string; start: number; end: number; text: string; k: string }
 export interface TrItem extends SentencePos { t: 'tr'; id: string; text: string }
 export interface GistItem { t: 'gist'; id: string; block: number; text: string }
+/** 重点词 (dj2): 只用来点亮, 没有位置 (整块里出现的地方都算); q 是正文里的原文写法 */
+export interface KwItem { t: 'kw'; id: string; q: string; r: 1 | 2 | 3 }
 export interface MetaItem { t: 'meta'; fiction: boolean }
 export interface SumItem { t: 'sum'; text: string }
 export interface PointItem extends SentencePos { t: 'pt'; text: string }
 
-export type DjItem = KeyItem | TermItem | NoteItem | TrItem | GistItem
+export type DjItem = KeyItem | TermItem | NoteItem | TrItem | GistItem | KwItem
 export type AnyItem = DjItem | MetaItem | SumItem | PointItem
 
 /** 字段长度上限 (字符), 超出截断 —— 比提示词要求略宽, 容忍英文 */
@@ -159,7 +162,17 @@ export function findTermSpan(sentence: string, q: string): [number, number] | nu
 
 // ---- 校验与锚定 ----
 
-export interface ResolveStats { dropped: number }
+export interface ResolveStats {
+  dropped: number
+  /** 重点词: 收到几行、几个在正文里找不到 (不计入 dropped, 不触发重试) */
+  kwLines?: number
+  kwMissing?: number
+}
+
+/** 一块的纯文本 (重点词定位用): 各段句子拼起来, 段与段之间换行 */
+export function chunkPlainText(chunk: Chunk): string {
+  return chunk.blocks.map(b => b.sentences.join('')).join('\n')
+}
 
 /**
  * 把一行原始输出校验并锚定到本节位置。不合法 (编号不存在、术语找不到) 返回 null 并计数。
@@ -172,6 +185,15 @@ export function resolveItem(raw: RawItem, chunk: Chunk, stats?: ResolveStats): A
   if (t === 'sum') {
     const text = str(raw.text, LIMITS.sum)
     return text ? { t: 'sum', text } : drop()
+  }
+  if (t === 'kw') {
+    if (stats) stats.kwLines = (stats.kwLines ?? 0) + 1
+    const q = typeof raw.q === 'string' ? locateTerm(chunkPlainText(chunk), raw.q) : null
+    if (!q || q.length < 2 || q.length > 12 || /\n/.test(q)) {
+      if (stats) stats.kwMissing = (stats.kwMissing ?? 0) + 1
+      return null
+    }
+    return { t: 'kw', id: `${chunk.hash}:kw:${q}`, q, r: rank(raw.r ?? 2) }
   }
   if (t === 'gist') {
     const block = resolveParagraph(chunk, Number(raw.p))
@@ -280,5 +302,29 @@ export function selectTerms(terms: TermItem[], density: Density): TermItem[] {
 
 /** 是否为要落到正文上的条目 (排除 meta / sum / pt) */
 export function isDjItem(v: AnyItem | null): v is DjItem {
-  return !!v && (v.t === 'key' || v.t === 'term' || v.t === 'note' || v.t === 'tr' || v.t === 'gist')
+  return !!v && (v.t === 'key' || v.t === 'term' || v.t === 'note' || v.t === 'tr' || v.t === 'gist' || v.t === 'kw')
+}
+
+// ---- 重点词 (dj2) ----
+
+/**
+ * 一块的重点词能不能用: 小模型会重复、截断或干脆不按要求输出, 这时这一块改用离线结果。
+ * - 没有任何重点词 → 不可用 (多半是模型没理会这条要求);
+ * - 一半以上在正文里找不到 → 不可用;
+ * - 比每 25 字一个还多 → 不可用 (陷入重复循环)。
+ */
+export function keyWordsUsable(kws: number, missing: number, chunkChars: number): boolean {
+  if (kws <= 0) return false
+  if (missing > Math.max(2, 0.5 * (kws + missing))) return false
+  return kws <= Math.max(6, Math.ceil(chunkChars / 25))
+}
+
+/** 中文正文才要 AI 重点词 (英文书暂不支持): 日文 / 韩文不要; 其余看汉字是否占多数 */
+export function wantsKeyWords(lang: string | undefined, text: string): boolean {
+  if (/^(ja|ko)\b/i.test(lang ?? '')) return false
+  const body = String(text ?? '').replace(/\[\d+\.\d+\]\s?/g, '')
+  if (/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(body)) return false
+  const han = body.match(/\p{Script=Han}/gu)?.length ?? 0
+  const latin = body.match(/[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}]/gu)?.length ?? 0
+  return han >= 20 && han >= 0.3 * (han + latin)
 }

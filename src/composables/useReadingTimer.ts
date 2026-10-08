@@ -13,7 +13,10 @@ const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as con
  * 手动操作 = window 上的 pointerdown/keydown/wheel/touchstart, 或阅读器调用 ping() (翻页、位置变化;
  * foliate 正文在 iframe 里, 其中的点击按键不会冒泡到 window); 朗读推进、自动滚动调用 pingAuto().
  */
-export function useReadingTimer(bookId: string): { ping: () => void; pingAuto: () => void } {
+export function useReadingTimer(
+  bookId: string,
+  opts: { onCredit?: (seconds: number, at: number) => void } = {},
+): { ping: () => void; pingAuto: () => void } {
   const library = useLibrary()
   const clock = createReadingClock(Date.now())
   let timer: ReturnType<typeof setInterval> | undefined
@@ -24,7 +27,10 @@ export function useReadingTimer(bookId: string): { ping: () => void; pingAuto: (
   const flush = () => {
     const at = clock.creditedAt
     const seconds = clock.drain()
-    if (seconds > 0) library.addReadingTime(bookId, seconds, at)
+    if (seconds > 0) {
+      library.addReadingTime(bookId, seconds, at)
+      try { opts.onCredit?.(seconds, at) } catch { /* 统计失败不影响计时 */ }
+    }
   }
 
   onMounted(() => {

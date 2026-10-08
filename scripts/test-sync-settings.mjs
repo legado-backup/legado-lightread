@@ -44,7 +44,8 @@ test('每个默认设置都已归类 (sync / secret / local), 归类表没有多
   for (const p of ['reader.theme', 'reader.fontSize', 'appearance', 'language', 'webdavUrl', 'webdavUser',
     'webdavProvider', 'aiProvider', 'aiBaseUrl', 'aiModel', 'readingMode.typewriter.cpm', 'ambient.layers',
     'features.recommendedBooklists', 'features.transfer', 'dianjing.level', 'readingMode.wordGuide.enabled',
-    'readingMode.wordGuide.intensity', 'readingMode.wordGuide.color']) {
+    'readingMode.wordGuide.intensity', 'readingMode.wordGuide.color', 'readingMode.wordGuide.mark', 'dianjing.density',
+    'dianjing.kinds']) {
     assert.ok(ALL_SYNC_PATHS.includes(p), `${p} 应同步`)
   }
   const values = readSyncedSettings(settingsDefaults())
@@ -57,6 +58,19 @@ test('点睛阅读: 版本 (基础 / 智能) 默认基础版并随同步, 按书
   assert.equal(settingsDefaults().readingMode.wordGuide.enabled, false)
   assert.equal(SETTINGS_SYNC_SPEC.dianjing.level, 'sync')
   assert.equal(SETTINGS_SYNC_SPEC.dianjing.perBook, 'local')
+})
+
+test('点睛阅读基础版「标什么」: 新安装默认重点词, 老存档没有这个字段时保持词与词; 随同步; 智能版的重点词默认勾上', async () => {
+  const { savedBasicMark } = await import('../src/services/dianjing/level.ts')
+  assert.equal(settingsDefaults().readingMode.wordGuide.mark, 'keywords')
+  assert.equal(savedBasicMark(undefined), 'boundary')
+  assert.equal(savedBasicMark('bogus'), 'boundary')
+  assert.equal(savedBasicMark('keywords'), 'keywords')
+  assert.equal(savedBasicMark('boundary'), 'boundary')
+  assert.equal(SETTINGS_SYNC_SPEC.readingMode.wordGuide.mark, 'sync')
+  assert.equal(SETTINGS_SYNC_SPEC.dianjing.density, 'sync')
+  assert.equal(settingsDefaults().dianjing.density, 'normal')
+  assert.equal(settingsDefaults().dianjing.kinds.kw, true)
 })
 
 test('可选功能 (书单推荐 / 互传) 默认关闭, 作为使用偏好随同步', () => {

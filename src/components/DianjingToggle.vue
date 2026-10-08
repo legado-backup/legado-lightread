@@ -2,7 +2,7 @@
 /**
  * 点睛阅读, 放在「阅读模式」面板顶部 (docs/reader-panels.md §3.2, docs/manual/05-点睛阅读.md)。
  * 关: 标题 + 副标题 + 总开关。开: 「基础 / 智能」两个版本, 下面只显示所选版本的选项——
- *   基础 (按词分色, 不联网): 明显程度、颜色;
+ *   基础 (不联网): 标出「词与词 / 重点词」, 重点词的标记多少, 明显程度、颜色;
  *   智能 (AI): 密度、标记、体裁、速读 / 脉络入口与本章状态; AI 用不了时可一步「先用基础版」。
  */
 import { computed } from 'vue'
@@ -42,7 +42,15 @@ const kinds = [
   { value: 'key', key: 'dianjing.kindKey' },
   { value: 'term', key: 'dianjing.kindTerm' },
   { value: 'note', key: 'dianjing.kindNote' },
+  { value: 'kw', key: 'dianjing.kindKw' },
 ] as const
+
+/** 基础版标什么: 词与词 / 重点词 */
+const marks = [
+  { value: 'boundary', key: 'dianjing.markBoundary' },
+  { value: 'keywords', key: 'dianjing.markKeywords' },
+] as const
+const mark = computed(() => (wg.value.mark === 'keywords' ? 'keywords' : 'boundary'))
 
 const statusText = computed(() => {
   const code = props.dj.errorCode.value
@@ -122,16 +130,40 @@ function openOutline() {
         >{{ t(l.key) }}</button>
       </div>
 
-      <!-- 基础版: 按词分色, 不联网 -->
+      <!-- 基础版: 不联网; 标出词与词 / 重点词 -->
       <template v-if="level === 'basic'">
+        <div class="segmented dj-marks" role="group" :aria-label="t('dianjing.basicMark')">
+          <button
+            v-for="m in marks"
+            :key="m.value"
+            type="button"
+            :class="{ active: mark === m.value }"
+            :aria-pressed="mark === m.value"
+            @click="settings.readingMode.wordGuide.mark = m.value"
+          >{{ t(m.key) }}</button>
+        </div>
         <div class="dj-desc">
-          <p>{{ t('dianjing.basicDesc') }}</p>
+          <p>{{ t(mark === 'keywords' ? 'dianjing.keywordsDesc' : 'dianjing.basicDesc') }}</p>
           <p class="dj-desc-note">
             <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm4.3 6.3a1 1 0 0 0-1.4 0L11 12.17 9.1 10.3a1 1 0 1 0-1.4 1.4l2.6 2.6a1 1 0 0 0 1.4 0l4.6-4.6a1 1 0 0 0 0-1.4z"/></svg>
             {{ t('dianjing.basicNote') }}
           </p>
         </div>
         <p v-if="!dj.basicSupported.value" class="dj-note" role="note">{{ t('dianjing.basicUnsupported') }}</p>
+        <p v-else-if="mark === 'keywords' && !dj.keyWordsSupported.value" class="dj-note" role="note">{{ t('dianjing.keywordsUnsupported') }}</p>
+        <div v-if="mark === 'keywords' && dj.keyWordsSupported.value" class="dj-row">
+          <span class="dj-label">{{ t('dianjing.density') }}</span>
+          <div class="segmented" role="group" :aria-label="t('dianjing.density')">
+            <button
+              v-for="d in densities"
+              :key="d.value"
+              type="button"
+              :class="{ active: settings.dianjing.density === d.value }"
+              :aria-pressed="settings.dianjing.density === d.value"
+              @click="settings.dianjing.density = d.value"
+            >{{ t(d.key) }}</button>
+          </div>
+        </div>
         <div class="dj-field">
           <span class="dj-label">{{ t('readingMode.guideStrength') }}</span>
           <LevelSlider
@@ -190,8 +222,12 @@ function openOutline() {
           <span class="dj-label">{{ t('dianjing.kinds') }}</span>
           <div class="dj-kinds">
             <label v-for="k in kinds" :key="k.value" class="dj-kind" :class="'dj-kind-' + k.value">
-              <input v-model="settings.dianjing.kinds[k.value]" type="checkbox" />
-              <span class="dj-kind-sample" aria-hidden="true"></span>
+              <input
+                type="checkbox"
+                :checked="settings.dianjing.kinds[k.value] !== false"
+                @change="settings.dianjing.kinds = { ...settings.dianjing.kinds, [k.value]: ($event.target as HTMLInputElement).checked }"
+              />
+              <span class="dj-kind-sample" aria-hidden="true" :style="k.value === 'kw' ? { '--sw': guideAccent(guideColor, swatchTheme) } : undefined"></span>
               <span>{{ t(k.key) }}</span>
             </label>
           </div>
@@ -354,6 +390,14 @@ function openOutline() {
 .dj-kind-term .dj-kind-sample {
   border-bottom: 1px dotted var(--text-2);
 }
+.dj-kind-kw .dj-kind-sample {
+  width: 14px;
+  height: 10px;
+  border: none;
+  border-radius: 3px;
+  background: var(--sw, var(--text-2));
+  opacity: 0.55;
+}
 .dj-kind-note .dj-kind-sample {
   width: 6px;
   height: 6px;
@@ -406,10 +450,12 @@ function openOutline() {
   color: var(--text-3);
   margin: 0;
 }
-.dj-levels {
+.dj-levels,
+.dj-marks {
   align-self: flex-start;
 }
-.dj-levels button {
+.dj-levels button,
+.dj-marks button {
   min-width: 72px;
   justify-content: center;
 }

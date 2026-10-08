@@ -10,10 +10,12 @@ import { DjError, streamDianjing, type DjChannel } from './client.ts'
 import { cacheKey, feedbackKey, getDjCache, sectionKey, type ChunkRecord, type DjCache, type FeedbackRecord, type SectionSummary } from './cache.ts'
 import { decideFiction, fictionFromMeta, fictionFromText, type FictionVerdict } from './fiction.ts'
 import { createDjLayer, hitTest, type DjLayer, type HitTarget } from './layer.ts'
-import { DJ_FALLBACK_MODEL, DJ_MODEL, PROMPT_VERSION } from './prompt.ts'
+import { DJ_FALLBACK_MODEL, DJ_MODEL, LEGACY_PROMPT_VERSIONS, PROMPT_VERSION } from './prompt.ts'
 import {
   isDjItem,
+  keyWordsUsable,
   resolveItem,
+  wantsKeyWords,
   selectKeys,
   selectTerms,
   type Density,
@@ -26,6 +28,7 @@ import {
   type TrItem,
   type GistItem,
 } from './protocol.ts'
+import { noteKeyWordChunk } from '../usageCounters.ts'
 import { SectionTextModel } from './textModel.ts'
 import type { DjColors } from './theme.ts'
 
@@ -64,6 +67,8 @@ export interface DjHost {
   /** 墨水屏 / 减少动效: 标记攒到下次翻页再画 */
   batchPaint(): boolean
   onChange(): void
+  /** 重点词 (AI 结果) 变了: 某一节有块完成 / 从缓存补齐, 或全书词表变了 */
+  onKeyWords?(section: number | null): void
 }
 
 export interface DjPosition { section: number; block: number; sentence: number }
@@ -75,6 +80,8 @@ export interface ChunkState {
   model?: string
   error?: DjError
   failedAt?: number
+  /** 这一块的 AI 重点词可用 (否则这一块用离线结果) */
+  kw?: boolean
 }
 
 export interface SectionState {
@@ -134,6 +141,9 @@ export class DianjingEngine {
   #paintPending = new Set<number>()
   #limit: { section: number; block: number; sentence: number } | null = null
   #disposed = false
+  /** 全书的 AI 重点词: 词 → 最高重要度与被选中的块 */
+  #kwBook = new Map<string, { r: number; chunks: Set<string> }>()
+  #kwLoaded = false
   #onOnline = () => { if (this.status === 'offline') { this.status = 'loading'; this.#schedule() } }
 
   constructor(host: DjHost, cache: DjCache = getDjCache()) {
@@ -155,6 +165,7 @@ export class DianjingEngine {
   start() {
     if (this.#disposed) return
     this.active = true
+    void this.#loadBookKeyWords()
     if (this.status === 'idle' || this.status === 'consent') this.status = 'loading'
     for (const s of this.sections.values()) void this.#hydrate(s).then(() => this.#paint(s.index))
     this.#schedule()
@@ -213,7 +224,7 @@ export class DianjingEngine {
     if (old) {
       for (const c of s.chunks) {
         const prev = old.chunks.find(p => p.chunk.hash === c.chunk.hash)
-        if (prev && prev.status === 'done') { c.status = 'done'; c.items = prev.items; c.model = prev.model }
+        if (prev && prev.status === 'done') { c.status = 'done'; c.items = prev.items; c.model = prev.model; c.kw = prev.kw }
       }
       s.summary = old.summary
     }
@@ -263,22 +274,32 @@ export class DianjingEngine {
   /** 从缓存补齐本节已完成的块与要义 */
   async #hydrate(s: SectionState) {
     const models = this.#models()
+    let gotKw = false
     await Promise.all(s.chunks.map(async c => {
       if (c.status === 'done') return
-      for (const m of models) {
-        const rec = await this.cache.get<ChunkRecord>('chunks', cacheKey(this.host.bookId, s.index, c.chunk.hash, m, PROMPT_VERSION)).catch(() => undefined)
-        if (rec?.complete) {
-          c.status = 'done'
-          c.items = rec.items
-          c.model = rec.model
-          if (typeof rec.fiction === 'boolean' && this.#modelVerdict == null) this.#setModelVerdict(rec.fiction)
-          return
+      // 先找当前版本; 没有再用上一版的旧结果 (要句等照常显示, 重点词这一块用离线结果, 不为它重新花额度)
+      for (const v of [PROMPT_VERSION, ...LEGACY_PROMPT_VERSIONS]) {
+        for (const m of models) {
+          const rec = await this.cache.get<ChunkRecord>('chunks', cacheKey(this.host.bookId, s.index, c.chunk.hash, m, v)).catch(() => undefined)
+          if (rec?.complete) {
+            c.status = 'done'
+            c.items = rec.items
+            c.model = rec.model
+            c.kw = v === PROMPT_VERSION && !!rec.kw
+            if (c.kw) { this.#addKw(c); gotKw = true }
+            if (typeof rec.fiction === 'boolean' && this.#modelVerdict == null) this.#setModelVerdict(rec.fiction)
+            return
+          }
         }
       }
     }))
+    if (gotKw || s.chunks.some(c => c.status === 'done')) this.host.onKeyWords?.(s.index)
     if (!s.summary) {
-      const sum = await this.cache.get<SectionSummary>('sections', sectionKey(this.host.bookId, s.index, PROMPT_VERSION)).catch(() => undefined)
-      if (sum && sum.basis === this.#basis(s)) s.summary = sum
+      // 章首要义与重点词无关: 上一版的也照用
+      for (const v of [PROMPT_VERSION, ...LEGACY_PROMPT_VERSIONS]) {
+        const sum = await this.cache.get<SectionSummary>('sections', sectionKey(this.host.bookId, s.index, v)).catch(() => undefined)
+        if (sum && sum.basis === this.#basis(s)) { s.summary = sum; break }
+      }
     }
     this.#updateStatus()
     this.host.onChange()
@@ -395,9 +416,10 @@ export class DianjingEngine {
     this.host.onChange()
     const ctrl = new AbortController()
     this.#controllers.add(ctrl)
-    const stats = { dropped: 0 }
+    const stats: { dropped: number; kwLines?: number; kwMissing?: number } = { dropped: 0 }
     let fictionSeen: boolean | undefined
     const book = this.host.book()
+    const wantKw = wantsKeyWords(s.model.lang || book.language, c.chunk.text)
     try {
       const res = await streamDianjing({
         mode: 'mark',
@@ -409,6 +431,7 @@ export class DianjingEngine {
         askGenre: this.fictionSource === 'default',
         text: c.chunk.text,
         knownTerms: this.#knownTerms(s, c),
+        keywords: wantKw,
       }, channel, (raw: RawItem) => {
         const it = resolveItem(raw, c.chunk, stats)
         if (!it) return
@@ -430,6 +453,14 @@ export class DianjingEngine {
       }
       c.status = 'done'
       c.model = res.model
+      if (wantKw) {
+        const kws = c.items.filter(i => i.t === 'kw').length
+        c.kw = keyWordsUsable(kws, stats.kwMissing ?? 0, c.chunk.chars)
+        if (!c.kw) c.items = c.items.filter(i => i.t !== 'kw')
+        else this.#addKw(c)
+        noteKeyWordChunk({ usable: c.kw, lines: stats.kwLines ?? 0, missing: stats.kwMissing ?? 0 })
+        this.host.onKeyWords?.(s.index)
+      } else c.kw = false
       this.error = null
       if (this.status !== 'quota') this.status = 'ready'
       await this.cache.put<ChunkRecord>('chunks', this.#record(s, c, res.model, fictionSeen)).catch(() => {})
@@ -480,9 +511,62 @@ export class DianjingEngine {
       texts,
       lengths,
       fiction,
+      kw: !!c.kw,
       complete: true,
       at: Date.now(),
     }
+  }
+
+  // ---- 重点词 (AI) ----
+
+  #addKw(c: ChunkState) {
+    for (const it of c.items) {
+      if (it.t !== 'kw') continue
+      const cur = this.#kwBook.get(it.q)
+      if (cur) { cur.r = Math.max(cur.r, it.r); cur.chunks.add(c.chunk.hash) }
+      else this.#kwBook.set(it.q, { r: it.r, chunks: new Set([c.chunk.hash]) })
+    }
+  }
+
+  /** 开启时读一次本书已保存的结果, 把其他章节的 AI 重点词并进全书词表 */
+  async #loadBookKeyWords() {
+    if (this.#kwLoaded) return
+    this.#kwLoaded = true
+    const rows = await this.cache.listBook<ChunkRecord>('chunks', this.host.bookId).catch(() => [] as ChunkRecord[])
+    let added = 0
+    for (const r of rows) {
+      if (r.promptVersion !== PROMPT_VERSION || !r.kw) continue
+      for (const it of r.items) {
+        if (it.t !== 'kw') continue
+        const cur = this.#kwBook.get(it.q)
+        if (cur) { cur.r = Math.max(cur.r, it.r); cur.chunks.add(r.chunkHash) }
+        else { this.#kwBook.set(it.q, { r: it.r, chunks: new Set([r.chunkHash]) }); added++ }
+      }
+    }
+    if (added) this.host.onKeyWords?.(null)
+  }
+
+  /** 全书的 AI 重点词: [词, 重要度, 被选中的块数] */
+  bookKeyWords(): Array<[string, number, number]> {
+    return [...this.#kwBook].map(([w, v]) => [w, v.r, v.chunks.size] as [string, number, number])
+  }
+
+  /**
+   * 给「重点词」绘制层: 本节各块的起点 (DOM 点) 与这块有没有可用的 AI 结果, 以及全书的 AI 词。
+   * 本节还没接上 (或文档不是同一个) 时返回 null, 绘制层先全用离线结果。
+   */
+  keyWordInput(index: number, doc: Document): { words: Array<[string, number, number]>; chunks: Array<{ node: Node; offset: number; ai: boolean }> } | null {
+    const s = this.sections.get(index)
+    if (!s || s.model.doc !== doc) return null
+    const chunks: Array<{ node: Node; offset: number; ai: boolean }> = []
+    for (const c of s.chunks) {
+      const b = c.chunk.blocks[0] as (typeof c.chunk.blocks)[number] & { offset?: number }
+      if (!b) continue
+      const r = s.model.sentenceRange(b.block, b.offset ?? 0)
+      if (!r) continue
+      chunks.push({ node: r.startContainer, offset: r.startOffset, ai: c.status === 'done' && !!c.kw })
+    }
+    return { words: this.bookKeyWords(), chunks }
   }
 
   #updateStatus() {
@@ -787,16 +871,19 @@ export class DianjingEngine {
       this.cache.listBook<ChunkRecord>('chunks', this.host.bookId).catch(() => [] as ChunkRecord[]),
       this.cache.listBook<SectionSummary>('sections', this.host.bookId).catch(() => [] as SectionSummary[]),
     ])
-    return { chunks: chunks.filter(c => c.promptVersion === PROMPT_VERSION), sections }
+    // 上一版的块 (没有重点词) 照样用于脉络 / 速读; 同一块两版都有时调用方按时间取新的
+    const versions = new Set([PROMPT_VERSION, ...LEGACY_PROMPT_VERSIONS])
+    return { chunks: chunks.filter(c => versions.has(c.promptVersion)), sections }
   }
 
   /** 重新点睛本章: 删掉内存结果, 重新请求 (缓存会被新结果覆盖) */
   redoSection(index: number) {
     const s = this.sections.get(index)
     if (!s) return
-    for (const c of s.chunks) { c.status = 'idle'; c.items = []; c.failedAt = undefined }
+    for (const c of s.chunks) { c.status = 'idle'; c.items = []; c.failedAt = undefined; c.kw = false }
     s.summary = undefined
     this.repaint()
+    this.host.onKeyWords?.(index)
     this.#schedule()
   }
 
@@ -804,8 +891,11 @@ export class DianjingEngine {
     await this.cache.clearBook(this.host.bookId).catch(() => {})
     this.dismissed.clear()
     this.adopted.clear()
-    for (const s of this.sections.values()) { for (const c of s.chunks) { c.status = 'idle'; c.items = [] } s.summary = undefined }
+    for (const s of this.sections.values()) { for (const c of s.chunks) { c.status = 'idle'; c.items = []; c.kw = false } s.summary = undefined }
+    this.#kwBook.clear()
     this.repaint()
+    this.host.onKeyWords?.(null)
     this.host.onChange()
   }
 }
+

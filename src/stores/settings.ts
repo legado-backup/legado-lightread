@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { watch } from 'vue'
 import { startSettingsTracking } from '../services/sync/settingsTracker.ts'
 import { isTauri } from '../storage/types.ts'
-import { migrateLevel, normalizeLevel, type DjLevel } from '../services/dianjing/level.ts'
+import { BASIC_MARK_DEFAULT, migrateLevel, normalizeLevel, savedBasicMark, type BasicMark, type DjLevel } from '../services/dianjing/level.ts'
 
 export interface ReaderPrefs {
   fontSize: number
@@ -95,6 +95,11 @@ export interface ReadingModePrefs {
     intensity: number
     /** 着色颜色 (精选配色之一) */
     color: 'teal' | 'indigo' | 'amber' | 'rose' | 'forest'
+    /**
+     * 基础版标什么: boundary = 词与词 (相邻的词交替着色); keywords = 重点词 (离线挑出每段最要紧的词, 密度随 dianjing.density)。
+     * 新安装默认重点词; 已有存档没有这个字段时保持词与词 (load 里补, 不升版本)。
+     */
+    mark: BasicMark
   }
   /** 大字: 预设开关; custom 为在大字模式里手动调过的值 (下次开启沿用) */
   largeText: { enabled: boolean; size: 'large' | 'xlarge'; custom: Record<string, unknown> }
@@ -166,10 +171,13 @@ export interface DianjingPrefs {
   consentAll: boolean
   /** 按书开关 (bookId → 开/关); 选「仅本书」即写这里 */
   perBook: Record<string, boolean>
-  /** 密度: 少 5% / 标准 8% / 多 15% (按字数) */
+  /**
+   * 标记多少 (少 / 适中 / 多), 基础版重点词与智能版共用: 智能版要句 5% / 8% / 15% (按字数);
+   * 重点词 基础版 2% / 4% / 8% (占词数), 智能版 只亮重要度≥2 的 AI 词 / 全部 AI 词 / AI 词 + 离线补到 8%
+   */
   density: 'low' | 'normal' | 'high'
-  /** 标记类型 */
-  kinds: { key: boolean; term: boolean; note: boolean }
+  /** 标记类型 (kw: 智能版的重点词) */
+  kinds: { key: boolean; term: boolean; note: boolean; kw: boolean }
   /** 通道: auto (已配置自己的密钥则用自己的, 否则内置) / builtin / own */
   channel: 'auto' | 'builtin' | 'own'
   /** 体裁手动设置 (bookId → 叙事 / 非叙事), 未设置时自动识别 */
@@ -307,7 +315,7 @@ const defaults: SettingsState = {
     consentAll: false,
     perBook: {},
     density: 'normal',
-    kinds: { key: true, term: true, note: true },
+    kinds: { key: true, term: true, note: true, kw: true },
     channel: 'auto',
     fiction: {},
     chapterCard: true,
@@ -326,7 +334,7 @@ const defaults: SettingsState = {
       pageDwellMs: 800,
     },
     lyric: { lines: 1, others: 'dim', anchor: 0.4, driver: 'pace', scale: 1.2 },
-    wordGuide: { enabled: false, style: 'auto', strength: 'normal', intensity: 0.7, color: 'rose' },
+    wordGuide: { enabled: false, style: 'auto', strength: 'normal', intensity: 0.7, color: 'rose', mark: BASIC_MARK_DEFAULT },
     largeText: { enabled: false, size: 'large', custom: {} },
     eink: { enabled: false, suggestDismissed: false },
     immersive: { enabled: false, hideFooter: false },
@@ -476,6 +484,8 @@ function load(): SettingsState {
       merged.readingMode.wordGuide.enabled = m.wordGuideEnabled
     }
     merged.dianjing.level = normalizeLevel(merged.dianjing.level)
+    // 基础版「标什么」: 新增字段, 已有存档保持原来的词与词 (新安装默认重点词); 不需要升版本
+    merged.readingMode.wordGuide.mark = savedBasicMark(saved.readingMode?.wordGuide?.mark)
     merged.version = SETTINGS_VERSION
     return merged
   } catch {

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { pingUsage } from '../services/usageStats'
+import { noteDjReading } from '../services/usageCounters'
+import type { DjLevelIdx, DjState } from '../services/usageStatsCore'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getStorage, type AnnotationRec, type BookMeta } from '../storage'
@@ -209,7 +211,27 @@ const ttsVoices = ref<{ name: string; lang: string }[]>([])
 let sectionLoadResolvers: Array<() => void> = []
 
 // 翻页 / 位置变化 / 朗读推进时 ping: 正文在 iframe 里, 其中的操作不会冒泡到 window
-const { ping: pingReading, pingAuto: pingReadingAuto } = useReadingTimer(bookId)
+const { ping: pingReading, pingAuto: pingReadingAuto } = useReadingTimer(bookId, {
+  // 点睛阅读的使用统计 (按天汇总, 只记中文书): 这段时长按落库时的点睛状态计
+  onCredit: seconds => {
+    const st = djUsageState()
+    if (st) noteDjReading(seconds, st.state, st.level)
+  },
+})
+
+/** 当前的点睛状态 (使用统计): 关 / 词与词 / 重点词 / 智能; 非中文书返回 null */
+function djUsageState(): { state: DjState; level: DjLevelIdx | null } | null {
+  const m = lateModes.value
+  const d = lateDj.value
+  if (!m || !d || !m.keyWordsSupported.value) return null
+  const kind = m.guideKind.value
+  const density = settings.dianjing.density
+  const lvl: DjLevelIdx = density === 'low' ? 0 : density === 'high' ? 2 : 1
+  if (d.enabled.value) return { state: 3, level: kind === 'smart' ? lvl : null }
+  if (kind === 'boundary') return { state: 1, level: null }
+  if (kind === 'keywords') return { state: 2, level: lvl }
+  return { state: 0, level: null }
+}
 
 // 书内搜索 (VSCode 风格: 多关键词 / 正则 / 大小写 / 全词)
 const searchQuery = ref('')
@@ -2594,9 +2616,25 @@ const dj = useDianjing({
     isOn: () => settings.readingMode.wordGuide.enabled,
     set: on => modes.setWordGuide(on),
     supported: () => modes.supported.value && modes.wordGuideSupported.value,
+    keyWordsSupported: () => modes.keyWordsSupported.value,
   },
+  // 智能版的 AI 重点词到了: 「重点词」层重新取词 (逐块替换离线结果)
+  onKeyWords: () => modes.refreshKeyWords(),
 })
 lateDj.value = dj
+
+// 「重点词」(点睛阅读): 书的分节 (后台全书统计)、体裁 (小说不剧透)、智能版的 AI 词
+modes.setKeyWordSource({
+  bookId,
+  fiction: () => dj.fiction.value,
+  smart: (doc, section) => dj.engine.keyWordInput(section, doc),
+  sectionCount: () => view?.book?.sections?.length ?? 0,
+  sectionLinear: i => view?.book?.sections?.[i]?.linear !== 'no',
+  sectionDoc: async i => {
+    const sec = view?.book?.sections?.[i]
+    return sec?.createDocument ? await sec.createDocument() : null
+  },
+})
 
 // 排版相关的阅读模式 (大字 / 墨水屏 / 歌词等) 切换后重排正文; 放在 modes 声明之后 (watch 立即求值)
 watch(() => modes.renderKey.value, () => {
