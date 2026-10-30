@@ -20,6 +20,7 @@ import { listSystemFonts, importFontFile } from '../../services/fonts.ts'
 import { isTauri } from '../../storage/types.ts'
 import { toast } from '../../services/toast.ts'
 import { DIM_MAX } from '../../services/readingModes/eyeCare.ts'
+import { volumeKeysSupported } from '../../services/systemBars.ts'
 import type { ReadingModes } from '../composables/useReadingModes.ts'
 
 export type TypographySection = 'text' | 'color' | 'page'
@@ -45,6 +46,8 @@ const emit = defineEmits<{
 }>()
 
 const settings = useSettings()
+/** 只有新版安卓原生壳能接管音量键 */
+const volumeKeys = volumeKeysSupported()
 const fontCatalogOpen = ref(false)
 // 读生效值、写显式偏好: 即使选中了当前默认值也记为手动选择。
 const reader = new Proxy({} as ReaderPrefs, {
@@ -358,6 +361,10 @@ let systemFontsLoading = false
           <button type="button" :class="{ active: reader.progressDisplay === 'page' }" :aria-pressed="reader.progressDisplay === 'page'" @click="reader.progressDisplay = 'page'">{{ t('reader.progressPage') }}</button>
           <button type="button" :class="{ active: reader.progressDisplay === 'percent' }" :aria-pressed="reader.progressDisplay === 'percent'" @click="reader.progressDisplay = 'percent'">{{ t('reader.progressPercent') }}</button>
         </div>
+      </div>
+      <div v-if="volumeKeys" class="tp-portrait">
+        <span>{{ t('reader.volumeKeyTurn') }}<small>{{ t('reader.volumeKeyTurnHint') }}</small></span>
+        <button type="button" class="tp-switch" role="switch" :aria-checked="settings.volumeKeyTurn" :aria-label="t('reader.volumeKeyTurn')" @click="settings.volumeKeyTurn = !settings.volumeKeyTurn"><span aria-hidden="true" /></button>
       </div>
     </section>
   </section>

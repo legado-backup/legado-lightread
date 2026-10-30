@@ -1013,6 +1013,8 @@ export default {
   'reader.manualFirst': '手动设置优先',
   'reader.portraitSwitch': "自动适配屏幕",
   'reader.portraitSwitchHint': "未手动设置的项目随横竖屏调整",
+  'reader.volumeKeyTurn': "音量键翻页",
+  'reader.volumeKeyTurnHint': "音量加上一页，音量减下一页；听书时照常调音量",
   'reader.portraitWindowNote': "竖向窗口使用单栏滚动，横向窗口恢复上面的设置。",
   'reader.groupPage': '页面',
   'reader.flowFixed': '按原书排版',

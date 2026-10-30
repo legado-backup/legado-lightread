@@ -15,6 +15,8 @@ interface AndroidBridge {
   /** 1.7.0 起: 沉浸阅读隐藏系统栏 / 常亮 (旧版原生壳没有, 调用前判断) */
   setImmersive?(on: boolean): void
   setKeepScreenOn?(on: boolean): void
+  /** 2.5 起: 拦截音量键交给网页翻页 (旧版原生壳没有) */
+  setVolumeKeys?(on: boolean): void
 }
 
 function bridge(): AndroidBridge | undefined {
@@ -83,4 +85,22 @@ export async function setKeepScreenOn(on: boolean) {
     if (on && !wakeLock) wakeLock = await (navigator as any).wakeLock?.request('screen') ?? null
     else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null }
   } catch { wakeLock = null }
+}
+
+/** 原生壳能否把音量键交给网页 (只有安卓 App, 且需要新版 MainActivity) */
+export function volumeKeysSupported(): boolean {
+  return typeof bridge()?.setVolumeKeys === 'function'
+}
+
+export type VolumeKey = 'prev' | 'next'
+
+/**
+ * 音量键翻页: 传入处理函数时原生端拦截音量键 (上 = 上一页, 下 = 下一页) 并回调,
+ * 传 null 时交还系统调音量。离开阅读页、听书播放、打开面板时都要传 null。
+ */
+export function setVolumeKeyHandler(handler: ((key: VolumeKey) => void) | null) {
+  const w = window as unknown as { __lightreadVolumeKey?: (key: VolumeKey) => void }
+  if (handler) w.__lightreadVolumeKey = handler
+  else delete w.__lightreadVolumeKey
+  try { bridge()?.setVolumeKeys?.(!!handler) } catch { /* 旧原生壳 */ }
 }

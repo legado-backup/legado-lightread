@@ -1013,6 +1013,8 @@ export default {
   'reader.manualFirst': 'Your choices take priority',
   'reader.portraitSwitch': "Adapt to window size",
   'reader.portraitSwitchHint': "Only unset preferences follow screen orientation",
+  'reader.volumeKeyTurn': "Volume keys turn pages",
+  'reader.volumeKeyTurnHint': "Volume up: previous page, down: next page. Still controls volume while listening",
   'reader.portraitWindowNote': "A portrait window uses one scrolling column. A landscape window restores the settings above.",
   'reader.groupPage': 'Page',
   'reader.flowFixed': 'As published',

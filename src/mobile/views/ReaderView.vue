@@ -16,7 +16,7 @@ import { convertToEpub, TEXT_EPUB_LAYOUT } from '../../services/textToEpub.ts'
 import { tapZone } from '../../services/readerTapZone.ts'
 import { getReaderCSS, resolveReaderColors, resolveReaderTheme, HIGHLIGHT_COLORS, listenMarkStyle, type ListenMarkStyle } from '../services/readerTheme.ts'
 import { resolvedTheme } from '../services/appearance.ts'
-import { setPageBarsDark, setSystemBarsHidden, setKeepScreenOn } from '../../services/systemBars.ts'
+import { setPageBarsDark, setSystemBarsHidden, setKeepScreenOn, setVolumeKeyHandler, type VolumeKey } from '../../services/systemBars.ts'
 import { injectFontIntoDoc, resolveFontFamily } from '../../services/fonts.ts'
 import { isTauri } from '../../storage/types.ts'
 import { listVoicesSorted, warmUpSpeech, resetEdgeFailure, systemSpeechAvailable } from '../services/tts.ts'
@@ -931,6 +931,13 @@ function turnPage(dir: 'left' | 'right') {
   interruptTTSForReposition()
   hideBars()
   dir === 'left' ? view?.goLeft() : view?.goRight()
+}
+
+/** 音量键翻页: 上 = 上一页, 下 = 下一页 (按阅读顺序, 不随从右往左排版颠倒) */
+function turnPageByVolume(key: VolumeKey) {
+  interruptTTSForReposition()
+  hideBars()
+  void (key === 'prev' ? view?.prev() : view?.next())
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -2853,6 +2860,11 @@ const modes = useReadingModes({
 })
 lateModes.value = modes
 
+// 安卓音量键翻页: 只在正文打开、没有面板、听书没在播时接管音量键, 其余时候照常调音量
+const volumeKeysActive = computed(() => settings.volumeKeyTurn && !loading.value && !error.value
+  && ttsState.value !== 'playing' && !anyOverlayOpen())
+watch(volumeKeysActive, on => setVolumeKeyHandler(on ? turnPageByVolume : null), { immediate: true })
+
 // ---- 点睛阅读 (docs/dianjing-reading.md) ----
 const dj = useDianjing({
   densityAmount: () => engineDensity(settings.dianjing),
@@ -3151,6 +3163,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', resetAutoScrollClock)
   setPageBarsDark(null)
+  setVolumeKeyHandler(null)
   window.removeEventListener('keydown', handleKeydown)
   document.removeEventListener('fullscreenchange', syncFullscreenState)
   // 回藏书页时恢复窗口状态

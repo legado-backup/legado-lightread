@@ -5,6 +5,9 @@ package com.yzfly.lightread
 // 不给 env(safe-area-inset-*) 赋值, 这里把系统栏 + 刘海的实际尺寸 (CSS px) 经
 // window.LightReadInsets 交给前端 src/services/systemBars.ts; 前端再按页面实际深浅
 // 回调 setBarsDark 切换状态栏 / 导航栏图标颜色。
+//
+// 音量键翻页: 阅读页经 setVolumeKeys(true) 打开后, 音量上 / 下不再调音量, 而是回调
+// window.__lightreadVolumeKey('prev' | 'next') (前端 src/services/systemBars.ts)。
 
 //
 // 应用内更新 (window.LightReadUpdater, 前端 src/services/updater.ts): Rust 把校验过的安装包
@@ -19,6 +22,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.KeyEvent
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -60,7 +64,12 @@ class MainActivity : TauriActivity() {
     Thread { cleanInstalledUpdates() }.start()
   }
 
+  @Volatile
+  private var volumeKeysOn = false
+  private var webView: WebView? = null
+
   override fun onWebViewCreate(webView: WebView) {
+    this.webView = webView
     webView.addJavascriptInterface(InsetsBridge(), "LightReadInsets")
     webView.addJavascriptInterface(UpdaterBridge(), "LightReadUpdater")
     webView.addJavascriptInterface(LifecycleBridge(), "LightReadLifecycle")
@@ -78,6 +87,24 @@ class MainActivity : TauriActivity() {
       ViewCompat.onApplyWindowInsets(view, insets)
     }
     ViewCompat.requestApplyInsets(webView)
+  }
+
+  /** 按下 (含长按连发) 时翻页; 抬起也要吞掉, 否则系统会弹出音量条 */
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    if (volumeKeysOn) {
+      val key = when (event.keyCode) {
+        KeyEvent.KEYCODE_VOLUME_UP -> "prev"
+        KeyEvent.KEYCODE_VOLUME_DOWN -> "next"
+        else -> null
+      }
+      if (key != null) {
+        if (event.action == KeyEvent.ACTION_DOWN) {
+          webView?.evaluateJavascript("window.__lightreadVolumeKey?.('$key')", null)
+        }
+        return true
+      }
+    }
+    return super.dispatchKeyEvent(event)
   }
 
   private var barsDark: Boolean? = null
@@ -116,6 +143,11 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface
     fun setKeepScreenOn(on: Boolean) {
       runOnUiThread { applyKeepScreenOn(on) }
+    }
+
+    @JavascriptInterface
+    fun setVolumeKeys(on: Boolean) {
+      volumeKeysOn = on
     }
 
     @JavascriptInterface

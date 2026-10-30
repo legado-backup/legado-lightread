@@ -9,6 +9,7 @@ import { tapZone } from '../../services/readerTapZone'
 import { TTS_RATE_MAX, TTS_RATE_MIN, TTS_RATE_STOPS, rateText } from '../../services/ttsRate'
 import { pingUsage } from '../../services/usageStats'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { setVolumeKeyHandler } from '../../services/systemBars.ts'
 import { useRoute, useRouter } from 'vue-router'
 import { getStorage, isTauri, type BookMeta, type AnnotationRec } from '../../storage'
 import {
@@ -3690,8 +3691,13 @@ onMounted(async () => {
   }
 })
 
+// 安卓音量键翻页 (设置在 EPUB 阅读器的排版面板里, 两边共用): 听书播放时照常调音量
+const volumeKeysActive = computed(() => settings.volumeKeyTurn && !loading.value && !error.value && ttsState.value !== 'playing')
+watch(volumeKeysActive, on => setVolumeKeyHandler(on ? key => (key === 'prev' ? prevPage() : nextPage()) : null), { immediate: true })
+
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', resetAutoScrollClock)
+  setVolumeKeyHandler(null)
   readerAlive = false
   reflowSession++
   invalidateBdContextGeneration()
