@@ -40,4 +40,27 @@ node scripts/capture-readme.mjs
 
 每次运行创建独立浏览器存储。输出覆盖本目录的八张 `feature-*.png`；等待封面加载、点睛标记、PDF 位图和译文后截图，并检查应用没有抛出页面错误。阅读记录的日期随拍摄当天变化。
 
+## App 截图（`app-*.png`）
+
+`app-*.png` 是安卓 App 界面（`src/mobile`，与 `npm run android:build` 相同的界面选择）在 390 × 844、3 倍像素密度的手机尺寸浏览器中的实际渲染，原始尺寸 1170 × 2532。演示书与阅读记录与桌面截图共用（`scripts/readme-demo.mjs`），外部网络全部拦截。
+
+| 图片 | 展示内容 |
+| --- | --- |
+| `app-library.png` | 藏书：继续阅读、今日时长、标签与书架 |
+| `app-reader.png` | 正文：点睛阅读基础版离线标出重点词 |
+| `app-reading-modes.png` | 阅读模式：点睛、场景、背景音 |
+| `app-typography.png` | 排版「页面」：翻页方式、进度显示、音量键翻页 |
+| `app-listen.png` | 听书：定时关闭、音色、语速、剩余时长 |
+| `app-sources.png` | 书源：统一搜书、公共书源、私人书库 |
+| `app-stats.png` | 阅读记录：今日目标、本周达标、时长趋势 |
+
+浏览器里没有安卓原生壳，脚本注入与 `MainActivity.kt` 同名的空桥（`window.LightReadInsets`），只为让「音量键翻页」等 App 专属设置按真机显示；浏览器无在线语音，听书面板的音色显示为「系统」，真机默认在线语音。点睛阅读通过「模式」面板的开关打开，与用户操作相同。
+
+```bash
+TAURI_ENV_PLATFORM=android npm run dev -- --host 127.0.0.1 --port 5174
+E2E_BASE=http://127.0.0.1:5174 node scripts/capture-readme-app.mjs
+```
+
+`TAURI_ENV_PLATFORM=android` 选择 App 界面并跳过 Cloudflare 开发插件；不要用 `linux`，那样渲染的是桌面界面。
+
 原有 `library.png`、`reader.png` 等截图保留，避免破坏其他文档或外部链接；其中古登堡图书的来源说明沿用原 README。

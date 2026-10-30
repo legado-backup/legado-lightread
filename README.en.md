@@ -2,11 +2,11 @@
 
 <img src="public/favicon.svg" width="76" alt="LightRead logo" />
 
-# LightRead · Open-source ebook & PDF reader
+# LightRead · Free, open-source ebook reader for every format
 
 **Turn your reading list into time well spent.**
 
-Bilingual PDF translation · Guided reading · Local library · Booklists · Reading stats · Text to speech
+EPUB / PDF / MOBI / AZW3 / TXT and more · Key-idea highlighting · Many reading modes · Text to speech · Bilingual PDF translation · Sync across devices
 
 [中文](README.md) · English
 
@@ -14,11 +14,11 @@ Bilingual PDF translation · Guided reading · Local library · Booklists · Rea
 [![Downloads](https://img.shields.io/github/downloads/yzfly/LightRead/total)](https://github.com/yzfly/LightRead/releases)
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL_v3%2B-blue.svg)](LICENSE)
 
-**[Download LightRead](https://github.com/yzfly/LightRead/releases/latest)** · [Install](#install) · [User guide (中文)](docs/manual/README.md) · [Feedback](https://github.com/yzfly/LightRead/issues)
+**[Download for desktop](https://github.com/yzfly/LightRead/releases/latest)** · **[Download the Android app](https://github.com/yzfly/LightRead/releases?q=app-v&expanded=true)** · [China mirror (GitCode)](https://gitcode.com/langgpt/LightRead/releases) · [User guide (中文)](docs/manual/README.md) · [Feedback](https://github.com/yzfly/LightRead/issues)
 
-macOS · Windows · Linux · Web PWA · Android (experimental)
+Windows · macOS · Linux · Android · Web PWA
 
-Your books, progress, and notes stay on your device by default. Local reading needs no account or internet connection.
+Free, open source, no ads. Local reading needs no account or internet connection; your books, progress, and notes stay on your device by default.
 
 <img src="docs/screenshots/feature-library.png" width="1000" alt="LightRead local ebook library with cover grid, tags, custom booklists and reading progress" />
 
@@ -26,11 +26,38 @@ Your books, progress, and notes stay on your device by default. Local reading ne
 
 [PDF translation](#pdf-translation-keep-the-original-in-view) · [Guided reading](#guided-reading-let-the-key-ideas-stand-out) · [Booklists](#booklists-give-your-next-read-a-place) · [Reading stats](#reading-stats-see-your-reading-add-up) · [Listen & focus](#listen--focus-read-at-your-own-pace)
 
+## LightRead at a glance
+
+| | |
+| --- | --- |
+| What it is | An open-source, local-first reader for ebooks and PDFs: books, research papers, and audio reading in one app |
+| Devices | Windows 10/11, macOS (Apple Silicon and Intel), Linux (deb / rpm / AppImage), Android (arm64), web PWA |
+| Formats | EPUB, PDF, MOBI, AZW, AZW3, FB2, TXT, Markdown, HTML, DjVu, CBZ / CBR comics, plus plain-text files such as source code and logs |
+| Reading modes | Key-idea highlighting (key words and key sentences), typewriter, lyrics, bionic-style word guide, auto page turn and smooth scroll, read-along with text to speech; night, eye-care, e-ink, large-text, and immersive scenes |
+| Layout | Paginated, per-chapter scroll, or continuous scroll across chapters; one or two columns; font size, line height, margins, fonts, and themes; volume-key page turning and PDF reflow on Android |
+| Sync | LightRead account or WebDAV syncs progress, notes, bookmarks, booklists, reading history, and settings; portable library export / import |
+| Cost & privacy | Free, AGPL-3.0; usable without an account; online features are opt-in |
+| Not supported | KFX and DRM-protected files |
+
+## Android app
+
+The Android app shares the desktop reading engine with an interface designed for phones: bottom tabs, a reachable reader toolbar, and bottom-sheet panels.
+
+| Library | Reading with highlights | Reading modes | Layout · volume keys |
+| --- | --- | --- | --- |
+| <img src="docs/screenshots/app-library.png" width="200" alt="LightRead Android app library with continue-reading card, today's reading time, tags, and cover grid" /> | <img src="docs/screenshots/app-reader.png" width="200" alt="LightRead Android reader highlighting key Chinese words offline" /> | <img src="docs/screenshots/app-reading-modes.png" width="200" alt="LightRead Android reading modes: key-idea highlighting, night, eye care, e-ink, large text, immersive, ambient sound" /> | <img src="docs/screenshots/app-typography.png" width="200" alt="LightRead Android layout panel: paginated, chapter scroll, continuous scroll, progress display, and volume-key page turning" /> |
+
+| Listen | Book sources | Reading stats |
+| --- | --- | --- |
+| <img src="docs/screenshots/app-listen.png" width="200" alt="LightRead Android text to speech with sleep timer, voice, speed, and time remaining" /> | <img src="docs/screenshots/app-sources.png" width="200" alt="LightRead Android book sources: unified search, Project Gutenberg, Internet Archive, arXiv, and private libraries" /> | <img src="docs/screenshots/app-stats.png" width="200" alt="LightRead Android reading stats: daily goal, streak, weekly progress, and reading time" /> |
+
+<sub>App screenshots render the app interface in a phone-sized (390 × 844) browser with demo books and reading history; on a real phone, text to speech defaults to online voices. [Reproduce the screenshots](docs/screenshots/README.md).</sub>
+
 ## A local library for the books you want to read
 
 **Drop in a file and start reading.** Organize your collection with covers, tags, booklists, and progress tracking. Research papers have their own library.
 
-Read **EPUB, PDF, MOBI, AZW / AZW3, TXT, and Markdown**, plus FB2, CBZ / CBR comics, DjVu, HTML, and more. KFX and DRM-protected files are not supported.
+Read **EPUB, PDF, MOBI, AZW / AZW3, TXT, and Markdown**, plus FB2, CBZ / CBR comics, DjVu, HTML, and plain-text files such as source code and logs. MOBI, AZW3, FB2, and TXT can also be converted to EPUB. KFX and DRM-protected files are not supported.
 
 ## PDF translation: keep the original in view
 
@@ -99,19 +126,31 @@ Local data stays on your device by default. Online sources, speech, AI, and sync
 
 ## Install
 
-**[Download the latest release →](https://github.com/yzfly/LightRead/releases/latest)** Open **Assets** and choose your platform.
+Desktop and Android are released separately; each channel below always has the latest of both. Installed apps also check for updates in-app.
 
-| Platform | Installer suffix |
+| Channel | Link | For |
+| --- | --- | --- |
+| GitHub Releases · desktop | [github.com/yzfly/LightRead/releases/latest](https://github.com/yzfly/LightRead/releases/latest) | Windows, macOS, Linux |
+| GitHub Releases · Android | [Releases tagged `app-v…`](https://github.com/yzfly/LightRead/releases?q=app-v&expanded=true) | Android phones and tablets |
+| GitCode mirror (China) | [gitcode.com/langgpt/LightRead/releases](https://gitcode.com/langgpt/LightRead/releases) | When GitHub is slow; desktop and Android |
+| In-app update | Settings → About → Check for updates | Installed apps; falls back to the GitCode mirror when GitHub is unreachable |
+| Build from source / web | See "Developers" below | Self-hosting the web PWA or development |
+
+Pick the file for your device (`x.y.z` is the version):
+
+| Device | File |
 | --- | --- |
-| macOS, Apple Silicon | `aarch64.dmg` |
-| macOS, Intel | `x64.dmg` |
-| Windows 10/11, 64-bit | `x64-setup.exe` |
-| Linux, 64-bit | `.deb`, `.rpm`, or `.AppImage` |
-| Android, arm64, experimental | `android_arm64.apk` |
+| Windows 10/11, 64-bit | `LightRead_x.y.z_x64-setup.exe` |
+| macOS, Apple Silicon | `LightRead_x.y.z_aarch64.dmg` |
+| macOS, Intel | `LightRead_x.y.z_x64.dmg` |
+| Ubuntu / Debian | `LightRead_x.y.z_amd64.deb` |
+| Fedora / RHEL | `LightRead-x.y.z-1.x86_64.rpm` |
+| Other Linux | `LightRead_x.y.z_amd64.AppImage` |
+| Android 7.0+, arm64 | `LightRead_app-vx.y.z_android_arm64.apk` |
 
-On macOS, open the DMG and drag LightRead into Applications. If blocked, verify the download came from this repository before using the system's **Open Anyway** option. On Windows, run the installer. On Linux, use your package manager or grant execute permission to the AppImage; system library compatibility still applies.
+Every release includes `SHA256SUMS` for verifying downloads. On macOS, open the DMG and drag LightRead into Applications. If blocked, verify the download came from this repository before using the system's **Open Anyway** option. On Windows, run the installer. On Linux, use your package manager or grant execute permission to the AppImage.
 
-**Android upgrades:** historical builds used different signing keys. If installation conflicts, keep the old app until you have exported and verified a backup outside its private storage. Follow the [migration guide (中文)](docs/installation.md#android实验性) before uninstalling anything.
+**Android:** the app is still experimental (package `com.yzfly.lightread.debug`); new versions with the same signature install over the old one. Historical builds used different signing keys. If installation conflicts, keep the old app until you have exported and verified a backup outside its private storage, then follow the [migration guide (中文)](docs/installation.md#android实验性).
 
 <details>
 <summary>Developers: build from source</summary>
@@ -132,7 +171,7 @@ Build with `npm run build` (frontend) or `npm run tauri build` (desktop). Built 
 
 ## Help make LightRead better
 
-If LightRead earns a place in your reading routine, **[give it a Star](https://github.com/yzfly/LightRead)**. [Feedback](https://github.com/yzfly/LightRead/issues), pull requests, and lawful public book-source suggestions are welcome.
+If LightRead earns a place in your reading routine, **[give it a Star](https://github.com/yzfly/LightRead)**. [Feedback](https://github.com/yzfly/LightRead/issues), pull requests, and suggestions for lawfully available book sources are welcome.
 
 <sub>Screenshots show the real app with Chinese UI. Library contents, reading history, and PDF translations are demo fixtures. Sample books and covers were made for this feature tour and are not bundled with the app. [Reproduce the screenshots](docs/screenshots/README.md).</sub>
 

@@ -2,11 +2,11 @@
 
 <img src="public/favicon.svg" width="76" alt="LightRead 轻阅图标" />
 
-# LightRead 轻阅 · 开源电子书与 PDF 阅读器
+# LightRead 轻阅 · 开源免费的全格式电子书阅读器
 
 **让想读的书，变成读进去的书。**
 
-PDF 对照翻译 · 点睛阅读 · 本地书库 · 书单 · 阅读记录 · 听书
+EPUB / PDF / MOBI / AZW3 / TXT 全格式 · 点睛阅读 · 多种阅读模式 · 听书 · PDF 对照翻译 · 多端同步
 
 [中文](README.md) · [English](README.en.md)
 
@@ -14,11 +14,11 @@ PDF 对照翻译 · 点睛阅读 · 本地书库 · 书单 · 阅读记录 · �
 [![Downloads](https://img.shields.io/github/downloads/yzfly/LightRead/total)](https://github.com/yzfly/LightRead/releases)
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL_v3%2B-blue.svg)](LICENSE)
 
-**[下载 LightRead](https://github.com/yzfly/LightRead/releases/latest)** · [安装指南](docs/installation.md) · [使用手册](docs/manual/README.md) · [反馈建议](https://github.com/yzfly/LightRead/issues)
+**[下载桌面版](https://github.com/yzfly/LightRead/releases/latest)** · **[下载安卓 App](https://github.com/yzfly/LightRead/releases?q=app-v&expanded=true)** · [国内镜像（GitCode）](https://gitcode.com/langgpt/LightRead/releases) · [使用手册](docs/manual/README.md) · [反馈建议](https://github.com/yzfly/LightRead/issues)
 
-macOS · Windows · Linux · 网页 PWA · Android（实验性）
+Windows · macOS · Linux · Android · 网页 PWA
 
-本地阅读无需账号、无需联网。藏书、进度与笔记，默认留在自己的设备上。
+免费、开源、无广告。本地阅读无需账号、无需联网；藏书、进度与笔记默认留在自己的设备上。
 
 <img src="docs/screenshots/feature-library.png" width="1000" alt="LightRead 轻阅本地电子书书库：封面书架、分类标签、自建书单与每本书的阅读进度" />
 
@@ -26,11 +26,38 @@ macOS · Windows · Linux · 网页 PWA · Android（实验性）
 
 [PDF 翻译](#pdf-翻译外文资料也能读进去) · [点睛阅读](#点睛阅读让重点自己浮出来) · [书单](#书单把想读变成下一本) · [阅读记录](#阅读记录看见每天读过的时间) · [听书与专注](#听书与专注找到自己的阅读节奏)
 
+## 一眼看懂轻阅
+
+| | |
+| --- | --- |
+| 是什么 | 开源、本地优先的电子书与 PDF 阅读器，读书、读论文、听书都在一个应用里 |
+| 支持设备 | Windows 10 / 11、macOS（Apple 芯片与 Intel）、Linux（deb / rpm / AppImage）、Android（arm64）、网页 PWA |
+| 支持格式 | EPUB、PDF、MOBI、AZW、AZW3、FB2、TXT、Markdown、HTML、DjVu、CBZ / CBR 漫画，以及代码、日志等纯文本文件 |
+| 阅读模式 | 点睛阅读（重点词 / 要句标记）、打字机、歌词、仿生阅读、自动翻页与匀速滚动、听书跟读；夜读、护眼、墨水屏、大字、沉浸场景 |
+| 排版 | 翻页 / 按章滚动 / 跨章连续滚动，单栏 / 双栏，字号、行距、边距、字体、主题随手调；App 支持音量键翻页、PDF 重排 |
+| 多端 | 轻阅账号或 WebDAV 同步进度、笔记、书签、书单、阅读记录与设置；藏书包导入导出 |
+| 费用与隐私 | 免费，AGPL-3.0 开源；不需要账号即可使用，联网功能按需开启 |
+| 不支持 | KFX 与 DRM 加密文件 |
+
+## 手机 App
+
+安卓 App 与桌面版共用同一套阅读引擎，界面按手机重新设计：底部标签栏、单手可达的阅读工具栏、底部抽屉面板。
+
+| 藏书 | 正文 · 点睛阅读 | 阅读模式 | 排版 · 音量键翻页 |
+| --- | --- | --- | --- |
+| <img src="docs/screenshots/app-library.png" width="200" alt="轻阅安卓 App 藏书页：继续阅读卡片、今日阅读时长、标签筛选与封面书架" /> | <img src="docs/screenshots/app-reader.png" width="200" alt="轻阅安卓 App 阅读页：点睛阅读离线标出中文重点词" /> | <img src="docs/screenshots/app-reading-modes.png" width="200" alt="轻阅安卓 App 阅读模式面板：点睛阅读、夜读、护眼、墨水屏、大字、沉浸与背景音" /> | <img src="docs/screenshots/app-typography.png" width="200" alt="轻阅安卓 App 排版面板：翻页、按章滚动、连续滚动、进度显示与音量键翻页" /> |
+
+| 听书 | 书源 | 阅读记录 |
+| --- | --- | --- |
+| <img src="docs/screenshots/app-listen.png" width="200" alt="轻阅安卓 App 听书：定时关闭、音色、语速与剩余时长" /> | <img src="docs/screenshots/app-sources.png" width="200" alt="轻阅安卓 App 书源页：统一搜书、古登堡计划、Internet Archive、arXiv 与私人书库" /> | <img src="docs/screenshots/app-stats.png" width="200" alt="轻阅安卓 App 阅读记录：今日目标、连续天数、本周达标与阅读时长趋势" /> |
+
+<sub>App 截图由 App 界面在手机尺寸（390 × 844）的浏览器中渲染，示例书与阅读记录为演示数据；真机上听书默认使用在线语音。[截图复现说明](docs/screenshots/README.md)</sub>
+
 ## 本地书库，把散落的好书放在一起
 
 拖入文件，就能开读。用**封面书架、标签、书单和阅读进度**整理藏书；论文有独立入口，读书与研究各得其所。
 
-支持 **EPUB、PDF、MOBI、AZW / AZW3、TXT、Markdown**，以及 FB2、CBZ / CBR 漫画、DjVu、HTML 等格式。不支持 KFX 和 DRM 加密文件。
+支持 **EPUB、PDF、MOBI、AZW / AZW3、TXT、Markdown**，以及 FB2、CBZ / CBR 漫画、DjVu、HTML 和代码、日志等纯文本文件；MOBI、AZW3、FB2、TXT 还能一键转成 EPUB。不支持 KFX 和 DRM 加密文件。
 
 ## PDF 翻译，外文资料也能读进去
 
@@ -99,19 +126,32 @@ macOS · Windows · Linux · 网页 PWA · Android（实验性）
 
 ## 下载与安装
 
-**[前往 GitHub Releases 下载最新版 →](https://github.com/yzfly/LightRead/releases/latest)**
+桌面版和安卓 App 分开发版，各自的最新版都在下面的渠道里。已安装的应用会在应用内提示更新。
+
+| 渠道 | 地址 | 适合 |
+| --- | --- | --- |
+| GitHub Releases · 桌面版 | [github.com/yzfly/LightRead/releases/latest](https://github.com/yzfly/LightRead/releases/latest) | Windows、macOS、Linux |
+| GitHub Releases · 安卓 App | [以 `app-v` 开头的版本](https://github.com/yzfly/LightRead/releases?q=app-v&expanded=true) | Android 手机、平板 |
+| GitCode 国内镜像 | [gitcode.com/langgpt/LightRead/releases](https://gitcode.com/langgpt/LightRead/releases) | 访问 GitHub 慢时使用，桌面版与 App 均有 |
+| 应用内更新 | 设置 → 关于 → 检查更新 | 已安装用户；GitHub 访问不了时自动改用 GitCode 镜像 |
+| 源码构建 / 网页版 | 见下方「开发者：从源码运行」 | 自行部署网页 PWA 或二次开发 |
+
+按设备选择安装包（`x.y.z` 为版本号）：
 
 | 设备 | 安装包 |
 | --- | --- |
-| macOS | Apple 芯片选 `aarch64.dmg`；Intel 选 `x64.dmg` |
-| Windows 10 / 11 | `x64-setup.exe` |
-| Linux | `.deb` / `.rpm` / `.AppImage` |
-| Android（实验性，arm64） | `android_arm64.apk` |
+| Windows 10 / 11（64 位） | `LightRead_x.y.z_x64-setup.exe` |
+| macOS · Apple 芯片（M 系列） | `LightRead_x.y.z_aarch64.dmg` |
+| macOS · Intel | `LightRead_x.y.z_x64.dmg` |
+| Ubuntu / Debian | `LightRead_x.y.z_amd64.deb` |
+| Fedora / RHEL | `LightRead-x.y.z-1.x86_64.rpm` |
+| 其他 Linux | `LightRead_x.y.z_amd64.AppImage` |
+| Android 7.0+（arm64） | `LightRead_app-vx.y.z_android_arm64.apk` |
 
-安装后，把第一本书拖进轻阅即可开始。[完整安装与升级指南](docs/installation.md) · [三分钟上手](docs/manual/README.md#三分钟上手)
+每个版本附带 `SHA256SUMS`，可核对下载文件是否完整。安装后，把第一本书拖进轻阅即可开始。[完整安装与升级指南](docs/installation.md) · [三分钟上手](docs/manual/README.md#三分钟上手)
 
 <a id="android实验性"></a>
-**Android 老用户：** 历史版本可能签名不同；遇到安装冲突，先保留旧应用，导出并验证应用目录外的备份，再按[迁移步骤](docs/installation.md#android实验性)操作。
+**Android 说明：** App 目前是实验版（包名 `com.yzfly.lightread.debug`），同签名新版可直接覆盖升级。历史版本可能签名不同；遇到安装冲突，先保留旧应用，导出并验证应用目录外的备份，再按[迁移步骤](docs/installation.md#android实验性)操作。
 
 <details>
 <summary>开发者：从源码运行</summary>
