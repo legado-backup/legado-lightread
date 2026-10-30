@@ -261,6 +261,13 @@ test('样式: 重点词强 (着色 + 浅底) / 弱 (只着色), 随颜色与明�
   assert.notEqual(rule(css(0.3, 'rose'), 'lr-wg-kw-w'), weak, '明显程度变化')
   assert.notEqual(rule(css(0.7, 'teal'), 'lr-wg-kw-s'), strong, '颜色变化')
   assert.match(rule(css(0.7, 'rose', 'dark'), 'lr-wg-kw-s'), /background-color/)
+  // 打字机 / 歌词未出字的范围要用正文底色盖住重点词浅底, 否则空白处先冒出色块
+  for (const theme of ['light', 'dark']) {
+    const text = css(0.7, 'rose', theme)
+    for (const name of ['lr-tw-hidden', 'lr-tw-ghost', 'lr-ly-hide', 'lr-ly-dim']) {
+      assert.match(rule(text, name), /background-color: #/, `${theme} ${name}`)
+    }
+  }
 })
 
 test('细调密度: 三档结果不变, 档位之间有实际选词变化, 缓存随正文更新', () => {

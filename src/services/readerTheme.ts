@@ -125,9 +125,10 @@ function withAlpha(hex: string, alpha: number): string {
  */
 function readingModeCSS(colors: ReaderThemeColors, theme: string, style?: ReaderModeStyle): string {
   const ghost = withAlpha(colors.fg, 0.18)
+  // 透明文字不会遮住低优先级高亮 (点睛重点词 / 要句) 的底色; 未出字区域用正文底色覆盖, 随出字范围一起退去。
   return `
-    ::highlight(lr-tw-hidden) { color: transparent; -webkit-text-fill-color: transparent; text-shadow: none; text-decoration-color: transparent; }
-    ::highlight(lr-tw-ghost) { color: ${ghost}; -webkit-text-fill-color: ${ghost}; text-shadow: none; text-decoration-color: ${ghost}; }
+    ::highlight(lr-tw-hidden) { color: transparent; -webkit-text-fill-color: transparent; background-color: ${colors.bg}; text-shadow: none; text-decoration-color: transparent; }
+    ::highlight(lr-tw-ghost) { color: ${ghost}; -webkit-text-fill-color: ${ghost}; background-color: ${colors.bg}; text-shadow: none; text-decoration-color: ${ghost}; }
     ::highlight(lr-tw-fresh) { color: ${colors.link}; -webkit-text-fill-color: ${colors.link}; }
     ${lyricAndGuideCSS(colors, theme, style?.wordGuideIntensity, style?.wordGuideColor)}
     [data-lr-pending] { visibility: hidden !important; }
@@ -202,8 +203,8 @@ function lyricAndGuideCSS(colors: ReaderThemeColors, theme: string, intensity = 
   const kwStrongBg = withAlpha(accent, Math.round((0.05 + 0.13 * t) * 1000) / 1000)
   const kwWeak = mixHex(colors.fg, accent, Math.round(t * 0.75 * 100) / 100)
   return `
-    ::highlight(lr-ly-dim) { color: ${dim}; -webkit-text-fill-color: ${dim}; text-shadow: none; text-decoration-color: ${dim}; }
-    ::highlight(lr-ly-hide) { color: transparent; -webkit-text-fill-color: transparent; text-shadow: none; text-decoration-color: transparent; }
+    ::highlight(lr-ly-dim) { color: ${dim}; -webkit-text-fill-color: ${dim}; background-color: ${colors.bg}; text-shadow: none; text-decoration-color: ${dim}; }
+    ::highlight(lr-ly-hide) { color: transparent; -webkit-text-fill-color: transparent; background-color: ${colors.bg}; text-shadow: none; text-decoration-color: transparent; }
     ::highlight(lr-wg-alt-l) { color: ${altLight}; -webkit-text-fill-color: ${altLight}; }
     ::highlight(lr-wg-alt-n) { color: ${altNormal}; -webkit-text-fill-color: ${altNormal}; }
     ::highlight(lr-wg-tail) { color: ${tail}; -webkit-text-fill-color: ${tail}; }
