@@ -6,8 +6,6 @@ import ts from 'typescript'
 const source = await readFile(new URL('../src/services/githubBooks.ts', import.meta.url), 'utf8')
 const formatSource = await readFile(new URL('../src/services/format.ts', import.meta.url), 'utf8')
 const bookQuerySource = await readFile(new URL('../src/services/bookQuery.ts', import.meta.url), 'utf8')
-const textbookSource = await readFile(new URL('../src/services/chinaTextbook.ts', import.meta.url), 'utf8')
-const bundled = JSON.parse(await readFile(new URL('../booksources.json', import.meta.url), 'utf8'))
 const compile = text => ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
 const dataModule = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
 let sequence = 0
@@ -24,58 +22,21 @@ async function harness(fetchRemote, cache = new Map()) {
     .replace("'./net'", JSON.stringify(dataModule(`export const fetchRemote = (...args) => globalThis[${JSON.stringify(hook)}](...args)`)))
     .replace("'./format'", JSON.stringify(dataModule(compile(formatSource))))
     .replace("'./bookQuery'", JSON.stringify(dataModule(compile(bookQuerySource))))
-    .replace("'./chinaTextbook'", JSON.stringify(dataModule(compile(textbookSource)
-      .replace("'./bookQuery.ts'", JSON.stringify(dataModule(compile(bookQuerySource)))))))
-    .replace("'../../booksources.json'", JSON.stringify(dataModule(`export default ${JSON.stringify(bundled)}`)))
   return { service: await import(dataModule(code)), cache }
 }
 
 const json = data => new Response(JSON.stringify(data), { headers: { 'content-type': 'application/json' } })
 const blob = (path, size = 5000, extra = {}) => ({ path, size, mode: '100644', type: 'blob', ...extra })
-const cacheKey = 'lightread-community-sources'
 
-test('at least six new repositories contain curated book paths', () => {
-  const repos = bundled.githubRepos.filter(repo => repo.include?.length)
-  assert.equal(repos.length, 6)
-  for (const repo of repos) assert.ok(repo.include.every(path => /\.(epub|pdf)$/.test(path)))
-})
-
-test('old and same-date remote manifests cannot hide newly bundled repositories', async () => {
-  for (const updated of ['2026-07-12', bundled.updated, 'not-a-date']) {
-    const { service } = await harness(async () => json({ updated, githubRepos: [{ repo: 'old/books' }] }))
-    const list = await service.fetchCommunityRepos(true)
-    assert.equal(list.updated, bundled.updated)
-    assert.equal(list.fromRemote, false)
-    assert.ok(list.repos.some(repo => repo.repo === 'nndl/nndl'))
-  }
-})
-
-test('fresh or expired old caches cannot override the newer bundled manifest', async () => {
-  for (const at of [Date.now(), 0]) {
-    let calls = 0
-    const cache = new Map([[cacheKey, JSON.stringify({ at, updated: '2026-07-12', repos: [{ repo: 'old/books' }] })]])
-    const { service } = await harness(async () => { calls++; throw new Error('offline') }, cache)
-    const list = await service.fetchCommunityRepos()
-    assert.equal(list.repos.length, bundled.githubRepos.length)
-    assert.equal(calls, at ? 0 : 1)
-  }
-})
-
-test('a newer remote list can add/remove sources and survives cache storage failure', async () => {
-  const { service } = await harness(async () => json({
-    updated: '2026-10-04', githubRepos: [{ repo: ' newer/books ', include: ['books/*.epub'] }, { repo: '../invalid' }],
-  }))
-  globalThis.localStorage.setItem = () => { throw new Error('quota') }
-  const list = await service.fetchCommunityRepos(true)
-  assert.equal(list.fromRemote, true)
-  assert.deepEqual(list.repos.map(repo => repo.repo), ['newer/books'])
-  assert.deepEqual(list.repos[0].include, ['books/*.epub'])
-})
-
-test('a newer cached manifest is retained when upstream returns an older list', async () => {
-  const cache = new Map([[cacheKey, JSON.stringify({ at: 0, updated: '2026-10-05', repos: [{ repo: 'newest/books' }] })]])
-  const { service } = await harness(async () => json({ updated: '2026-10-04', githubRepos: [{ repo: 'older/books' }] }), cache)
-  assert.deepEqual((await service.fetchCommunityRepos(true)).repos.map(repo => repo.repo), ['newest/books'])
+test('no third-party book repositories are bundled or fetched: only what the user added is searched', async () => {
+  assert.doesNotMatch(source, /booksources\.json|fetchCommunityRepos|ChinaTextbook/)
+  const requested = []
+  const { service } = await harness(async url => { requested.push(url); return json({ tree: [blob('book.epub')] }) })
+  assert.deepEqual(Object.keys(service).sort(), ['fmtBytes', 'isValidRepo', 'searchGithubBooks'])
+  assert.deepEqual(await service.searchGithubBooks([], 'book'), { hits: [], errors: [], truncated: false })
+  assert.equal(requested.length, 0)
+  await service.searchGithubBooks(['me/my-books'], 'book')
+  assert.deepEqual(requested, ['https://api.github.com/repos/me/my-books/git/trees/HEAD?recursive=1'])
 })
 
 test('all simultaneous searches share a four-request concurrency limit', async () => {
@@ -114,10 +75,10 @@ test('LFS pointers, symlinks, invalid paths and empty files are excluded', async
   assert.deepEqual(result.hits.map(hit => hit.name).sort(), ['book.epub', 'poem.txt'])
 })
 
-test('curated repositories return book files and match their descriptive titles', async () => {
-  const { service } = await harness(async () => json({ tree: [blob('legacy/nndl-v1/main.pdf'), blob('legacy/nndl-v1/cover.pdf'), blob('README.md')] }))
-  const result = await service.searchGithubBooks(['nndl/nndl'], '深度学习')
-  assert.deepEqual(result.hits.map(hit => hit.path), ['legacy/nndl-v1/main.pdf'])
+test('only book files are returned and matched by path', async () => {
+  const { service } = await harness(async () => json({ tree: [blob('深度学习/main.pdf'), blob('other/cover.pdf'), blob('README.md')] }))
+  const result = await service.searchGithubBooks(['owner/books'], '深度学习')
+  assert.deepEqual(result.hits.map(hit => hit.path), ['深度学习/main.pdf'])
 })
 
 test('small text and Markdown files do not fan out into content requests', async () => {
@@ -154,27 +115,4 @@ test('punctuation in the query is ignored and exact titles rank first', async ()
     const thinking = await service.searchGithubBooks(['owner/books'], query)
     assert.deepEqual(thinking.hits.map(hit => hit.name).sort(), ['思考快与慢.epub', '思考，快与慢（丹尼尔·卡尼曼）.pdf'].sort(), query)
   }
-})
-
-test('split parts stay out of generic results but are merged for the textbook source', async () => {
-  let calls = 0
-  const { service } = await harness(async url => {
-    calls++
-    assert.match(url, /repos\/TapXWorld\/ChinaTextbook\/git\/trees\/HEAD\?recursive=1$/)
-    return json({ tree: [
-      blob('README.md', 3000),
-      blob('初中/数学/人教版-人民教育出版社/七年级/义务教育教科书·数学七年级上册.pdf'),
-      blob('初中/数学/北师大版-北京师范大学出版社/七年级/义务教育教科书·数学七年级上册.pdf_merge_folder/义务教育教科书·数学七年级上册.pdf.2', 300),
-      blob('初中/数学/北师大版-北京师范大学出版社/七年级/义务教育教科书·数学七年级上册.pdf_merge_folder/义务教育教科书·数学七年级上册.pdf.1', 4000),
-    ] })
-  })
-  const generic = await service.searchGithubBooks(['TapXWorld/ChinaTextbook'], '数学')
-  assert.deepEqual(generic.hits.map(hit => hit.name), ['义务教育教科书·数学七年级上册.pdf'])
-  const textbooks = await service.searchChinaTextbooks('七年级 数学')
-  assert.equal(calls, 1, 'the textbook source reuses the cached file tree')
-  assert.equal(textbooks.length, 2)
-  const merged = textbooks.find(book => book.parts.length === 2)
-  assert.equal(merged.size, 4300)
-  assert.deepEqual(merged.parts.map(part => part.path.at(-1)), ['1', '2'])
-  assert.equal(textbooks[0].edition, '人教版')
 })

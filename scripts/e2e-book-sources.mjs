@@ -13,41 +13,8 @@ let failArchive = false
 let metadataCalls = 0
 let githubTreeCalls = 0
 const philosophyDownloads = []
-const textbookDownloads = []
 const wendianRequests = []
 
-/** 最小可解析的单页 PDF (内容流里垫空格, 好拆成两卷模拟教材仓库的分卷) */
-function tinyPdf() {
-  const content = `BT /F1 18 Tf 20 100 Td (Textbook) Tj ET\n${' '.repeat(6000)}`
-  const objects = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
-    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-  ]
-  let pdf = '%PDF-1.4\n'
-  const offsets = objects.map((body, i) => {
-    const offset = pdf.length
-    pdf += `${i + 1} 0 obj\n${body}\nendobj\n`
-    return offset
-  })
-  const xref = pdf.length
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map(o => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
-  return Buffer.from(pdf, 'latin1')
-}
-const textbookPdf = tinyPdf()
-const textbookParts = [textbookPdf.subarray(0, 4000), textbookPdf.subarray(4000)]
-const bnuDir = '初中/数学/北师大版-北京师范大学出版社/七年级/义务教育教科书·数学七年级上册.pdf_merge_folder/'
-const textbookTree = [
-  { type: 'blob', path: 'README.md', size: 4000 },
-  { type: 'blob', path: '初中/数学/人教版-人民教育出版社/七年级/义务教育教科书·数学七年级上册.pdf', size: 9975261 },
-  { type: 'blob', path: '初中/数学/人教版-人民教育出版社/七年级/义务教育教科书·数学七年级下册.pdf', size: 15100000 },
-  { type: 'blob', path: `${bnuDir}义务教育教科书·数学七年级上册.pdf.2`, size: textbookParts[1].length },
-  { type: 'blob', path: `${bnuDir}义务教育教科书·数学七年级上册.pdf.1`, size: textbookParts[0].length },
-  { type: 'blob', path: '初中/语文/统编版-人民教育出版社/七年级/义务教育教科书·语文七年级上册.pdf', size: 12000000 },
-]
 /** 研辞问典: 真实页面存档 (scripts/fixtures) */
 const wendianPages = {
   'https://wendian.dicomp.net/ancient/detail.php?id=1171': 'wendian-ancient-1171.html',
@@ -75,12 +42,6 @@ await page.route('**/*', async route => {
   const parsed = new URL(requestUrl)
   const url = parsed.hostname === 'catalog-proxy.test' ? parsed.searchParams.get('url') : requestUrl
   const json = body => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) })
-  if (url.includes('api.github.com/repos/TapXWorld/ChinaTextbook/git/trees/')) return json({ tree: textbookTree, truncated: false })
-  if (url.startsWith('https://raw.githubusercontent.com/TapXWorld/ChinaTextbook/')) {
-    const part = Number(url.split('.').pop())
-    textbookDownloads.push(part)
-    return route.fulfill({ contentType: 'application/octet-stream', headers: { 'access-control-allow-origin': '*' }, body: textbookParts[part - 1] })
-  }
   if (url.startsWith('https://wendian.dicomp.net/')) {
     wendianRequests.push({ url, proxied: parsed.hostname === 'catalog-proxy.test' })
     const file = wendianPages[url]
@@ -114,10 +75,20 @@ try {
   const search = page.getByRole('searchbox', { name: '统一搜书' })
   await search.waitFor()
   // App keeps scope choices in a sheet; desktop keeps them inline.
+  // 不内置任何 GitHub 书库 / 教材源: 用户添加自己的仓库后 GitHub 才进入搜索范围
+  if (await page.locator('button.scope-choose').count()) await page.locator('button.scope-choose').click()
+  assert.equal(await page.getByRole('checkbox', { name: 'GitHub', exact: true }).count(), 0, 'no bundled GitHub repositories')
+  assert.equal(await page.getByRole('checkbox', { name: '教材', exact: true }).count(), 0, 'the textbook source has been removed')
+  if (await page.locator('.scope-done').count()) await page.locator('.scope-done').click()
+  // App 把 GitHub 书库收在「更多」里
+  if (await page.locator('.catalog-more:not([open]) > summary').count()) await page.locator('.catalog-more > summary').click()
+  const repoInput = page.getByRole('textbox', { name: '例如：owner/repo' })
+  await repoInput.fill('me/my-books')
+  await repoInput.press('Enter')
+  await page.locator('.gh-repo-chip').filter({ hasText: 'me/my-books' }).waitFor()
   if (await page.locator('button.scope-choose').count()) await page.locator('button.scope-choose').click()
   assert.equal(await page.getByRole('checkbox', { name: 'GitHub', exact: true }).isChecked(), true)
   assert.equal(await page.getByRole('checkbox', { name: '哲学文库', exact: true }).isChecked(), true, '哲学文库 is a default source')
-  assert.equal(await page.getByRole('checkbox', { name: '教材', exact: true }).isChecked(), true, 'textbooks are a default source')
   assert.equal(await page.getByRole('checkbox', { name: '研辞问典', exact: true }).isChecked(), true, '研辞问典 is a default source')
   assert.equal(await page.getByText('维基文库').count(), 0, 'Wikisource has been removed')
   if (await page.locator('.scope-done').count()) await page.locator('.scope-done').click()
@@ -125,7 +96,7 @@ try {
   await page.getByRole('button', { name: '搜索', exact: true }).click()
   await page.getByText('Public Archive Book', { exact: true }).waitFor()
   await page.getByText('?&铭.txt', { exact: true }).first().waitFor()
-  assert.ok(githubTreeCalls > 0, 'default search must query GitHub book repositories')
+  assert.equal(githubTreeCalls, 1, 'search queries only the repository the user added')
   assert.equal(metadataCalls, 0, 'search must not fetch each item')
   await page.getByText(/未找到：.*哲学文库/).waitFor()
   await page.getByRole('button', { name: '查看下载格式' }).click()
@@ -158,22 +129,6 @@ try {
   await page.getByText(/成功导入 1 本|已导入 1 本|已添加 1 本/).first().waitFor({ timeout: 15000 })
   assert.deepEqual(philosophyDownloads.map(d => d.proxied), [false])
   assert.match(philosophyDownloads[0].url, /^https:\/\/standardebooks\.org\/ebooks\/david-hume\/an-enquiry-concerning-human-understanding\/downloads\/.+\.epub\?source=download$/)
-
-  // 教材: 年级 + 学科从整条路径里匹配; 两个分卷合并成一行
-  await search.fill('七年级 数学')
-  await page.getByRole('button', { name: '搜索', exact: true }).click()
-  const textbooks = page.locator('.uni-group').filter({ hasText: '教材 ·' })
-  await textbooks.getByText('初中 · 数学 · 七年级 · 北师大版', { exact: false }).waitFor()
-  assert.equal(await textbooks.locator('.gh-item').count(), 3, 'two parts of one book are a single row')
-  const bnu = textbooks.locator('.gh-item').filter({ hasText: '北师大版' })
-  assert.equal(await bnu.count(), 1)
-  await bnu.getByText(/分 2 卷/).waitFor()
-  assert.match(await textbooks.locator('.gh-item').first().innerText(), /数学七年级上册[\s\S]*人教版/)
-  // 上一次导入的提示消失后再点, 免得把旧提示当成这次的结果
-  await page.getByText(/成功导入 1 本|已导入 1 本|已添加 1 本/).first().waitFor({ state: 'detached', timeout: 15000 })
-  await bnu.getByRole('button', { name: '下载到藏书' }).click()
-  await page.getByText(/成功导入 1 本|已导入 1 本|已添加 1 本/).first().waitFor({ timeout: 20000 })
-  assert.deepEqual(textbookDownloads, [1, 2], 'parts are downloaded in order')
 
   // 研辞问典: 本地索引搜索, 网页版无代理时只给「查看原站」, 不请求原站
   await search.fill('千字文')
@@ -289,7 +244,6 @@ try {
   }, null, { timeout: 15000 })
 
   await page.goto(base + '/#/library')
-  await page.getByText('义务教育教科书·数学七年级上册', { exact: true }).first().waitFor()
   await page.getByText('三归五戒慈心厌离功德经', { exact: true }).first().waitFor()
   await page.getByText('Public Archive Book', { exact: true }).first().waitFor()
   await page.getByText('An Enquiry Concerning Human Understanding', { exact: true }).first().waitFor()
@@ -303,7 +257,7 @@ try {
   await page.getByText('请至少选择一个搜索来源。', { exact: true }).waitFor()
   assert.equal(await page.getByRole('button', { name: '搜索', exact: true }).isDisabled(), true)
   assert.deepEqual(errors, [])
-  console.log('PASS: public catalog search, 哲学文库 local index + downloads, 教材 merged parts + import, 研辞问典 local index + EPUB import, lazy formats, browser fallback, import, partial failure, mobile layout')
+  console.log('PASS: public catalog search, 哲学文库 local index + downloads, user-added GitHub repositories only, 研辞问典 local index + EPUB import, lazy formats, browser fallback, import, partial failure, mobile layout')
 } finally {
   await browser.close()
 }

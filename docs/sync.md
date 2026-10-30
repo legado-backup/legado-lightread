@@ -82,7 +82,7 @@ InfiniCLOUD 每个账号的 WebDAV 节点不同（`https://<节点>.teracloud.jp
 
 ## 私人书库（自定义书源）
 
-用户在「书源」页添加的自建 / 需登录的 OPDS 目录（calibre-web、自建书库等，`CatalogSourceRec`，`builtin: false`）随账号与 WebDAV 同步：在一台设备上添加、编辑、删除，其他设备同步后跟着变。内置书源（古登堡、arXiv）各设备自带，不同步。GitHub 书库（`githubBookRepos`）是设置项，随「设置同步」走（整体 LWW）。
+用户在「书源」页添加的自建 / 需登录的 OPDS 目录（calibre-web、自建书库等，`CatalogSourceRec`，`builtin: false`）随账号与 WebDAV 同步：在一台设备上添加、编辑、删除，其他设备同步后跟着变。内置书源（古登堡、arXiv）各设备自带，不同步。GitHub 书库（`githubBookRepos`）只有用户自己添加的仓库（应用不内置任何仓库），是设置项，随「设置同步」走（整体 LWW），登录账号后在各设备保持一致。
 
 - **身份 = 规范化地址** `sourceKey(url)`（`merge.ts`）：去掉地址里内嵌的 `user:pass@`、`#片段`、路径末尾的斜杠，协议与主机名小写、默认端口省略，查询串保留；不是 http(s) 地址时原样。两台设备各自添加同一个书库（大小写、末尾斜杠不同）合并后只剩一条。落地到本地的仍是用户填写的原地址（`value.url`）。同一地址不同账号视为同一个书库（较新的修改胜出），不支持在同一台设备上用多个账号挂同一个书库。
 - **修改时间**：`CatalogSourceRec.updatedAt`（添加、编辑时记 `Date.now()`；老数据缺省按 `addedAt`）。它**不在值里**，只用作寄存器的 stamp.t，所以旧客户端看到的值不变、不会来回打架。

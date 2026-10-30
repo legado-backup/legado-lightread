@@ -2,12 +2,13 @@
  * GitHub 书库搜索: 拉取书库仓库的完整文件树 (Git Trees API, 无需登录),
  * 本地按关键词过滤书籍文件, 点选后经 raw 直链下载导入。
  * 未登录接口限流 60 次/小时/IP, 文件树按仓库缓存 24 小时。
+ *
+ * 只搜用户自己添加的仓库 (settings.githubBookRepos, 随设置同步到账号)。应用不内置、不推荐
+ * 任何第三方书籍仓库 —— 仓库内容的版权无法由我们核实 (2026-10-30 用户要求下线社区清单与教材源)。
  */
 import { fetchRemote } from './net'
 import { detectFormat } from './format'
 import { compactKey, queryTerms, titleRelevance } from './bookQuery'
-import bundledSources from '../../booksources.json'
-import { groupTextbookFiles, searchTextbookBooks, splitPartOf, TEXTBOOK_REPO, type TextbookBook, type TextbookHit } from './chinaTextbook'
 
 export interface GithubBookHit {
   repo: string
@@ -63,14 +64,6 @@ function validFilePath(path: unknown): path is string {
     && !path.split('/').some(part => !part || part === '.' || part === '..')
 }
 
-function includedPath(repo: string, path: string): boolean {
-  const include = activeSources.get(repo.toLowerCase())?.include
-  return !include?.length || include.some(pattern => {
-    const regex = pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^/]*')
-    return new RegExp(`^${regex}$`, 'i').test(path)
-  })
-}
-
 async function fetchRepoTree(repo: string): Promise<TreeCacheEntry> {
   const key = CACHE_PREFIX + repo.toLowerCase()
   try {
@@ -81,9 +74,8 @@ async function fetchRepoTree(repo: string): Promise<TreeCacheEntry> {
 
   const data = await requestGithub(`https://api.github.com/repos/${repo}/git/trees/HEAD?recursive=1`, response => response.json())
   if (!Array.isArray(data.tree)) throw new Error('Invalid GitHub file tree')
-  // 分卷 (书名.pdf.1 …) 也留着: 教材仓库把大书拆成多卷, 搜索时合并成一本
   const candidates = data.tree.filter((n: any) => n.type === 'blob' && n.mode !== '120000'
-    && validFilePath(n.path) && (detectFormat(n.path) || splitPartOf(n.path)) && includedPath(repo, n.path)
+    && validFilePath(n.path) && detectFormat(n.path)
     && Number.isFinite(n.size) && n.size > 0)
   const files: TreeCacheEntry['files'] = []
   for (const node of candidates) {
@@ -118,7 +110,7 @@ export interface GithubSearchResult {
   truncated: boolean
 }
 
-/** 多仓库搜索; 关键词空格分隔 (标点视同空格), 匹配路径和书库说明 (不区分大小写) */
+/** 多仓库搜索; 关键词空格分隔 (标点视同空格), 匹配文件路径 (不区分大小写) */
 export async function searchGithubBooks(repos: string[], keyword: string): Promise<GithubSearchResult> {
   const terms = queryTerms(keyword)
   const result: GithubSearchResult = { hits: [], errors: [], truncated: false }
@@ -129,8 +121,8 @@ export async function searchGithubBooks(repos: string[], keyword: string): Promi
       const tree = await fetchRepoTree(repo)
       if (tree.truncated) result.truncated = true
       for (const file of tree.files) {
-        if (!includedPath(repo, file.path) || !detectFormat(file.path)) continue
-        const lower = `${file.path} ${activeSources.get(repo.toLowerCase())?.note ?? ''}`.normalize('NFKC').toLowerCase()
+        if (!detectFormat(file.path)) continue
+        const lower = file.path.normalize('NFKC').toLowerCase()
         // 文件名常把「思考，快与慢」写成「思考快与慢」: 去掉标点空格后再比一次
         const compact = compactKey(lower)
         if (terms.length && !terms.every(term => lower.includes(term) || compact.includes(compactKey(term)))) continue
@@ -155,88 +147,5 @@ export async function searchGithubBooks(repos: string[], keyword: string): Promi
   return result
 }
 
-let textbookBooks: { at: number; books: TextbookBook[] } | undefined
-
-/** 中小学及大学教材 (TapXWorld/ChinaTextbook): 同一套文件树缓存, 分卷合并后按整条路径搜索 */
-export async function searchChinaTextbooks(query: string, limit = 60): Promise<TextbookHit[]> {
-  const tree = await fetchRepoTree(TEXTBOOK_REPO)
-  if (textbookBooks?.at !== tree.at) textbookBooks = { at: tree.at, books: groupTextbookFiles(tree.files) }
-  return searchTextbookBooks(textbookBooks.books, query, limit)
-}
-
 export const fmtBytes = (n: number) =>
   n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${(n / 1024).toFixed(0)} KB` : `${n} B`
-
-// ---- 社区书源清单 (GitHub 共建) ----
-
-export interface CommunityRepo {
-  repo: string
-  note?: string
-  /** Optional file globs; * matches within one path segment. */
-  include?: string[]
-}
-
-/** 解析清单 JSON (远程与内置共用) */
-function parseSourceList(data: any): { repos: CommunityRepo[]; updated: string } {
-  const repos: CommunityRepo[] = (Array.isArray(data?.githubRepos) ? data.githubRepos : [])
-    .filter((r: any) => isValidRepo(String(r?.repo ?? '')))
-    .map((r: any) => ({
-      repo: String(r.repo).trim(),
-      note: r.note ? String(r.note) : undefined,
-      include: Array.isArray(r.include) ? r.include.filter((path: unknown) => validFilePath(path)) : undefined,
-    }))
-  return { repos: [...new Map(repos.map(repo => [repo.repo.toLowerCase(), repo])).values()], updated: String(data?.updated ?? '') }
-}
-
-/** 应用自带的清单 (随安装包分发, 即仓库根目录 booksources.json 本体) */
-export const BUNDLED_COMMUNITY = parseSourceList(bundledSources)
-let activeSources = new Map(BUNDLED_COMMUNITY.repos.map(repo => [repo.repo.toLowerCase(), repo]))
-
-/** 社区清单源文件 (欢迎 PR): https://github.com/yzfly/LightRead/blob/main/booksources.json */
-export const COMMUNITY_LIST_PAGE = 'https://github.com/yzfly/LightRead/blob/main/booksources.json'
-const COMMUNITY_LIST_RAW = 'https://raw.githubusercontent.com/yzfly/LightRead/main/booksources.json'
-const COMMUNITY_CACHE_KEY = 'lightread-community-sources'
-
-export interface CommunityList {
-  repos: CommunityRepo[]
-  /** 清单日期 (booksources.json 的 updated 字段) */
-  updated: string
-  /** 本次数据是否来自远程 (或有效远程缓存); false = 回退到应用自带清单 */
-  fromRemote: boolean
-}
-
-function selectCommunity(candidate?: CommunityList): CommunityList {
-  const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value))
-  const useRemote = candidate?.repos.length && validDate(candidate.updated)
-    && candidate.updated > BUNDLED_COMMUNITY.updated
-  // Same-date bundles also win: a package update may add sources before main is pushed.
-  const selected = useRemote ? candidate : { ...BUNDLED_COMMUNITY, fromRemote: false }
-  activeSources = new Map(selected.repos.map(repo => [repo.repo.toLowerCase(), repo]))
-  return selected
-}
-
-function readCommunityCache(): (CommunityList & { at: number }) | undefined {
-  try {
-    const cached = JSON.parse(localStorage.getItem(COMMUNITY_CACHE_KEY) ?? '')
-    const parsed = parseSourceList({ githubRepos: cached.repos, updated: cached.updated })
-    if (parsed.repos.length) return { ...parsed, at: Number(cached.at), fromRemote: true }
-  } catch { /* No usable cache. */ }
-}
-
-/** 拉取社区书源清单: 24 小时缓存; force 跳过缓存; 拉取失败回退应用自带清单 */
-export async function fetchCommunityRepos(force = false): Promise<CommunityList> {
-  const cached = readCommunityCache()
-  if (!force) {
-    if (cached && cached.at > Date.now() - CACHE_TTL) return selectCommunity(cached)
-  }
-  try {
-    const { repos, updated } = parseSourceList(await requestGithub(COMMUNITY_LIST_RAW, response => response.json()))
-    if (repos.length) {
-      const remote = { repos, updated, fromRemote: true }
-      const newest = cached && cached.updated > updated ? cached : remote
-      try { localStorage.setItem(COMMUNITY_CACHE_KEY, JSON.stringify({ ...newest, at: Date.now() })) } catch { /* Storage quota must not discard fetched results. */ }
-      return selectCommunity(newest)
-    }
-  } catch { /* 网络失败 */ }
-  return selectCommunity(cached)
-}
