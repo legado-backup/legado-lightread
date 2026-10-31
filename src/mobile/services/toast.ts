@@ -1,4 +1,5 @@
 import { reactive } from 'vue'
+import { redactUrls } from '../../services/errorText.ts'
 
 export interface ToastAction { label: string; run: () => void }
 export interface Toast {
@@ -20,6 +21,8 @@ function show(item: Toast) {
   item.resume()
 }
 export function toast(message: string, type: Toast['type'] = 'info', duration = 2600, action?: ToastAction): () => void {
+  // 兜底: 报错提示里不出现服务器 / 请求地址 (底层网络报错常把完整 URL 带进 message)
+  if (type === 'error') message = redactUrls(message)
   const duplicate = !action && [...toasts, ...pending].find(item => !item.action && item.type === type && item.message === message)
   if (duplicate) return duplicate.dismiss
   const id = nextId++

@@ -5,6 +5,7 @@ import { runSync, sha256Hex } from '../src/services/sync/engine.ts'
 import { createWebdavRemote, parsePropfindNames } from '../src/services/sync/webdavRemote.ts'
 import { createMemorySyncStore } from '../src/services/sync/baseline.ts'
 import { rowKey } from '../src/services/readingLog.ts'
+import { errorText, redactUrls } from '../src/services/errorText.ts'
 import { createFakeDav, createFakeStorage, enc, tr } from './sync-test-fakes.mjs'
 
 // ---- 场景工具 ----
@@ -448,6 +449,51 @@ test('WebDAV: 请求整体超时 → sync.err.timeout, 并中止请求', async t
     throw Object.assign(new Error('operation timed out'), { code: 'timeout' })
   }, tr)
   await assert.rejects(nativeTimeout.putFile('abc', new Blob([enc('x')])), { message: 'sync.err.timeout' })
+})
+
+test('WebDAV: 网络层失败 → webdav.err.network, 不把请求地址带进报错', async () => {
+  const raw = 'error sending request for url (https://dav.example.com/dav/LightRead/sync/v1/devices/)'
+  const down = createWebdavRemote({ url: 'https://dav.example.com/dav/', user: 'u', pass: 'p' }, async () => {
+    throw raw // plugin-http 抛的是字符串
+  }, tr)
+  await assert.rejects(down.listDocs(), { message: 'webdav.err.network' })
+  // 读响应正文时断开同样映射
+  const cut = createWebdavRemote({ url: 'https://dav.example.com/dav/', user: 'u', pass: 'p' }, async () => ({
+    status: 207, text: async () => { throw new TypeError('Load failed') }, blob: async () => new Blob(),
+  }), tr)
+  await assert.rejects(cut.listDocs(), { message: 'webdav.err.network' })
+  // 我们自己的 HTTP 状态报错不受影响
+  const http500 = createWebdavRemote({ url: 'https://x/', user: '', pass: '' }, async () => ({
+    status: 500, text: async () => '', blob: async () => new Blob(),
+  }), tr)
+  await assert.rejects(http500.listDocs(), { message: 'sync.err.http {"status":500}' })
+})
+
+test('errorText: 本地化文案原样展示, 原始技术报错换成兜底; redactUrls 去掉漏网地址', () => {
+  const warn = console.warn
+  console.warn = () => {}
+  try {
+    assert.equal(errorText(new Error('网盘账号或密码不对，点「修改」重新填写'), 'x'), '网盘账号或密码不对，点「修改」重新填写')
+    assert.equal(errorText(new Error('Could not sync. Check your connection and try again'), 'x'), 'Could not sync. Check your connection and try again')
+    for (const raw of [
+      'error sending request for url (https://dav.jianguoyun.com/dav/LightRead/)',
+      new TypeError('Failed to fetch'),
+      'TypeError: Load failed',
+      'NetworkError when attempting to fetch resource.',
+      'tcp connect error: Connection refused (os error 111)',
+      'invalid peer certificate: UnknownIssuer',
+      new Error('x'.repeat(400)),
+      { message: 'http://127.0.0.1:8787/api/sync' },
+    ]) assert.equal(errorText(raw, '兜底'), '兜底', String(raw?.message ?? raw))
+    assert.equal(errorText(null, '兜底'), '兜底')
+    assert.equal(errorText(new Error(''), ''), '')
+  } finally {
+    console.warn = warn
+  }
+  assert.equal(redactUrls('同步失败：error sending request for url (https://a.example.com/x?y=1)'), '同步失败：error sending request')
+  assert.equal(redactUrls('下载失败（https://a.example.com/b.epub）'), '下载失败')
+  assert.equal(redactUrls('没有地址的提示'), '没有地址的提示')
+  assert.ok(!/https?:/.test(redactUrls('see http://a.b/c and https://d.e/f')))
 })
 
 test('书单的待找条目: A → B 沿用 id; B 删除后回到 A; 删除书单级联', async () => {

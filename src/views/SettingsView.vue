@@ -24,6 +24,7 @@ import AccountCard from '../components/settings/AccountCard.vue'
 import AboutLinks from '../components/settings/AboutLinks.vue'
 import { fetchRemote } from '../services/net'
 import { toast } from '../services/toast'
+import { errorText, redactUrls } from '../services/errorText'
 import {
   CURRENT_VERSION, RELEASES_URL, REPO_URL, ISSUES_URL,
   checkUpdate, pickDownloads, openDownload, canInAppInstall,
@@ -68,6 +69,12 @@ const davStage = ref<'' | 'verify' | 'sync'>('')
 const davError = ref('')
 const davErrorKind = ref('')
 const davInfo = ref<{ text: string; error: boolean } | null>(null)
+
+/** 本地操作失败: 标题 + 能看懂的原因 (原始技术报错只进控制台) */
+function failText(key: string, e: unknown): string {
+  const detail = errorText(e, '')
+  return detail ? t('common.errorDetail', { head: t(key), detail }) : t(key)
+}
 const davPassInput = ref<HTMLInputElement>()
 /** 网页版直连服务商时要提醒跨域 (固定服务商经中转, 无需提醒) */
 const davWebNote = computed(() => {
@@ -153,7 +160,7 @@ async function connectWebdav() {
     url = await verifyWebdav(davDraft)
   } catch (e: any) {
     davStage.value = ''
-    davError.value = e?.message || t('common.unknownError')
+    davError.value = errorText(e, t('common.unknownError'))
     davErrorKind.value = e instanceof WebdavConnectError ? e.kind : ''
     if (davErrorKind.value === 'auth') {
       await nextTick()
@@ -176,7 +183,7 @@ async function connectWebdav() {
     toast(t('webdav.connectedToast', { name }) + detail, 'success', detail ? 6000 : 4000)
   } catch (e: any) {
     // 已通过校验并保存; 首次同步的错误留在同步状态行
-    toast(t('sync.failed', { msg: e?.message ?? t('common.unknownError') }), 'error', 6000)
+    toast(errorText(e, t('sync.failed')), 'error', 6000)
   } finally {
     davStage.value = ''
     davEditing.value = false
@@ -221,7 +228,7 @@ async function davTest() {
         : t('webdav.testOkEmpty'),
     }
   } catch (e: any) {
-    davInfo.value = { error: true, text: e?.message || t('common.unknownError') }
+    davInfo.value = { error: true, text: errorText(e, t('webdav.err.network')) }
   } finally {
     busy.value = ''
   }
@@ -235,7 +242,7 @@ async function davBackup() {
     await backupToWebdav(msg => (busy.value = msg))
     toast(t('webdav.backedUp'), 'success')
   } catch (e: any) {
-    toast(t('webdav.backupFailed', { msg: e?.message }), 'error', 6000)
+    toast(errorText(e, t('webdav.backupFailed')), 'error', 6000)
   } finally {
     busy.value = ''
   }
@@ -251,7 +258,7 @@ async function davRestore() {
     await library.refresh()
     toast(t('webdav.restoreDone', { books: result.books, annotations: result.annotations }), 'success', 5000)
   } catch (e: any) {
-    toast(t('settings.restoreFailed', { msg: e?.message }), 'error', 6000)
+    toast(errorText(e, t('settings.restoreFailed')), 'error', 6000)
   } finally {
     busy.value = ''
   }
@@ -336,7 +343,7 @@ async function doSyncNow() {
     const r = await syncNow()
     toast(syncResultText(r), 'success', r.pendingBooks > 0 ? 6000 : 4000)
   } catch (e: any) {
-    toast(t('sync.failed', { msg: e?.message ?? t('common.unknownError') }), 'error', 6000)
+    toast(errorText(e, t('sync.failed')), 'error', 6000)
   }
 }
 
@@ -543,7 +550,7 @@ async function testProxy() {
     await fetchRemote('https://www.google.com/generate_204')
     testResult.value = t('settings.proxyOk', { ms: Math.round(performance.now() - start) })
   } catch (e: any) {
-    testResult.value = `❌ ${e?.message ?? t('settings.connectionFailed')}`
+    testResult.value = `❌ ${errorText(e, t('settings.connectionFailed'))}`
   } finally {
     testing.value = false
   }
@@ -678,7 +685,7 @@ async function testAi() {
     ])
     aiTestResult.value = `✅ ${t('settings.aiTestOk', { ms: Math.round(performance.now() - started), reply: got.slice(0, 20) })}`
   } catch (e: any) {
-    aiTestResult.value = `❌ ${e?.message ?? e}`
+    aiTestResult.value = `❌ ${redactUrls(String(e?.message ?? e))}`
   } finally {
     aiTesting.value = false
   }
@@ -700,7 +707,7 @@ async function doCheckUpdate(manual = true) {
   try {
     updateInfo.value = await checkUpdate(manual)
   } catch (e: any) {
-    if (manual) checkError.value = e?.message ?? t('update.checkFailed')
+    if (manual) checkError.value = errorText(e, t('update.checkFailed'))
   } finally {
     checking.value = false
   }
@@ -767,7 +774,7 @@ async function installDownloaded() {
   } catch (e: any) {
     installedPath.value = ''
     needsInstallPermission.value = false
-    toast(e?.message || t('update.openFailed'), 'error', 6000)
+    toast(errorText(e, t('update.openFailed')), 'error', 6000)
   }
 }
 
@@ -800,7 +807,7 @@ async function changeLibraryRoot() {
     setTimeout(() => location.reload(), 800)
   } catch (e: any) {
     migrating.value = ''
-    toast(t('settings.switchFailed', { msg: e?.message ?? t('common.unknownError') }), 'error', 6000)
+    toast(failText('settings.switchFailed', e), 'error', 6000)
   }
 }
 
@@ -832,7 +839,7 @@ async function doExport() {
     }
     toast(t('settings.backupExported'), 'success')
   } catch (e: any) {
-    toast(t('settings.exportFailed', { msg: e?.message }), 'error', 5000)
+    toast(failText('settings.exportFailed', e), 'error', 5000)
   } finally {
     busy.value = ''
   }
@@ -865,7 +872,7 @@ async function runImport(run: (onProgress: (msg: string) => void) => ReturnType<
     await library.refresh()
     toast(t('settings.importDone', { books: result.books, annotations: result.annotations, sources: result.sources }), 'success', 5000)
   } catch (e: any) {
-    toast(t('settings.restoreFailed', { msg: e?.message }), 'error', 5000)
+    toast(failText('settings.restoreFailed', e), 'error', 5000)
   } finally {
     busy.value = ''
   }

@@ -28,6 +28,14 @@ function davConfig(): { base: string; auth: RequestAuth } {
 
 const backupUrl = (base: string) => `${base}/${FOLDER}/${FILE}`
 
+/** 网络层失败的原始报错带完整地址, 只记控制台, 对外给本地化文案 */
+function unreachable(err: unknown): never {
+  console.warn('[webdav] request failed', err)
+  throw new Error(t(isTauri() ? 'webdav.err.network' : 'webdav.err.cors'))
+}
+
+const davFetch: typeof fetchRemote = (url, auth, init) => fetchRemote(url, auth, init).catch(unreachable)
+
 /** PROPFIND depth 0; 返回状态码, 网络层失败 (断网 / 跨域被拦) 抛错 */
 async function propfindStatus(url: string, auth: RequestAuth): Promise<number> {
   const res = await fetchRemote(url.replace(/\/*$/, '/'), auth, {
@@ -119,9 +127,9 @@ export async function backupToWebdav(onProgress?: (msg: string) => void): Promis
   const { base, auth } = davConfig()
   const blob = await exportBackup(onProgress)
   onProgress?.(t('webdav.creatingFolder'))
-  await fetchRemote(`${base}/${FOLDER}`, auth, { method: 'MKCOL', raw: true })
+  await davFetch(`${base}/${FOLDER}`, auth, { method: 'MKCOL', raw: true })
   onProgress?.(t('webdav.uploadingBackup', { size: (blob.size / 1024 / 1024).toFixed(1) }))
-  const res = await fetchRemote(backupUrl(base), auth, {
+  const res = await davFetch(backupUrl(base), auth, {
     method: 'PUT',
     body: blob,
     headers: { 'content-type': 'application/zip' },
@@ -133,7 +141,7 @@ export async function backupToWebdav(onProgress?: (msg: string) => void): Promis
 /** 云端备份信息 (不存在返回 null) */
 export async function webdavBackupInfo(): Promise<{ size: number; modified: string } | null> {
   const { base, auth } = davConfig()
-  const res = await fetchRemote(backupUrl(base), auth, { method: 'HEAD', raw: true })
+  const res = await davFetch(backupUrl(base), auth, { method: 'HEAD', raw: true })
   if (res.status === 404) return null
   if (res.status >= 400) throw new Error(t('sync.err.http', { status: res.status }))
   return {
@@ -148,9 +156,9 @@ export async function restoreFromWebdav(
 ): Promise<{ books: number; annotations: number; sources: number }> {
   const { base, auth } = davConfig()
   onProgress?.(t('webdav.downloadingBackup'))
-  const res = await fetchRemote(backupUrl(base), auth, { raw: true })
+  const res = await davFetch(backupUrl(base), auth, { raw: true })
   if (res.status === 404) throw new Error(t('webdav.noBackup'))
   if (res.status >= 400) throw new Error(t('sync.err.http', { status: res.status }))
-  const blob = await res.blob()
+  const blob = await res.blob().catch(unreachable)
   return importBackup(new File([blob], FILE), onProgress)
 }

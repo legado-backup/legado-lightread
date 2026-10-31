@@ -86,6 +86,8 @@ export function defaultHttp(cfg: WebdavConfig): HttpFn {
   }
 }
 
+const timedOutError = (err: unknown) => (err as { code?: unknown })?.code === 'timeout'
+
 async function defaultTranslate(key: string, params?: Record<string, string | number>) {
   const { t } = await import('../../i18n/index.ts')
   return t(key, params)
@@ -161,6 +163,15 @@ export function createWebdavRemote(
       ? await tr('sync.err.auth')
       : await tr('sync.err.http', { status }))
   }
+  /**
+   * 网络层失败 (断网 / DNS / 证书 / 连接被拒): 底层报错带完整请求地址, 只记控制台,
+   * 对外换成本地化文案. 超时仍交给 request 统一处理.
+   */
+  const unreachable = async (err: unknown): Promise<never> => {
+    if (timedOutError(err)) throw err
+    console.warn('[sync] webdav request failed', err)
+    throw new Error(await tr('webdav.err.network'))
+  }
   interface Res { status: number; text: string; blob: Blob | null }
   interface RequestOpts {
     /** ≥400 时不抛错的状态码 */
@@ -187,19 +198,19 @@ export function createWebdavRemote(
       }, timeoutMs)
     })
     const work = (async (): Promise<Res> => {
-      const res = await http(url, { ...req, signal: ctrl.signal })
+      const res = await http(url, { ...req, signal: ctrl.signal }).catch(unreachable)
       if (res.status >= 400 && !allow.includes(res.status)) await fail(res.status)
       const ok = res.status < 400
       return {
         status: res.status,
-        text: read === 'text' && ok ? await res.text() : '',
-        blob: read === 'blob' && ok ? await res.blob() : null,
+        text: read === 'text' && ok ? await res.text().catch(unreachable) : '',
+        blob: read === 'blob' && ok ? await res.blob().catch(unreachable) : null,
       }
     })()
     try {
       return await Promise.race([work, deadline])
     } catch (err) {
-      if (timedOut || (err as { code?: unknown })?.code === 'timeout') {
+      if (timedOut || timedOutError(err)) {
         throw new Error(await tr('sync.err.timeout'))
       }
       throw err
@@ -294,8 +305,8 @@ export function createWebdavRemote(
             'user-agent': REMOTE_USER_AGENT, ...authHeader({ username: cfg.user, password: cfg.pass }),
           }, dest)
         } catch (err) {
-          if ((err as { code?: unknown })?.code === 'timeout') throw new Error(await tr('sync.err.timeout'))
-          throw err
+          if (timedOutError(err)) throw new Error(await tr('sync.err.timeout'))
+          return unreachable(err)
         }
         if (res.status === 404) return null
         if (res.status >= 400) await fail(res.status)

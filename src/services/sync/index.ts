@@ -16,6 +16,7 @@ import { getStorage } from '../../storage'
 import { useSettings } from '../../stores/settings'
 import { useLibrary } from '../../stores/library'
 import { t } from '../../i18n'
+import { errorText } from '../errorText.ts'
 
 const STATE_KEY = 'lightread-sync-state'
 
@@ -168,7 +169,7 @@ export async function syncNow(): Promise<SyncResult> {
       } catch { /* 存储不可用时只影响展示 */ }
       return result
     } catch (err) {
-      syncState.lastError = err instanceof Error ? err.message : String(err)
+      syncState.lastError = errorText(err, t('sync.failed'))
       throw err
     } finally {
       syncState.running = false
@@ -214,7 +215,7 @@ export function startAutoSync(): () => void {
     interval = setInterval(() => requestAutoSync('interval'), AUTO_INTERVAL_MS)
     requestAutoSync('start')
   } catch (err) {
-    syncState.lastError = err instanceof Error ? err.message : String(err)
+    syncState.lastError = errorText(err, t('sync.failed'))
   }
   return () => {
     document.removeEventListener('visibilitychange', onVisibility)

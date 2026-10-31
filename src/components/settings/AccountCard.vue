@@ -16,6 +16,7 @@ import {
   verifyLoginCode,
 } from '../../services/account'
 import { toast } from '../../services/toast'
+import { errorText } from '../../services/errorText'
 import { t } from '../../i18n'
 
 const settings = useSettings()
@@ -97,7 +98,7 @@ async function sendLoginCode() {
     await nextTick()
     codeInput.value?.focus()
   } catch (e: any) {
-    accountError.value = e?.message || t('common.unknownError')
+    accountError.value = errorText(e, t('account.err.network'))
     // 服务端限流时 (Error 带 retryAfter) 按剩余秒数倒计时
     const retryAfter = Number(e?.retryAfter)
     if (Number.isFinite(retryAfter) && retryAfter > 0) startResendCountdown(retryAfter, normEmail(addr))
@@ -143,7 +144,7 @@ async function submitLogin() {
     settings.webdavSyncAuto = true
     syncNow().catch(() => {})
   } catch (e: any) {
-    accountError.value = e?.message || t('common.unknownError')
+    accountError.value = errorText(e, t('account.err.network'))
     // 验证码不对: 选中已输入的内容, 直接重输
     await nextTick()
     codeInput.value?.focus()
@@ -169,7 +170,7 @@ async function doLogout() {
     loginEmail.value = prev
     toast(t('account.loggedOut'), 'success')
   } catch (e: any) {
-    toast(e?.message || t('common.unknownError'), 'error', 5000)
+    toast(errorText(e, t('account.err.network')), 'error', 5000)
   } finally {
     accountBusy.value = false
   }
@@ -202,7 +203,7 @@ async function confirmDeleteAccount() {
     showDeleteAccount.value = false
     toast(t('account.deleted'), 'success')
   } catch (e: any) {
-    deleteError.value = e?.message || t('common.unknownError')
+    deleteError.value = errorText(e, t('account.err.network'))
   } finally {
     accountBusy.value = false
   }
