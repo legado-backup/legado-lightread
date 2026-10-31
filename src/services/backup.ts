@@ -18,6 +18,7 @@ import {
   type NewBookMeta,
 } from '../storage'
 import { importReadingLogRows, listReadingLog, normalizeRow, rowKey, type ReadingLogRow } from './readingLog.ts'
+import { t } from '../i18n'
 
 const LEGACY_JSON_FORMAT = 'org.lightread.library'
 /** 每日阅读记录, 放在包根目录 (OKF 解析只看 .md, 不受影响); 旧包没有此文件 */
@@ -119,7 +120,7 @@ async function describeAsset(
 }
 
 function archiveError(message: string): never {
-  throw new Error(`藏书包无效: ${message}`)
+  throw new Error(t('backup.invalid', { msg: message }))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -654,7 +655,7 @@ export async function exportBackupToFile(dest: string, onProgress?: (msg: string
   const entries = await buildBackupEntries(storage, nativePacker(storage, root), onProgress)
   const { invoke, Channel } = await import('@tauri-apps/api/core')
   const progress = new Channel<{ done: number; total: number }>()
-  progress.onmessage = p => onProgress?.(`写入 ${p.done}/${p.total}…`)
+  progress.onmessage = p => onProgress?.(t('backup.writing', { done: p.done, total: p.total }))
   await invoke('backup_write_zip', {
     root,
     dest,
@@ -685,7 +686,7 @@ async function buildBackupEntries(
   }
 
   for (const [index, book] of books.entries()) {
-    onProgress?.(`打包 ${book.title} (${index + 1}/${books.length})`)
+    onProgress?.(t('backup.packing', { title: book.title, n: index + 1, total: books.length }))
     const contentPath = `assets/books/${book.id}/content${contentSuffix(book.format)}`
     const [fileEntry, content] = await packer.book(book, contentPath, MEDIA_TYPES[book.format])
     entries[contentPath] = fileEntry
@@ -816,7 +817,7 @@ async function buildBackupEntries(
     entries['catalogs/index.md'] = strToU8(`# Catalogs\n\n${catalogIndex.join('\n')}\n`)
   }
 
-  onProgress?.('压缩中…')
+  onProgress?.(t('backup.compressing'))
   const rootSections = [
     '# Books',
     '',
@@ -978,7 +979,7 @@ async function restoreBackup(
       : archiveError('缺少 OKF index.md 或旧版 manifest.json')
 
   // 在写入任何数据前验证所有载荷，防止损坏的包只恢复一半。
-  onProgress?.('校验藏书包…')
+  onProgress?.(t('backup.verifying'))
   await archive.verifyAll(manifest.books)
 
   const existing = await storage.listBooks()
@@ -990,7 +991,7 @@ async function restoreBackup(
   let bookCount = 0
 
   for (const [index, book] of manifest.books.entries()) {
-    onProgress?.(`恢复 ${book.meta.title} (${index + 1}/${manifest.books.length})`)
+    onProgress?.(t('backup.restoring', { title: book.meta.title, n: index + 1, total: manifest.books.length }))
     const duplicateId = existingByKey.get(`${book.meta.title}::${book.meta.fileName}`)
     if (duplicateId) {
       idMap.set(book.meta.id, duplicateId)

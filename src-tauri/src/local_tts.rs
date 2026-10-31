@@ -197,7 +197,7 @@ async fn download_archive(
     let via_proxy = !matches!(route, Route::Direct);
     match route {
         Route::Proxy(p) => {
-            let proxy = reqwest::Proxy::all(p).map_err(|e| format!("代理地址无效 ({e})"))?;
+            let proxy = reqwest::Proxy::all(p).map_err(|e| format!("代理地址无效（{e}）"))?;
             builder = builder.proxy(proxy);
         }
         Route::System => {}
@@ -229,7 +229,7 @@ async fn download_archive(
         if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
             // 半截文件和服务器上的对不上, 丢掉, 下一次尝试从头下
             let _ = std::fs::remove_file(path);
-            return Err("已下载的部分与服务器不一致, 已清除, 请重试".into());
+            return Err("已下载部分与服务器不一致，已清除，请重试".into());
         }
         if !status.is_success() {
             return Err(format!("服务器返回 {status}"));
@@ -245,11 +245,11 @@ async fn download_archive(
         .map_err(|e| format!("写入失败: {e}"))?;
         emit(downloaded, total, "downloading");
         let mut last_emit = std::time::Instant::now();
-        while let Some(chunk) = resp.chunk().await.map_err(|e| format!("下载中断 ({})", describe_error(&e, via_proxy)))? {
+        while let Some(chunk) = resp.chunk().await.map_err(|e| format!("下载中断（{}）", describe_error(&e, via_proxy)))? {
             if downloaded + chunk.len() as u64 > MODEL_SIZE {
                 drop(file);
                 let _ = std::fs::remove_file(path);
-                return Err("文件比预期大, 已丢弃".into());
+                return Err("文件比预期大，已丢弃".into());
             }
             file.write_all(&chunk).map_err(|e| format!("写入失败: {e}"))?;
             hasher.update(&chunk);
@@ -264,12 +264,12 @@ async fn download_archive(
         emit(downloaded, total, "downloading");
     }
     if downloaded != MODEL_SIZE {
-        return Err(format!("下载中断, 已保存 {} / {} MB, 重试会接着下", downloaded >> 20, MODEL_SIZE >> 20));
+        return Err(format!("下载中断，已保存 {} / {} MB，重试会接着下", downloaded >> 20, MODEL_SIZE >> 20));
     }
     let digest = format!("{:x}", hasher.finalize());
     if digest != MODEL_SHA256 {
         let _ = std::fs::remove_file(path);
-        return Err("文件校验失败 (SHA256 不一致), 已删除, 重试会重新下载".into());
+        return Err("文件校验失败，已删除，重试会重新下载".into());
     }
     emit(downloaded, total, "extracting");
     Ok(())
@@ -387,12 +387,12 @@ pub(crate) fn install_archive(archive: &Path, root: &Path) -> Result<(), String>
     let unpacked = staging.join(MODEL_DIR.rsplit('/').next().unwrap_or("kokoro-multi-lang-v1_1"));
     let result = tar
         .unpack(&staging)
-        .map_err(|e| format!("解压失败: {e} (磁盘空间不足或被杀毒软件拦截?)"))
+        .map_err(|e| format!("解压失败：{e}（磁盘空间不足或被杀毒软件拦截？）"))
         .and_then(|()| {
             if model_ready(&unpacked) {
                 Ok(())
             } else {
-                Err("解压后的文件不完整 (磁盘空间不足或被杀毒软件拦截?)".to_string())
+                Err("解压后文件不完整（磁盘空间不足或被杀毒软件拦截？）".to_string())
             }
         })
         .and_then(|()| {
@@ -482,13 +482,15 @@ async fn run_download(app: AppHandle, proxy: Option<String>) -> Result<(), Strin
     }
     if !ok {
         let hint = if proxy.is_some() {
-            "请检查「设置 → 网络」里的代理地址 (如 http://127.0.0.1:7890), 或清空后重试"
+            "请检查「设置 › 网络」里的代理地址，或清空后重试"
         } else {
-            "请检查网络; 国内网络访问 GitHub 不稳定时, 可在「设置 → 网络」填写代理后重试"
+            "请检查网络；GitHub 不稳定时，可在「设置 › 网络」填写代理"
         };
         let kept = std::fs::metadata(&archive_path).map(|m| m.len()).unwrap_or(0);
-        let resume = if kept > 0 { format!("。已下载的 {} MB 已保留, 重试会接着下", kept >> 20) } else { String::new() };
-        return Err(format!("{}{resume}。{hint}", errors.join("; ")));
+        let resume = if kept > 0 { format!("，已下的 {} MB 会保留，重试接着下", kept >> 20) } else { String::new() };
+        // 每条线路的原始报错只进日志, 界面只给结论和下一步
+        eprintln!("[local_tts] 下载失败: {}", errors.join("; "));
+        return Err(format!("下载没完成{resume}。{hint}"));
     }
 
     // 解压 (tar.bz2, 顶层目录即 kokoro-multi-lang-v1_1) 到临时目录, 校验关键文件大小后再整体换到正式位置:
@@ -591,7 +593,7 @@ fn build_engine(root: &PathBuf, rule_fsts: Option<String>) -> Result<OfflineTts,
         rule_fsts,
         ..Default::default()
     };
-    OfflineTts::create(&config).ok_or_else(|| "初始化语音引擎失败 (模型文件可能损坏)".to_string())
+    OfflineTts::create(&config).ok_or_else(|| "语音引擎启动失败，模型文件可能已损坏".to_string())
 }
 
 /// 推理线程数: 用一半逻辑核 (1–4)。2 核的低配 Windows 机器上占满全部核心

@@ -9,6 +9,7 @@ import type {
 import { BUILTIN_SOURCES, getLibraryRoot, newId } from './types'
 import { needsChunkedIpc, writeBlobInChunks } from './chunkedWrite'
 import { isUsableCoverBytes } from '../services/coverRepair'
+import { t } from '../i18n'
 
 type SqlDatabase = {
   execute(sql: string, values?: unknown[]): Promise<unknown>
@@ -695,12 +696,14 @@ export async function migrateLibraryTo(
   const { invoke, Channel } = await import('@tauri-apps/api/core')
   const progress = new Channel<{ stage: 'db' | 'books' | 'covers'; done: number; total: number }>()
   progress.onmessage = p => {
-    onProgress?.(p.stage === 'db' ? '复制索引数据库…' : `复制 ${p.stage} (${p.done}/${p.total})…`)
+    onProgress?.(p.stage === 'db'
+      ? t('settings.migrateCopyDb')
+      : t(p.stage === 'books' ? 'settings.migrateCopyBooks' : 'settings.migrateCopyCovers', { done: p.done, total: p.total }))
   }
   await invoke<number>('library_migrate', {
     fromRoot: getLibraryRoot(),
     toRoot: newRoot,
     onProgress: progress,
   })
-  onProgress?.('迁移完成')
+  onProgress?.(t('settings.migrateDone'))
 }

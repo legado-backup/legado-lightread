@@ -44,7 +44,7 @@ impl Concern {
             (Concern::NoAvx2, true) => "the CPU is too old (no AVX2) to keep up".into(),
             (Concern::LowDisk(b), false) => format!("磁盘剩余 {} GB，至少需要 1 GB", gb(b)),
             (Concern::LowDisk(b), true) => format!("{} GB of free disk space, at least 1 GB needed", gb(b)),
-            (Concern::BadPath, false) => "数据目录路径含中文等字符且系统未开启短文件名，离线语音引擎无法读取".into(),
+            (Concern::BadPath, false) => "数据目录含中文等字符，且系统未开启短文件名，离线语音无法读取".into(),
             (Concern::BadPath, true) => "the data folder path has non-English characters the voice engine cannot read".into(),
         }
     }

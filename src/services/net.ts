@@ -8,6 +8,7 @@ import { isTauri } from '../storage/types'
 import { useSettings } from '../stores/settings'
 import { accountApiBase } from './account'
 import { webdavRelayUrl } from './webdavProviders'
+import { t } from '../i18n'
 
 export interface RequestAuth {
   username?: string
@@ -38,10 +39,10 @@ export const REMOTE_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 LightRead'
 
 const STATUS_HINTS: Record<number, string> = {
-  401: '需要账号授权 (401)。请在书源设置中填写用户名和密码。',
-  403: '访问被拒绝 (403)',
-  404: '地址不存在 (404)',
-  429: '请求过于频繁 (429), 请稍后再试',
+  401: 'net.authRequired',
+  403: 'net.forbidden',
+  404: 'net.notFound',
+  429: 'net.rateLimited',
 }
 
 export interface RemoteRequestInit {
@@ -93,7 +94,8 @@ export async function fetchRemote(
   }
 
   if (!init.raw && !res.ok) {
-    throw new Error(STATUS_HINTS[res.status] ?? `请求失败: ${res.status} ${res.statusText}`)
+    const hint = STATUS_HINTS[res.status]
+    throw new Error(hint ? t(hint) : t('net.httpFailed', { status: `${res.status} ${res.statusText}`.trim() }))
   }
   return res
 }
@@ -102,7 +104,7 @@ export async function fetchXml(url: string, auth?: RequestAuth, init?: RemoteReq
   const res = await fetchRemote(url, auth, init)
   const text = await res.text()
   const doc = new DOMParser().parseFromString(text, 'application/xml')
-  if (doc.querySelector('parsererror')) throw new Error('响应不是有效的 XML / OPDS 目录')
+  if (doc.querySelector('parsererror')) throw new Error(t('net.invalidXml'))
   return doc
 }
 

@@ -229,7 +229,7 @@ export async function downloadToLibrary(
   if (/epub/.test(contentType)) ext = 'epub'
   const clean = pub.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80) || 'book'
   const file = new File([blob], `${clean}.${ext}`, { type: contentType })
-  if (!detectFormat(file.name)) throw new Error('下载的文件格式无法识别')
+  if (!detectFormat(file.name)) throw new Error(t('catalog.unknownDownloadFormat'))
   const result = await importFile(file, sourceTitle, {
     title: pub.title,
     author: pub.author,

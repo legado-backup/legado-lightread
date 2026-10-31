@@ -25,7 +25,7 @@ pub struct CalibreBook {
 fn open_metadata(library: &str) -> Result<Connection, String> {
     let db_path = Path::new(library).join("metadata.db");
     if !db_path.exists() {
-        return Err("所选文件夹不是 Calibre 书库 (未找到 metadata.db)".into());
+        return Err("这个文件夹不是 Calibre 书库（没有 metadata.db）".into());
     }
     Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| format!("打开书库失败: {e}"))

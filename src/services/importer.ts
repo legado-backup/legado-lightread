@@ -255,7 +255,7 @@ export async function importFiles(
         : await importFile('load' in item ? await item.load() : item, source, overrides))
     } catch (error: any) {
       // 单本存储失败也要继续其余文件，并让界面能正常退出进度状态。
-      results.push({ ok: false, fileName: item.name, error: error?.message ?? '文件保存失败' })
+      results.push({ ok: false, fileName: item.name, error: error?.message ?? t('library.saveFileFailed') })
     }
     done++
   }

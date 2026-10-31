@@ -4,6 +4,7 @@
  *  - 自定义字体文件: 复制到应用数据目录, 阅读时以 FontFace 注入各章节文档
  */
 import { isTauri } from '../../storage/types'
+import { t } from '../../i18n'
 
 export interface CustomFont {
   /** 展示名与 CSS font-family 名 (取自文件名) */
@@ -27,7 +28,7 @@ export async function listSystemFonts(): Promise<string[]> {
 export async function importFontFile(): Promise<CustomFont | null> {
   const { open } = await import('@tauri-apps/plugin-dialog')
   const picked = await open({
-    title: '选择字体文件',
+    title: t('reader.pickFontFile'),
     filters: [{ name: 'Fonts', extensions: ['ttf', 'otf', 'woff', 'woff2', 'ttc'] }],
   })
   if (typeof picked !== 'string') return null

@@ -2,6 +2,7 @@
 import { isTauri } from '../storage/types'
 import { detectFormat } from './format'
 import { importFile, type ImportResult } from './importer'
+import { t } from '../i18n'
 
 export interface CalibreFormat {
   format: string
@@ -27,7 +28,7 @@ async function invoke<T>(cmd: string, args: Record<string, unknown>): Promise<T>
 /** 选择 Calibre 书库文件夹 */
 export async function pickCalibreLibrary(): Promise<string | null> {
   const { open } = await import('@tauri-apps/plugin-dialog')
-  const picked = await open({ directory: true, title: '选择 Calibre 书库文件夹' })
+  const picked = await open({ directory: true, title: t('catalog.pickCalibreFolder') })
   return typeof picked === 'string' ? picked : null
 }
 
@@ -68,7 +69,7 @@ export async function importCalibreBook(
   book: CalibreBook,
 ): Promise<ImportResult> {
   const fmt = pickBestFormat(book)
-  if (!fmt) return { ok: false, fileName: book.title, error: '没有可读的格式' }
+  if (!fmt) return { ok: false, fileName: book.title, error: t('catalog.noReadableFormat') }
   const relative = `${book.path}/${fmt.file_name}.${fmt.format}`
   const blob = await readCalibreFile(library, relative)
   const file = new File([blob], `${fmt.file_name}.${fmt.format}`)

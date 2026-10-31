@@ -53,7 +53,7 @@ impl TranslationReservation {
     {
       let mut process = state.lock().unwrap();
       if !matches!(&*process, BabeldocProcess::Idle) {
-        return Err("已有重排版翻译任务正在运行".into());
+        return Err("已有论文在翻译，完成后再开始".into());
       }
       *process = BabeldocProcess::Starting;
     }
@@ -242,7 +242,7 @@ fn validate_background_prompt(prompt: Option<String>) -> Result<Option<String>, 
     return Ok(None);
   }
   if trimmed.chars().count() > MAX_BACKGROUND_PROMPT_CHARS {
-    return Err(format!("论文翻译背景过长，最多 {MAX_BACKGROUND_PROMPT_CHARS} 个字符"));
+    return Err(format!("翻译背景太长，最多 {MAX_BACKGROUND_PROMPT_CHARS} 个字符"));
   }
   Ok(Some(trimmed.to_string()))
 }

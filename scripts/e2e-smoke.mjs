@@ -304,7 +304,7 @@ await step('阅读器面板 v2：版式、列表、速度、运行条与跳转',
   await lyric.locator('.rm-layout-link').click()
   await page.waitForSelector('.settings-pop [data-section=page]')
   if (await flows.getByRole('button', { name: '翻页', exact: true }).getAttribute('aria-pressed') !== 'true') throw new Error('歌词覆盖了保存版式')
-  if (!await typography.getByText('歌词运行中先用一栏滚动，结束后回到这里的选择。').isVisible()) throw new Error('歌词临时版式未说明')
+  if (!await typography.getByText('歌词运行时临时单栏滚动，结束后恢复。').isVisible()) throw new Error('歌词临时版式未说明')
   await typography.screenshot({ path: join(TMP, 'shots', '03b-typography-v2-dark.png') })
   await page.evaluate(() => document.documentElement.dataset.theme = 'light')
   await typography.locator('.tp-close').click()

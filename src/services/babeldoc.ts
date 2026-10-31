@@ -6,6 +6,7 @@ import { isTauri, getLibraryRoot } from '../storage/types'
 import { useSettings } from '../stores/settings'
 import { TRIAL_BASE_URL } from './ai'
 import type { BabeldocTargetLanguageCode } from './babeldocLanguages'
+import { t } from '../i18n'
 
 export interface BabeldocStatus {
   found: boolean
@@ -27,21 +28,21 @@ interface BabeldocTranslationRequest {
   backgroundPrompt?: string
 }
 
-/** 引擎阶段名 → 中文 (模糊匹配, 未识别的显示原文) */
+/** 引擎阶段名 → 界面文案 (模糊匹配, 未识别的显示原文) */
 export function stageLabel(stage: string): string {
   const s = stage.toLowerCase()
-  if (s === 'init') return '初始化引擎'
-  if (s.includes('scan')) return '检测扫描件'
-  if (s.includes('layout')) return '版面分析'
-  if (s.includes('paragraph') && s.includes('translate')) return '翻译段落'
-  if (s.includes('translate')) return '翻译段落'
-  if (s.includes('formula') || s.includes('style')) return '识别公式与样式'
-  if (s.includes('parse')) return '解析文档'
-  if (s.includes('typeset')) return '排版'
-  if (s.includes('font')) return '字体处理'
-  if (s.includes('save') || s.includes('render')) return '生成 PDF'
-  if (s.includes('glossary') || s.includes('term')) return '提取术语'
-  return stage
+  const key = s === 'init' ? 'init'
+    : s.includes('scan') ? 'scan'
+    : s.includes('layout') ? 'layout'
+    : s.includes('translate') ? 'translate'
+    : s.includes('formula') || s.includes('style') ? 'formula'
+    : s.includes('parse') ? 'parse'
+    : s.includes('typeset') ? 'typeset'
+    : s.includes('font') ? 'font'
+    : s.includes('save') || s.includes('render') ? 'save'
+    : s.includes('glossary') || s.includes('term') ? 'glossary'
+    : null
+  return key ? t(`paper.bdStage.${key}`) : stage
 }
 
 export const INSTALL_CMD = 'uv tool install babeldoc'
