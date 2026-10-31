@@ -18,6 +18,7 @@
   "main.ts",
   "services/adaptiveLayout.ts",
   "services/appearance.ts",
+  "services/cardFonts.ts",
   "services/dianjing/theme.ts",
   "services/fonts.ts",
   "services/localTts.ts",

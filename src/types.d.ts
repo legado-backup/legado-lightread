@@ -45,6 +45,13 @@ declare module '*.vue' {
   export default component
 }
 
+declare module 'foliate-js/progress.js' {
+  export class TOCProgress {
+    init(opts: { toc: unknown[]; ids: string[]; splitHref: (href: string) => unknown; getFragment: (doc: Document, id: string) => Element | null }): Promise<void>
+    getProgress(index: number, range?: Range): { label?: string; href?: string } | null | undefined
+  }
+}
+
 declare module 'foliate-js/epubcfi.js' {
   export function compare(a: string | unknown, b: string | unknown): number
   export function parse(cfi: string): unknown

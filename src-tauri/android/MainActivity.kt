@@ -8,6 +8,13 @@ package com.yzfly.lightread
 //
 // 音量键翻页: 阅读页经 setVolumeKeys(true) 打开后, 音量上 / 下不再调音量, 而是回调
 // window.__lightreadVolumeKey('prev' | 'next') (前端 src/services/systemBars.ts)。
+//
+// 选字菜单: 阅读页有自己的划线工具条, 经 setSelectionMenu(false) 让 WebView 的浮动选字菜单
+// (复制 / 全选 / 网页搜索…) 不再出现, 只保留选区与把手; 输入框获得焦点时前端再打开, 保留粘贴。
+//
+// 书摘分享 (window.LightReadShare, 前端 src/services/shareOut.ts): 金句卡片存进相册
+// (MediaStore Pictures/LightRead, Android 10+ 无需存储权限), 图片 / 文本 / 笔记文件
+// 经系统分享面板发到微信、笔记应用等; 分享用的临时文件放 cacheDir/share/ 并经 FileProvider 授权。
 
 //
 // 应用内更新 (window.LightReadUpdater, 前端 src/services/updater.ts): Rust 把校验过的安装包
@@ -16,16 +23,26 @@ package com.yzfly.lightread
 // 清单需要 REQUEST_INSTALL_PACKAGES, 由 scripts/patch-android-project.mjs 在 init 后补上。
 
 import android.content.ActivityNotFoundException
+import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.provider.Settings
+import android.util.Base64
+import android.view.ActionMode
 import android.view.KeyEvent
+import android.view.Menu
+import android.view.MenuItem
+import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.FileProvider
@@ -66,13 +83,65 @@ class MainActivity : TauriActivity() {
 
   @Volatile
   private var volumeKeysOn = false
+
+  @Volatile
+  private var selectionMenuOn = true
+
+  /**
+   * WebView 的浮动选字菜单经父视图 startActionModeForChild 创建. 不能在 Activity.onWindowStartingActionMode
+   * 里包: 它对浮动菜单返回 null 时 DecorView 会改用自己包的原始回调, 我们的包装被丢掉 (K30 实测菜单照旧出现).
+   * 所以给 WebView 套一层父布局, 在这里换成 QuietSelectionCallback; 关闭时清空菜单项, 选区与把手不受影响.
+   * 不能让 onCreateActionMode 返回 false: Chromium 会当作失败并清掉选区.
+   */
+  private inner class SelectionMenuFrame(context: Context) : FrameLayout(context) {
+    override fun startActionModeForChild(originalView: View, callback: ActionMode.Callback, type: Int): ActionMode? =
+      super.startActionModeForChild(originalView, if (type == ActionMode.TYPE_FLOATING) QuietSelectionCallback(callback) else callback, type)
+  }
+
+  private fun wrapForSelectionMenu(webView: WebView) {
+    val parent = webView.parent as? ViewGroup ?: return
+    if (parent is SelectionMenuFrame) return
+    val index = parent.indexOfChild(webView)
+    val lp = webView.layoutParams
+    parent.removeView(webView)
+    val frame = SelectionMenuFrame(this)
+    frame.addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    parent.addView(frame, index, lp)
+  }
+
+  private inner class QuietSelectionCallback(private val inner: ActionMode.Callback) : ActionMode.Callback2() {
+    override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean =
+      inner.onCreateActionMode(mode, menu).also { if (!selectionMenuOn) menu.clear() }
+
+    override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean =
+      inner.onPrepareActionMode(mode, menu).also { if (!selectionMenuOn) menu.clear() }
+
+    override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean = inner.onActionItemClicked(mode, item)
+
+    override fun onDestroyActionMode(mode: ActionMode) = inner.onDestroyActionMode(mode)
+
+    override fun onGetContentRect(mode: ActionMode, view: View, outRect: android.graphics.Rect) {
+      if (inner is ActionMode.Callback2) inner.onGetContentRect(mode, view, outRect)
+      else super.onGetContentRect(mode, view, outRect)
+    }
+  }
   private var webView: WebView? = null
 
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
     webView.addJavascriptInterface(InsetsBridge(), "LightReadInsets")
+    // wry 可能在这之后才把 WebView 放进布局: 已有父视图就下一帧套上, 否则等它挂上窗口
+    if (webView.parent != null) webView.post { wrapForSelectionMenu(webView) }
+    else webView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+      override fun onViewAttachedToWindow(v: View) {
+        v.removeOnAttachStateChangeListener(this)
+        v.post { wrapForSelectionMenu(webView) }
+      }
+      override fun onViewDetachedFromWindow(v: View) {}
+    })
     webView.addJavascriptInterface(UpdaterBridge(), "LightReadUpdater")
     webView.addJavascriptInterface(LifecycleBridge(), "LightReadLifecycle")
+    webView.addJavascriptInterface(ShareBridge(), "LightReadShare")
 
     ViewCompat.setOnApplyWindowInsetsListener(webView) { view, insets ->
       val bars = insets.getInsets(
@@ -143,6 +212,11 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface
     fun setKeepScreenOn(on: Boolean) {
       runOnUiThread { applyKeepScreenOn(on) }
+    }
+
+    @JavascriptInterface
+    fun setSelectionMenu(on: Boolean) {
+      selectionMenuOn = on
     }
 
     @JavascriptInterface
@@ -237,6 +311,94 @@ class MainActivity : TauriActivity() {
             // 极少见: 系统没有安装器; 用户可在设置页复制链接用浏览器下载
           }
         }
+        "ok"
+      } catch (e: Exception) {
+        "error"
+      }
+    }
+  }
+
+  // ---- 书摘分享 ----
+
+  private val safeName = Regex("^[^/\\\\:*?\"<>|\\u0000-\\u001f]{1,120}$")
+
+  private fun shareDir(): File = File(cacheDir, "share").apply {
+    mkdirs()
+    // 只留最近一小时的分享文件
+    val hourAgo = System.currentTimeMillis() - 60 * 60 * 1000L
+    listFiles()?.forEach { if (it.lastModified() < hourAgo) it.delete() }
+  }
+
+  private fun startChooser(intent: Intent, title: String) {
+    runOnUiThread {
+      try {
+        startActivity(Intent.createChooser(intent, title).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      } catch (e: Exception) {
+        // 没有可分享的应用
+      }
+    }
+  }
+
+  private inner class ShareBridge {
+    /** PNG 存进相册 Pictures/LightRead; 返回 ok / unsupported (Android 9 及以下需前端改走另存为) / error */
+    @JavascriptInterface
+    fun saveImage(base64: String, name: String): String {
+      if (!safeName.matches(name)) return "error"
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return "unsupported"
+      return try {
+        val bytes = Base64.decode(base64, Base64.DEFAULT)
+        val values = ContentValues().apply {
+          put(MediaStore.Images.Media.DISPLAY_NAME, name)
+          put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+          put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/LightRead")
+          put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val resolver = contentResolver
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return "error"
+        try {
+          resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: throw IllegalStateException("no stream")
+          values.clear()
+          values.put(MediaStore.Images.Media.IS_PENDING, 0)
+          resolver.update(uri, values, null, null)
+          "ok"
+        } catch (e: Exception) {
+          resolver.delete(uri, null, null)
+          "error"
+        }
+      } catch (e: Exception) {
+        "error"
+      }
+    }
+
+    /** 把文件 (base64) 交给系统分享面板; mime 如 image/png、text/markdown */
+    @JavascriptInterface
+    fun shareFile(base64: String, name: String, mime: String, title: String): String {
+      if (!safeName.matches(name)) return "error"
+      return try {
+        val file = File(shareDir(), name)
+        file.writeBytes(Base64.decode(base64, Base64.DEFAULT))
+        val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", file)
+        val intent = Intent(Intent.ACTION_SEND)
+          .setType(mime)
+          .putExtra(Intent.EXTRA_STREAM, uri)
+          .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        intent.clipData = android.content.ClipData.newRawUri(name, uri)
+        startChooser(intent, title)
+        "ok"
+      } catch (e: Exception) {
+        "error"
+      }
+    }
+
+    /** 分享纯文本 (划线、整本笔记) */
+    @JavascriptInterface
+    fun shareText(text: String, subject: String, title: String): String {
+      return try {
+        val intent = Intent(Intent.ACTION_SEND)
+          .setType("text/plain")
+          .putExtra(Intent.EXTRA_TEXT, text)
+          .putExtra(Intent.EXTRA_SUBJECT, subject)
+        startChooser(intent, title)
         "ok"
       } catch (e: Exception) {
         "error"

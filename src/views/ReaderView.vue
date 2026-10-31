@@ -62,6 +62,10 @@ import {
 } from '../services/readerPages'
 import { countSpeechChars, recordPace, paceCps, humanizeDuration, finishClock, type SpeechPace } from '../services/listenEta'
 import { sendSelectionToDevices } from '../services/transfer'
+import { HIGHLIGHT_TEXT_MAX, hitsAnnotation } from '../services/annotationContext'
+import { useNotesTools } from '../composables/useNotesTools'
+import NotesExportDialog from '../components/NotesExportDialog.vue'
+import QuoteCardDialog from '../components/QuoteCardDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -189,12 +193,32 @@ watch(panel, async p => {
 
 // 高亮选区
 const selection = ref<{ cfi: string; text: string } | null>(null)
+/** 收起划线浮条并清掉正文选区; 只收浮条不清选区, 之后的 selectionchange 会把它又带出来 */
+function dismissSelection() {
+  selection.value = null
+  for (const c of view?.renderer?.getContents?.() ?? []) {
+    try { c.doc?.getSelection()?.removeAllRanges() } catch { /* 已卸载的分节 */ }
+  }
+}
 const annotations = ref<AnnotationRec[]>([])
 const activeAnnotation = ref<AnnotationRec | null>(null)
 const noteDraft = ref('')
 const annoTab = ref<'highlight' | 'bookmark'>('highlight')
 const highlights = computed(() => annotations.value.filter(a => a.kind !== 'bookmark'))
 const bookmarks = computed(() => annotations.value.filter(a => a.kind === 'bookmark'))
+/** 书摘: 按章节分组、复制全部、导出、金句卡片 (composables/useNotesTools) */
+const notes = reactive(useNotesTools({
+  meta,
+  annotations,
+  getView: () => view,
+  getSmartToc: () => (tocAuto.value ? smartTocFlat : []),
+  lang: () => (settings.language === 'en' ? 'en' : 'zh'),
+}))
+const cardCover = ref<string>()
+watch(() => notes.card, async c => {
+  if (c && cardCover.value === undefined) cardCover.value = (meta.value?.hasCover && (await (await getStorage()).getCoverUrl(bookId))) || ''
+})
+watch(() => panel.value === 'annotations' && annoTab.value === 'highlight', open => { if (open) void notes.refresh() })
 
 // 书签
 const currentCfi = ref('')
@@ -2251,6 +2275,8 @@ function onContentClick(clientX: number, doc: Document, target?: Element | null,
   const sel = doc.getSelection()
   if (sel && !sel.isCollapsed) return
   if (target?.closest?.('a[href]')) return
+  // 点到划线: 只弹划线工具条 (foliate 随后的 click 派发 show-annotation), 不翻页也不切换工具栏
+  if (hitsAnnotation(view, doc, clientX, clientY)) return
   // 点睛: 点到概念 / 注释时弹出解释卡, 不翻页
   if (dj.onContentTap(doc, clientX, clientY)) return
   // 打字机 / 歌词运行时轻点只切换暂停或移动当前行, 不翻页
@@ -2322,7 +2348,7 @@ async function addHighlight(color: string, withNote = false) {
     bookId,
     kind: 'highlight',
     cfi: selection.value.cfi,
-    text: selection.value.text.slice(0, 300),
+    text: selection.value.text.slice(0, HIGHLIGHT_TEXT_MAX),
     color,
     createdAt: Date.now(),
   }
@@ -2332,7 +2358,7 @@ async function addHighlight(color: string, withNote = false) {
   try {
     view.addAnnotation({ value: rec.cfi, color })
   } catch { /* 绘制失败不影响保存 */ }
-  selection.value = null
+  dismissSelection()
   if (withNote) {
     noteDraft.value = ''
     activeAnnotation.value = saved
@@ -2668,7 +2694,7 @@ const dj = useDianjing({
     let cfi = ''
     try { cfi = view.getCFI(index, range) } catch { return }
     const storage = await getStorage()
-    const rec: Omit<AnnotationRec, 'id'> = { bookId, kind: 'highlight', cfi, text: text.slice(0, 300), color: 'yellow', createdAt: Date.now() }
+    const rec: Omit<AnnotationRec, 'id'> = { bookId, kind: 'highlight', cfi, text: text.slice(0, HIGHLIGHT_TEXT_MAX), color: 'yellow', createdAt: Date.now() }
     const id = await storage.addAnnotation(rec)
     const saved = { ...rec, id }
     annotations.value.push(saved)
@@ -3201,12 +3227,13 @@ onBeforeUnmount(() => {
         @click="addHighlight(name as string)"
       />
       <button class="btn btn-sm" @click="addHighlight('yellow', true)"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-4.3 3.4A1 1 0 0 1 4 19.6V6a2 2 0 0 1 1-2zm1 2v11.5L9.3 15H19V6H6zm2 2.5h8a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2zm0 3h5a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2z"/></svg>{{ t('reader.writeNote') }}</button>
+      <button class="btn btn-sm" @click="notes.cardFromSelection(selection.text, chapterLabel); dismissSelection()"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v14h12V5H6zm2.6 3.2c.5-.6 1.3-1 2.1-1.1l.3 1.3c-.5.1-.9.4-1.1.8.9.2 1.5 1 1.5 1.9a2 2 0 0 1-2.1 2c-1.2 0-2-1-2-2.3 0-1 .4-1.9 1.3-2.6zm5 0c.5-.6 1.3-1 2.1-1.1l.3 1.3c-.5.1-.9.4-1.1.8.9.2 1.5 1 1.5 1.9a2 2 0 0 1-2.1 2c-1.2 0-2-1-2-2.3 0-1 .4-1.9 1.3-2.6zM8 15h8v2H8v-2z"/></svg>{{ t('notes.makeCard') }}</button>
       <button class="btn btn-sm" @click="aiExplainSelection"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M10 3a1 1 0 0 1 .95.68l1.3 3.9a3 3 0 0 0 1.9 1.9l3.9 1.3a1 1 0 0 1 0 1.9l-3.9 1.3a3 3 0 0 0-1.9 1.9l-1.3 3.9a1 1 0 0 1-1.9 0l-1.3-3.9a3 3 0 0 0-1.9-1.9l-3.9-1.3a1 1 0 0 1 0-1.9l3.9-1.3a3 3 0 0 0 1.9-1.9l1.3-3.9A1 1 0 0 1 10 3zm8-1a1 1 0 0 1 .95.68l.4 1.2.97.32a1 1 0 0 1 0 1.9l-.97.32-.4 1.2a1 1 0 0 1-1.9 0l-.4-1.2-.97-.32a1 1 0 0 1 0-1.9l.97-.32.4-1.2A1 1 0 0 1 18 2z"/></svg>{{ t('ai.explain') }}</button>
       <button v-if="dj.selectionKey.value" class="btn btn-sm" @click="dj.openKeyCard(); selection = null">{{ t('dianjing.why') }}</button>
       <button v-if="!fixedLayout" class="btn btn-sm" @click="listenFromSelection"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 3a7 7 0 0 0-7 7v1.1A3.5 3.5 0 0 0 3 14.5v2A3.5 3.5 0 0 0 6.5 20H8a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-.9A5 5 0 0 1 12 5a5 5 0 0 1 4.9 6H16a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h1.5a3.5 3.5 0 0 0 3.5-3.5v-2a3.5 3.5 0 0 0-2-3.16V10a7 7 0 0 0-7-7z"/></svg>{{ t('tts.listenFromSelection') }}</button>
       <!-- 互传: 划词发送到其他设备 -->
       <button v-if="settings.features.transfer" class="btn btn-sm" @click="sendSelectionToDevices(selection.text, meta?.title); selection = null"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4z"/></svg>{{ t('transfer.sendToDevices') }}</button>
-      <button class="icon-btn" :title="t('common.cancel')" :aria-label="t('common.cancel')" @click="selection = null"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg></button>
+      <button class="icon-btn" :title="t('common.cancel')" :aria-label="t('common.cancel')" @click="dismissSelection"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg></button>
     </div>
 
     <!-- 标注详情 / 想法编辑浮层 -->
@@ -3220,11 +3247,23 @@ onBeforeUnmount(() => {
       />
       <div class="pop-actions">
         <button class="btn btn-sm btn-danger" @click="removeAnnotation(activeAnnotation)">{{ t('reader.deleteHighlight') }}</button>
+        <button class="btn btn-sm" @click="notes.copyOne(activeAnnotation)">{{ t('notes.copyOne') }}</button>
+        <button class="btn btn-sm" @click="notes.cardFromAnnotation(activeAnnotation); activeAnnotation = null">{{ t('notes.makeCard') }}</button>
         <span style="flex: 1" />
         <button class="btn btn-sm" @click="activeAnnotation = null">{{ t('common.cancel') }}</button>
         <button class="btn btn-sm btn-primary" @click="saveNote">{{ t('reader.saveNote') }}</button>
       </div>
     </div>
+
+    <NotesExportDialog
+      v-if="notes.exportOpen && meta"
+      :book="notes.book"
+      :items="notes.noteItems"
+      :lang="settings.language === 'en' ? 'en' : 'zh'"
+      :busy="notes.resolving"
+      @close="notes.exportOpen = false"
+    />
+    <QuoteCardDialog v-if="notes.card && cardCover !== undefined" :data="notes.card" :cover-url="cardCover || undefined" @close="notes.card = null" />
 
     <!-- 听书迷你胶囊: 面板收起但会话未停止时显示 -->
     <div
@@ -3433,13 +3472,20 @@ onBeforeUnmount(() => {
         </div>
         <div class="panel-body">
           <template v-if="annoTab === 'highlight'">
-            <div v-for="a in highlights" :key="a.id" class="anno-item" @click="gotoAnnotation(a)">
-              <span class="anno-dot" :style="{ background: HIGHLIGHT_COLORS[a.color] ?? a.color }" />
-              <span class="anno-body">
-                <span class="anno-text">{{ a.text }}</span>
-                <span v-if="a.note" class="anno-note"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-4.3 3.4A1 1 0 0 1 4 19.6V6a2 2 0 0 1 1-2zm1 2v11.5L9.3 15H19V6H6zm2 2.5h8a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2zm0 3h5a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2z"/></svg>{{ a.note }}</span>
-              </span>
-            </div>
+            <template v-for="g in notes.highlightGroups" :key="g.items[0].id">
+              <div v-if="g.chapter" class="anno-chapter">{{ g.chapter }}</div>
+              <div v-for="a in g.items" :key="a.id" class="anno-item" @click="gotoAnnotation(a)">
+                <span class="anno-dot" :style="{ background: HIGHLIGHT_COLORS[a.color] ?? a.color }" />
+                <span class="anno-body">
+                  <span class="anno-text">{{ a.text }}</span>
+                  <span v-if="a.note" class="anno-note"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-4.3 3.4A1 1 0 0 1 4 19.6V6a2 2 0 0 1 1-2zm1 2v11.5L9.3 15H19V6H6zm2 2.5h8a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2zm0 3h5a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2z"/></svg>{{ a.note }}</span>
+                </span>
+                <span class="anno-acts">
+                  <button class="icon-btn anno-act" :title="t('notes.copyOne')" :aria-label="t('notes.copyOne')" @click.stop="notes.copyOne(a)"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M8 3h9a2 2 0 0 1 2 2v11h-2V5H8V3zM5 7h9a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm0 2v11h9V9H5z"/></svg></button>
+                  <button class="icon-btn anno-act" :title="t('notes.makeCard')" :aria-label="t('notes.makeCard')" @click.stop="notes.cardFromAnnotation(a)"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v14h12V5H6zm2.6 3.2c.5-.6 1.3-1 2.1-1.1l.3 1.3c-.5.1-.9.4-1.1.8.9.2 1.5 1 1.5 1.9a2 2 0 0 1-2.1 2c-1.2 0-2-1-2-2.3 0-1 .4-1.9 1.3-2.6zm5 0c.5-.6 1.3-1 2.1-1.1l.3 1.3c-.5.1-.9.4-1.1.8.9.2 1.5 1 1.5 1.9a2 2 0 0 1-2.1 2c-1.2 0-2-1-2-2.3 0-1 .4-1.9 1.3-2.6zM8 15h8v2H8v-2z"/></svg></button>
+                </span>
+              </div>
+            </template>
             <p v-if="!highlights.length" class="panel-empty">{{ t('reader.highlightEmptyHint') }}</p>
           </template>
           <template v-else>
@@ -3452,6 +3498,10 @@ onBeforeUnmount(() => {
             </div>
             <p v-if="!bookmarks.length" class="panel-empty">{{ t('reader.bookmarkEmptyHint') }}</p>
           </template>
+        </div>
+        <div v-if="annoTab === 'highlight' && highlights.length" class="anno-foot">
+          <button class="btn btn-sm btn-primary anno-copy-all" @click="notes.copyAll()">{{ t('notes.copyAll', { n: highlights.length }) }}</button>
+          <button class="btn btn-sm" @click="notes.openExport()">{{ t('notes.export') }}</button>
         </div>
       </template>
 
@@ -3975,6 +4025,46 @@ onBeforeUnmount(() => {
   background: var(--bg);
   border-radius: 6px;
   padding: 6px 8px;
+}
+.anno-chapter {
+  margin: var(--space-3) var(--space-2) var(--space-1);
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  color: var(--text-3);
+}
+.anno-chapter:first-child {
+  margin-top: 0;
+}
+.anno-acts {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.anno-item:hover .anno-acts,
+.anno-item:focus-within .anno-acts {
+  opacity: 1;
+}
+@media (hover: none) {
+  .anno-acts { opacity: 1; }
+}
+.anno-act {
+  width: 28px;
+  height: 28px;
+  color: var(--text-3);
+}
+.anno-act:hover {
+  color: var(--brand);
+}
+.anno-foot {
+  display: flex;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.anno-copy-all {
+  flex: 1;
 }
 .anno-del {
   width: 24px;

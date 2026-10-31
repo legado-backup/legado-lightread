@@ -4,7 +4,7 @@ import { t } from '../i18n'
 import { useRouter } from 'vue-router'
 import { isTauri } from '../storage/types'
 
-const props = defineProps<{ title: string; description?: string; initialFocus?: string }>()
+const props = defineProps<{ title: string; description?: string; initialFocus?: string; wide?: boolean }>()
 const router = useRouter()
 const emit = defineEmits<{ close: [] }>()
 const panel = ref<HTMLElement>()
@@ -84,7 +84,7 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <div ref="mask" class="modal-mask app-modal-mask" data-app-modal @keydown="keydown" @click.self="emit('close')">
-      <section ref="panel" class="app-modal" role="dialog" aria-modal="true" :aria-labelledby="titleId" :aria-describedby="description ? `${titleId}-desc` : undefined" tabindex="-1">
+      <section ref="panel" class="app-modal" :class="{ wide }" role="dialog" aria-modal="true" :aria-labelledby="titleId" :aria-describedby="description ? `${titleId}-desc` : undefined" tabindex="-1">
         <header class="app-modal-header">
           <div><h2 :id="titleId">{{ title }}</h2><p v-if="description" :id="`${titleId}-desc`">{{ description }}</p></div>
           <button type="button" class="app-modal-close" :aria-label="t('common.close')" @click="emit('close')">
@@ -101,6 +101,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .app-modal-mask { z-index: 1300; }
 .app-modal { display: flex; flex-direction: column; width: min(480px, 100%); max-height: 86vh; max-height: 86dvh; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); overflow: hidden; }
+.app-modal.wide { width: min(880px, 100%); }
 .app-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 16px 16px 20px; flex-shrink: 0; border-bottom: 1px solid var(--border); }
 .app-modal-header h2 { margin: 0; font-size: 18px; line-height: 1.5; font-weight: 600; }
 .app-modal-header p { margin: 5px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-3); }

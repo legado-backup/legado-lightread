@@ -32,6 +32,8 @@ export function mobileUi(root = fileURLToPath(new URL('.', import.meta.url))): P
       for (const name of ['Noto-LICENSE.txt', 'WenKai-LICENSE.txt']) {
         this.emitFile({ type: 'asset', fileName: `fonts/${name}`, source: readFileSync(resolve(src, 'mobile/assets/fonts', name)) })
       }
+      // 金句卡片用的得意黑 (src/assets/fonts/smiley-sans.woff2, SIL OFL 1.1)
+      this.emitFile({ type: 'asset', fileName: 'fonts/SmileySans-LICENSE.txt', source: readFileSync(resolve(src, 'assets/fonts/SmileySans-LICENSE.txt')) })
     },
   }
 }
@@ -52,6 +54,7 @@ export function nativeLicenses(root = fileURLToPath(new URL('.', import.meta.url
         this.emitFile({ type: 'asset', fileName: 'licenses/unrar-LICENSE.txt', source: readFileSync(resolve(root, 'src-tauri/src/unrar-LICENSE.txt')) })
         this.emitFile({ type: 'asset', fileName: 'fonts/WenKai-LICENSE.txt', source: readFileSync(resolve(root, 'src/assets/fonts/WenKai-LICENSE.txt')) })
         this.emitFile({ type: 'asset', fileName: 'fonts/Inter-LICENSE.txt', source: readFileSync(resolve(root, 'src/assets/fonts/Inter-LICENSE.txt')) })
+        this.emitFile({ type: 'asset', fileName: 'fonts/SmileySans-LICENSE.txt', source: readFileSync(resolve(root, 'src/assets/fonts/SmileySans-LICENSE.txt')) })
       }
     },
   }

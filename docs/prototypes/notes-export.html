@@ -1,0 +1,338 @@
+<title>轻阅 笔记导出原型</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* 布局：说明栏 + 两块画板（桌面阅读器笔记面板 / 手机笔记抽屉），导出窗口叠在画板上；令牌沿用 src/styles/main.css */
+:root {
+  --bg: #f3f5f8; --card: #ffffff; --surface-2: #ebeff3; --page: #fbfaf6;
+  --text: #202a36; --text-2: #535f6d; --text-3: #697787;
+  --border: #e3e7ed; --border-strong: #cfd3da;
+  --brand: #0066cf; --brand-light: #dceeff; --brand-soft: rgba(0,102,207,.1);
+  --success: #1f8a4c; --scrim: rgba(20,26,34,.38);
+  --hl-yellow: #ffd54d; --hl-green: #7ed99b; --hl-blue: #7cb8ff; --hl-red: #ff8f8f;
+  --font: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'HarmonyOS Sans SC', 'MiSans', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+  --font-read: 'Songti SC', 'Noto Serif CJK SC', 'Source Han Serif SC', serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --fs-caption: 12px; --fs-small: 13px; --fs-body: 14px; --fs-subtitle: 16px; --fs-title: 20px;
+  --radius-xs: 4px; --radius-sm: 6px; --radius: 8px; --radius-lg: 14px; --radius-pill: 999px;
+  --shadow-1: 0 1px 2px rgba(20,30,45,.06), 0 1px 3px rgba(20,30,45,.05);
+  --shadow-3: 0 18px 48px rgba(20,30,45,.18), 0 4px 12px rgba(20,30,45,.08);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121417; --card: #1b1e23; --surface-2: #23272e; --page: #16181c;
+  --text: #e8eaee; --text-2: #b0b7c2; --text-3: #858e9b;
+  --border: #2b3038; --border-strong: #3b414c;
+  --brand: #5b8dff; --brand-light: #1c2a47; --brand-soft: rgba(91,141,255,.16);
+  --success: #4cc27f; --scrim: rgba(0,0,0,.55);
+  --shadow-1: 0 1px 2px rgba(0,0,0,.4); --shadow-3: 0 18px 48px rgba(0,0,0,.55);
+  color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #121417; --card: #1b1e23; --surface-2: #23272e; --page: #16181c;
+  --text: #e8eaee; --text-2: #b0b7c2; --text-3: #858e9b;
+  --border: #2b3038; --border-strong: #3b414c;
+  --brand: #5b8dff; --brand-light: #1c2a47; --brand-soft: rgba(91,141,255,.16);
+  --success: #4cc27f; --scrim: rgba(0,0,0,.55);
+  --shadow-1: 0 1px 2px rgba(0,0,0,.4); --shadow-3: 0 18px 48px rgba(0,0,0,.55);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: var(--fs-body); line-height: 1.6; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 28px; }
+h1 { font-size: var(--fs-title); margin: 0; text-wrap: balance; }
+h2 { font-size: var(--fs-subtitle); margin: 0; }
+.lead { color: var(--text-2); max-width: 68ch; margin: 6px 0 0; }
+.lead a { color: var(--brand); }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* ---- 需求理解 ---- */
+.brief { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.brief section { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px; min-width: 0; }
+.brief h3 { margin: 0 0 6px; font-size: var(--fs-small); color: var(--text-3); font-weight: 500; letter-spacing: .04em; }
+.brief ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.brief li b { font-weight: 600; }
+.issue-quote { border-left: 3px solid var(--border-strong); padding-left: 10px; color: var(--text-2); margin: 0; }
+
+/* ---- 画板 ---- */
+.boards { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; align-items: start; }
+@media (max-width: 980px) { .boards { grid-template-columns: minmax(0, 1fr); } }
+.board { display: grid; gap: 10px; min-width: 0; }
+.board-cap { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.board-cap span { color: var(--text-3); font-size: var(--fs-small); }
+
+.desk { position: relative; height: 640px; border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); background: var(--page); box-shadow: var(--shadow-1); display: grid; grid-template-columns: minmax(0, 1fr) 340px; }
+@media (max-width: 720px) { .desk { grid-template-columns: minmax(0, 1fr); } .desk .reading { display: none; } }
+.reading { padding: 22px 36px; font-family: var(--font-read); font-size: 17px; line-height: 2; color: var(--text); overflow: hidden; min-width: 0; }
+.reading .bar { font-family: var(--font); font-size: var(--fs-small); color: var(--text-3); display: flex; justify-content: space-between; margin-bottom: 18px; }
+.reading p { margin: 0 0 14px; text-indent: 2em; }
+.reading mark { background: color-mix(in srgb, var(--hl-yellow) 45%, transparent); color: inherit; border-radius: 2px; }
+
+/* 笔记面板 —— 对应 ReaderView 的 panel === 'annotations' */
+.panel { background: var(--card); border-left: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.p-head { padding: 14px 16px 10px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid var(--border); }
+.cover { width: 40px; height: 56px; border-radius: var(--radius-xs); flex-shrink: 0; background: linear-gradient(160deg, #3b5b7a, #1f3348); color: #f4ead2; font-family: var(--font-read); font-size: 11px; display: grid; place-items: center; writing-mode: vertical-rl; letter-spacing: .2em; }
+.p-meta { min-width: 0; }
+.p-meta b { display: block; font-size: var(--fs-subtitle); font-weight: 600; }
+.p-meta span { color: var(--text-3); font-size: var(--fs-caption); }
+.tabs { display: flex; gap: 4px; padding: 8px 12px 0; }
+.tabs button { border: 0; background: none; padding: 6px 10px; border-radius: var(--radius-sm); color: var(--text-2); font-size: var(--fs-small); }
+.tabs button.on { background: var(--brand-soft); color: var(--brand); font-weight: 500; }
+.filters { display: flex; gap: 6px; padding: 8px 16px 4px; align-items: center; flex-wrap: wrap; }
+.filters .lbl { color: var(--text-3); font-size: var(--fs-caption); margin-right: 2px; }
+.dotbtn { width: 22px; height: 22px; border-radius: var(--radius-pill); border: 2px solid transparent; padding: 0; display: grid; place-items: center; background: none; }
+.dotbtn i { width: 12px; height: 12px; border-radius: var(--radius-pill); display: block; }
+.dotbtn.on { border-color: var(--text-2); }
+.dotbtn.all { width: auto; padding: 0 8px; font-size: var(--fs-caption); color: var(--text-2); border: 1px solid var(--border); }
+.dotbtn.all.on { border-color: var(--brand); color: var(--brand); }
+.p-body { flex: 1; overflow: auto; padding: 4px 12px 12px; min-height: 0; }
+.chap { font-size: var(--fs-caption); color: var(--text-3); font-weight: 500; padding: 12px 4px 4px; letter-spacing: .02em; }
+.anno { display: flex; gap: 8px; padding: 8px 6px; border-radius: var(--radius); }
+.anno:hover { background: var(--surface-2); }
+.anno .dot { width: 8px; height: 8px; border-radius: var(--radius-pill); margin-top: 7px; flex-shrink: 0; }
+.anno .txt { font-size: var(--fs-small); line-height: 1.65; min-width: 0; }
+.anno .note { display: block; margin-top: 4px; color: var(--text-2); font-size: var(--fs-caption); padding-left: 8px; border-left: 2px solid var(--border-strong); }
+.p-foot { border-top: 1px solid var(--border); padding: 10px 12px; display: flex; gap: 8px; }
+.btn { border: 1px solid var(--border); background: var(--card); border-radius: var(--radius); padding: 7px 12px; font-size: var(--fs-small); display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.btn:hover { background: var(--surface-2); }
+.btn-primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+.btn-primary:hover { background: var(--brand); filter: brightness(1.08); }
+.btn.grow { flex: 1; }
+.btn svg { flex-shrink: 0; }
+.new { position: relative; }
+.new::after { content: "新"; position: absolute; top: -8px; right: -6px; font-size: 10px; line-height: 1; padding: 2px 4px; border-radius: var(--radius-pill); background: var(--hl-red); color: #4a0f0f; }
+
+/* 手机画板 */
+.phone { position: relative; width: 100%; max-width: 360px; height: 720px; border-radius: 28px; overflow: hidden; border: 1px solid var(--border-strong); background: var(--page); box-shadow: var(--shadow-1); justify-self: center; }
+.phone .reading { padding: 40px 22px; font-size: 16px; opacity: .5; }
+.sheet { position: absolute; inset: auto 0 0 0; height: 82%; background: var(--card); border-radius: 18px 18px 0 0; box-shadow: var(--shadow-3); display: flex; flex-direction: column; }
+.grab { width: 36px; height: 4px; border-radius: var(--radius-pill); background: var(--border-strong); margin: 8px auto 0; }
+.phone .scrim { position: absolute; inset: 0; background: var(--scrim); }
+.phone .p-foot { padding-bottom: 18px; }
+
+/* 导出窗口 —— 对应 AppModal */
+.modal-layer { position: absolute; inset: 0; background: var(--scrim); display: grid; place-items: center; padding: 16px; z-index: 5; }
+.modal { background: var(--card); border-radius: var(--radius-lg); box-shadow: var(--shadow-3); width: min(640px, 100%); max-height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.phone .modal-layer { place-items: end stretch; padding: 0; }
+.phone .modal { border-radius: 18px 18px 0 0; width: 100%; max-height: 92%; }
+.m-head { padding: 14px 16px 6px; display: flex; justify-content: space-between; align-items: center; }
+.m-head h3 { margin: 0; font-size: var(--fs-subtitle); font-weight: 600; }
+.x { border: 0; background: none; padding: 4px; border-radius: var(--radius-sm); color: var(--text-3); display: grid; }
+.x:hover { background: var(--surface-2); }
+.m-body { padding: 4px 16px 12px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; overflow: auto; min-height: 0; }
+.phone .m-body { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 640px) { .m-body { grid-template-columns: minmax(0, 1fr); } }
+.opts { display: grid; gap: 12px; align-content: start; }
+.opt-lbl { font-size: var(--fs-caption); color: var(--text-3); margin-bottom: 4px; }
+.segmented { display: flex; background: var(--surface-2); border-radius: var(--radius); padding: 2px; }
+.segmented button { flex: 1; border: 0; background: none; padding: 5px 6px; border-radius: var(--radius-sm); font-size: var(--fs-small); color: var(--text-2); }
+.segmented button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow-1); font-weight: 500; }
+.chk { display: flex; align-items: center; gap: 8px; font-size: var(--fs-small); padding: 2px 0; cursor: pointer; }
+.chk input { accent-color: var(--brand); width: 16px; height: 16px; margin: 0; }
+.hint { font-size: var(--fs-caption); color: var(--text-3); margin: 2px 0 0; }
+.preview { background: var(--surface-2); border-radius: var(--radius); padding: 10px 12px; font-family: var(--font-mono); font-size: var(--fs-caption); line-height: 1.7; white-space: pre-wrap; word-break: break-word; overflow: auto; max-height: 360px; min-width: 0; margin: 0; color: var(--text); }
+.phone .preview { max-height: 170px; }
+.m-foot { padding: 10px 16px 14px; display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.phone .m-foot .btn { flex: 1; }
+.toast { position: absolute; left: 50%; bottom: 76px; transform: translateX(-50%); background: var(--text); color: var(--card); padding: 6px 14px; border-radius: var(--radius-pill); font-size: var(--fs-small); z-index: 9; white-space: nowrap; }
+
+/* 待确认 */
+.decide { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px 18px; display: grid; gap: 10px; }
+.decide ol { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 80ch; }
+.decide .rec { color: var(--brand); font-weight: 500; }
+.tag { display: inline-block; font-size: var(--fs-caption); padding: 0 6px; border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text-2); margin-left: 4px; }
+@media (prefers-reduced-motion: no-preference) { .modal { animation: rise .18s ease-out; } @keyframes rise { from { transform: translateY(8px); opacity: .6; } } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>划线一键复制 / 导出 · 原型</h1>
+    <p class="lead">来自 <a href="https://github.com/yzfly/LightRead/issues/16">issue #16</a>。下方两块画板都能点：笔记面板底部的「复制全部」直接复制，「导出…」打开选项窗口，预览随选项实时变化。</p>
+  </header>
+
+  <div class="brief">
+    <section>
+      <h3>用户原话</h3>
+      <p class="issue-quote">时常在读完书会将划线作为书摘放入个人笔记进行管理，希望增加该功能以便操作。参考微信读书（笔记面板底部「复制全部笔记 · 16」）。</p>
+    </section>
+    <section>
+      <h3>真实需求</h3>
+      <ul>
+        <li>读完一本书，把<b>整本书的划线 + 想法</b>一次带走，贴进 Obsidian / Notion / 备忘录</li>
+        <li>贴过去要<b>能直接用</b>：有书名、作者、按章节分组、按书中顺序，划线和想法分得清</li>
+        <li>一步完成：最常用的是「复制」，其次是「存成文件」</li>
+      </ul>
+    </section>
+    <section>
+      <h3>现状里的坑（先修再导出）</h3>
+      <ul>
+        <li>划线原文入库时被截断：书 <b>300 字</b>、PDF <b>500 字</b>，导出会拿到半句话</li>
+        <li>不存章节，列表按<b>划线时间</b>排而不是书中顺序</li>
+        <li>没有任何复制 / 导出入口（只有整库备份）</li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="boards">
+    <div class="board">
+      <div class="board-cap"><h2>桌面 · 阅读器笔记面板</h2><span>ReaderView / PaperReaderView 的「笔记」侧栏</span></div>
+      <div class="desk" id="desk">
+        <div class="reading">
+          <div class="bar"><span>理想国 · 第七卷</span><span>312 / 790 · 39%</span></div>
+          <p>苏格拉底：接下来，让我们把受过教育的和没受过教育的人的本质比作下述情形。让我们想象一个洞穴式的地下室，它有一条长长的通道通向外面……</p>
+          <p><mark>他们从小就住在这洞里，头颈和腿脚都绑着，不能走动也不能转头，只能向前看着洞壁。</mark></p>
+          <p>格劳孔：我看见了。</p>
+          <p>苏格拉底：你说，这些囚徒除了火光投射到他们对面洞壁上的阴影而外，他们还能看到自己的或同伴们的什么呢？</p>
+        </div>
+        <aside class="panel" data-root="desk"></aside>
+      </div>
+    </div>
+
+    <div class="board">
+      <div class="board-cap"><h2>手机 · 笔记抽屉</h2><span>src/mobile 阅读器</span></div>
+      <div class="phone" id="phone">
+        <div class="reading"><p>他们从小就住在这洞里，头颈和腿脚都绑着……</p></div>
+        <div class="scrim"></div>
+        <div class="sheet"><div class="grab"></div><div class="panel" data-root="phone" style="border:0;flex:1;min-height:0"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <section class="decide">
+    <h2>请确认的几件事</h2>
+    <ol>
+      <li><b>入口</b>：笔记面板底部「复制全部 · N」+「导出…」，桌面和手机都放。<span class="rec">建议另加</span>藏书页书卡「⋯」→「导出笔记」，不打开书也能导（第二步做）。</li>
+      <li><b>格式</b>：Markdown（默认，Obsidian / Notion 直接用）和纯文本（贴微信、备忘录）两种。<span class="tag">以后可加</span> Readwise CSV、按书批量导出成一个文件夹。</li>
+      <li><b>「复制全部」默认用哪种格式</b>：<span class="rec">建议跟随上次在导出窗口里选的</span>，首次为 Markdown。</li>
+      <li><b>内容</b>：默认含章节标题和想法，不含时间；按书中位置排序；可按颜色筛选（面板上的颜色筛选会带进导出）。书签不导出。</li>
+      <li><b>截断修复</b>：新划线存完整原文（上限放宽到约 5000 字）；旧的截断划线在书打开时按位置重新取全文并回写。新划线同时记下章节名，供不开书导出使用。</li>
+      <li><b>保存文件</b>：桌面弹系统保存对话框（文件名《书名》笔记.md）；手机走系统分享 / 存到下载；网页版直接下载。</li>
+    </ol>
+  </section>
+</div>
+
+<script>
+const BOOK = { title: '理想国', author: '柏拉图', progress: 39 };
+const NOTES = [
+  { ch: '第一卷', color: 'yellow', text: '正义不是别的，就是强者的利益。', note: '色拉叙马霍斯的立场，后面整本书都在反驳它。', at: '2026-10-21 21:14' },
+  { ch: '第一卷', color: 'blue', text: '没有一种技艺或统治是为它本身的利益，而都是为了它的对象。', at: '2026-10-21 21:30' },
+  { ch: '第二卷', color: 'yellow', text: '我们建立这个国家的目标并不是为了某一个阶级的单独突出的幸福，而是为了全体公民的最大幸福。', note: '', at: '2026-10-22 08:02' },
+  { ch: '第二卷', color: 'green', text: '一个人的灵魂里也有和城邦里一样的几个部分。', note: '城邦是放大的灵魂。', at: '2026-10-22 08:19' },
+  { ch: '第七卷', color: 'yellow', text: '他们从小就住在这洞里，头颈和腿脚都绑着，不能走动也不能转头，只能向前看着洞壁。', at: '2026-10-29 22:40' },
+  { ch: '第七卷', color: 'red', text: '教育实际上并不像某些人在自己的职业中所宣称的那样。他们宣称，他们能把灵魂里原来没有的知识灌输到灵魂里去，好像他们能把视力放进瞎子的眼睛里去似的。', note: '教育是转向，不是灌输。', at: '2026-10-29 22:51' },
+];
+const COLORS = { yellow: 'var(--hl-yellow)', green: 'var(--hl-green)', blue: 'var(--hl-blue)', red: 'var(--hl-red)' };
+const COLOR_NAMES = { yellow: '黄色', green: '绿色', blue: '蓝色', red: '红色' };
+
+const state = { color: 'all', fmt: 'md', chapters: true, notes: true, time: false };
+const ICON_COPY = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 3h9a2 2 0 0 1 2 2v11h-2V5H8V3zM5 7h9a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm0 2v11h9V9H5z"/></svg>';
+const ICON_EXPORT = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 3a1 1 0 0 1 1 1v8.6l2.3-2.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4l2.3 2.3V4a1 1 0 0 1 1-1zM5 15a1 1 0 0 1 1 1v3h12v-3a1 1 0 1 1 2 0v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3a1 1 0 0 1 1-1z"/></svg>';
+const ICON_X = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg>';
+const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function picked() { return NOTES.filter(n => state.color === 'all' || n.color === state.color); }
+
+// 导出格式：纯函数，正式实现放 src/services/notesExport.ts
+function render(list, o) {
+  const md = o.fmt === 'md';
+  const thoughts = list.filter(n => n.note).length;
+  const out = [];
+  out.push(md ? `# 《${BOOK.title}》读书笔记` : `《${BOOK.title}》`);
+  out.push(md ? `\n${BOOK.author} · ${list.length} 条划线${thoughts && o.notes ? `，${thoughts} 条想法` : ''}` : `${BOOK.author}\n${list.length} 条划线`);
+  let last = null;
+  for (const n of list) {
+    if (o.chapters && n.ch !== last) { out.push(md ? `\n## ${n.ch}` : `\n◆ ${n.ch}`); last = n.ch; }
+    out.push(md ? `\n> ${n.text}` : `\n» ${n.text}`);
+    if (o.notes && n.note) out.push(md ? `\n${n.note}` : `  想法：${n.note}`);
+    if (o.time) out.push(md ? `\n<small>${n.at}</small>` : `  ${n.at}`);
+  }
+  out.push(md ? `\n---\n来自轻阅 LightRead` : `\n—— 来自轻阅`);
+  return out.join('\n').replace(/^\n/, '');
+}
+
+function toast(root, msg) {
+  const host = root === 'desk' ? document.getElementById('desk') : document.getElementById('phone');
+  const el = document.createElement('div'); el.className = 'toast'; el.textContent = msg; host.appendChild(el);
+  setTimeout(() => el.remove(), 1800);
+}
+async function copy(text, root, msg) {
+  try { await navigator.clipboard.writeText(text); toast(root, msg); }
+  catch { toast(root, '原型里无法写剪贴板，正式版会直接复制'); }
+}
+
+function panelHTML(root) {
+  const list = picked();
+  const thoughts = NOTES.filter(n => n.note).length;
+  let body = '', last = null;
+  for (const n of list) {
+    if (n.ch !== last) { body += `<div class="chap">${n.ch}</div>`; last = n.ch; }
+    body += `<div class="anno"><span class="dot" style="background:${COLORS[n.color]}"></span><span class="txt">${esc(n.text)}${n.note ? `<span class="note">${esc(n.note)}</span>` : ''}</span></div>`;
+  }
+  const dots = ['all', 'yellow', 'green', 'blue', 'red'].map(c => c === 'all'
+    ? `<button class="dotbtn all ${state.color === 'all' ? 'on' : ''}" data-color="all">全部</button>`
+    : `<button class="dotbtn ${state.color === c ? 'on' : ''}" data-color="${c}" title="${COLOR_NAMES[c]}" aria-label="只看${COLOR_NAMES[c]}"><i style="background:${COLORS[c]}"></i></button>`).join('');
+  return `
+    <div class="p-head"><div class="cover">理想国</div><div class="p-meta"><b>${BOOK.title}</b><span>${BOOK.author} · 已读 ${BOOK.progress}% · ${NOTES.length} 条划线 · ${thoughts} 条想法</span></div></div>
+    <div class="tabs"><button class="on">划线想法 (${NOTES.length})</button><button>书签 (2)</button></div>
+    <div class="filters"><span class="lbl">颜色</span>${dots}</div>
+    <div class="p-body">${body || '<p class="hint" style="padding:12px 4px">这个颜色还没有划线</p>'}</div>
+    <div class="p-foot">
+      <button class="btn btn-primary grow new" data-act="copy" ${list.length ? '' : 'disabled'}>${ICON_COPY}复制${state.color === 'all' ? '全部' : COLOR_NAMES[state.color]} · ${list.length}</button>
+      <button class="btn new" data-act="export">${ICON_EXPORT}导出…</button>
+    </div>`;
+}
+
+function modalHTML() {
+  const seg = (key, opts) => `<div class="segmented">${opts.map(([v, l]) => `<button class="${state[key] === v ? 'on' : ''}" data-seg="${key}" data-val="${v}">${l}</button>`).join('')}</div>`;
+  const chk = (key, label) => `<label class="chk"><input type="checkbox" data-chk="${key}" ${state[key] ? 'checked' : ''}> ${label}</label>`;
+  const list = picked();
+  return `<div class="modal-layer"><div class="modal" role="dialog" aria-label="导出笔记">
+    <div class="m-head"><h3>导出《${BOOK.title}》笔记</h3><button class="x" data-act="close" aria-label="关闭">${ICON_X}</button></div>
+    <div class="m-body">
+      <div class="opts">
+        <div><div class="opt-lbl">格式</div>${seg('fmt', [['md', 'Markdown'], ['txt', '纯文本']])}
+          <p class="hint">${state.fmt === 'md' ? '适合 Obsidian、Notion、Logseq' : '适合微信、备忘录'}</p></div>
+        <div><div class="opt-lbl">范围</div>${seg('color', [['all', '全部'], ['yellow', '黄'], ['green', '绿'], ['blue', '蓝'], ['red', '红']])}</div>
+        <div><div class="opt-lbl">包含</div>${chk('chapters', '章节标题')}${chk('notes', '我的想法')}${chk('time', '划线时间')}</div>
+      </div>
+      <pre class="preview" aria-label="预览">${esc(render(list, state))}</pre>
+    </div>
+    <div class="m-foot">
+      <button class="btn" data-act="save">${ICON_EXPORT}保存为文件</button>
+      <button class="btn btn-primary" data-act="copy-modal">${ICON_COPY}复制 ${list.length} 条</button>
+    </div>
+  </div></div>`;
+}
+
+const modalOpen = { desk: false, phone: false };
+function draw() {
+  for (const root of ['desk', 'phone']) {
+    document.querySelector(`.panel[data-root="${root}"]`).innerHTML = panelHTML(root);
+    const host = document.getElementById(root);
+    host.querySelector('.modal-layer')?.remove();
+    if (modalOpen[root]) host.insertAdjacentHTML('beforeend', modalHTML());
+  }
+}
+
+document.addEventListener('click', e => {
+  const host = e.target.closest('#desk, #phone'); if (!host) return;
+  const root = host.id;
+  const c = e.target.closest('[data-color]');
+  if (c) { state.color = c.dataset.color; draw(); return; }
+  const s = e.target.closest('[data-seg]');
+  if (s) { state[s.dataset.seg] = s.dataset.val; draw(); return; }
+  if (e.target.classList.contains('modal-layer')) { modalOpen[root] = false; draw(); return; }
+  const a = e.target.closest('[data-act]'); if (!a) return;
+  const act = a.dataset.act;
+  if (act === 'copy') copy(render(picked(), state), root, `已复制 ${picked().length} 条划线`);
+  else if (act === 'export') { modalOpen[root] = true; draw(); }
+  else if (act === 'close') { modalOpen[root] = false; draw(); }
+  else if (act === 'copy-modal') { copy(render(picked(), state), root, `已复制 ${picked().length} 条划线`); modalOpen[root] = false; draw(); }
+  else if (act === 'save') { toast(root, root === 'desk' ? `将弹出保存窗口：《${BOOK.title}》笔记.${state.fmt === 'md' ? 'md' : 'txt'}` : '将打开系统分享 / 存到下载'); }
+});
+document.addEventListener('change', e => {
+  const k = e.target.dataset?.chk; if (!k) return;
+  state[k] = e.target.checked; draw();
+});
+modalOpen.desk = true;
+draw();
+</script>

@@ -17,6 +17,8 @@ interface AndroidBridge {
   setKeepScreenOn?(on: boolean): void
   /** 2.5 起: 拦截音量键交给网页翻页 (旧版原生壳没有) */
   setVolumeKeys?(on: boolean): void
+  /** 2.6 起: 关掉 WebView 的浮动选字菜单 (阅读页用自己的划线工具条) */
+  setSelectionMenu?(on: boolean): void
 }
 
 function bridge(): AndroidBridge | undefined {
@@ -103,4 +105,12 @@ export function setVolumeKeyHandler(handler: ((key: VolumeKey) => void) | null) 
   if (handler) w.__lightreadVolumeKey = handler
   else delete w.__lightreadVolumeKey
   try { bridge()?.setVolumeKeys?.(!!handler) } catch { /* 旧原生壳 */ }
+}
+
+/**
+ * 阅读页传 false: 系统选字菜单 (复制 / 全选 / 网页搜索…) 不再和划线工具条一起弹出;
+ * 输入框获得焦点时、离开阅读页时传 true, 保留粘贴等系统菜单。只有安卓 App 生效.
+ */
+export function setNativeSelectionMenu(on: boolean) {
+  try { bridge()?.setSelectionMenu?.(on) } catch { /* 旧原生壳 */ }
 }

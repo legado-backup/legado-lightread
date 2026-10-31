@@ -5,9 +5,13 @@ import { AUTO_SPEED_LEVELS, AUTO_SPEED_STEPS, speedPosition, secondsAtPosition }
 import LevelSlider from '../components/LevelSlider.vue'
 import { TTS_RATE_MAX, TTS_RATE_MIN, TTS_RATE_STOPS, rateText } from '../services/ttsRate'
 import { pingUsage } from '../services/usageStats'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getStorage, isTauri, type BookMeta, type AnnotationRec } from '../storage'
+import { HIGHLIGHT_TEXT_MAX } from '../services/annotationContext'
+import { useNotesTools } from '../composables/useNotesTools'
+import NotesExportDialog from '../components/NotesExportDialog.vue'
+import QuoteCardDialog from '../components/QuoteCardDialog.vue'
 import {
   extractParagraphsFromItems,
   extractParagraphsLooseFromItems,
@@ -1584,6 +1588,23 @@ function decodeLoc(cfi: string): { page: number; rects: HlRect[] } | null {
 }
 
 const highlights = computed(() => annotations.value.filter(a => a.kind !== 'bookmark'))
+/** 书摘: 按页排序、复制全部、导出、金句卡片 (composables/useNotesTools 的 PDF 模式) */
+const notes = reactive(useNotesTools({
+  meta,
+  annotations,
+  getView: () => null,
+  getSmartToc: () => [],
+  lang: () => (settings.language === 'en' ? 'en' : 'zh'),
+  pdfLoc: cfi => {
+    const loc = decodeLoc(cfi)
+    return loc ? { page: loc.page, y: loc.rects[0]?.y ?? 0 } : null
+  },
+}))
+const sortedHighlights = computed(() => notes.highlightGroups.flatMap(g => g.items))
+const cardCover = ref<string>()
+watch(() => notes.card, async c => {
+  if (c && cardCover.value === undefined) cardCover.value = (meta.value?.hasCover && (await (await getStorage()).getCoverUrl(bookId))) || ''
+})
 
 /** 按页索引的高亮矩形 (模板渲染用) */
 const pageHls = computed(() => {
@@ -2216,7 +2237,7 @@ async function addHighlight(color: string, withNote = false) {
     bookId,
     kind: 'highlight',
     cfi: encodeLoc(s.page, s.rects),
-    text: s.text.slice(0, 500),
+    text: s.text.slice(0, HIGHLIGHT_TEXT_MAX),
     color,
     createdAt: Date.now(),
   }
@@ -4422,16 +4443,22 @@ onBeforeUnmount(() => {
         </div>
         <div v-show="annoOpen" class="drawer-body">
           <p class="drawer-count">{{ t('reader.highlightsTab') }} · {{ highlights.length }}</p>
-          <div v-for="a in highlights" :key="a.id" class="anno-item" @click="gotoAnnotation(a)">
+          <div v-for="a in sortedHighlights" :key="a.id" class="anno-item" @click="gotoAnnotation(a)">
             <span class="anno-dot" :style="{ background: HIGHLIGHT_COLORS[a.color] ?? a.color }" />
             <div class="anno-main">
               <p class="anno-text">{{ a.text }}</p>
               <p v-if="a.note" class="anno-note">{{ a.note }}</p>
               <span class="anno-page">P{{ decodeLoc(a.cfi)?.page }}</span>
             </div>
+            <button class="icon-btn anno-act" :title="t('notes.copyOne')" :aria-label="t('notes.copyOne')" @click.stop="notes.copyOne(a)"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M8 3h9a2 2 0 0 1 2 2v11h-2V5H8V3zM5 7h9a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm0 2v11h9V9H5z"/></svg></button>
+            <button class="icon-btn anno-act" :title="t('notes.makeCard')" :aria-label="t('notes.makeCard')" @click.stop="notes.cardFromAnnotation(a)"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v14h12V5H6zm2.6 3.2c.5-.6 1.3-1 2.1-1.1l.3 1.3c-.5.1-.9.4-1.1.8.9.2 1.5 1 1.5 1.9a2 2 0 0 1-2.1 2c-1.2 0-2-1-2-2.3 0-1 .4-1.9 1.3-2.6zm5 0c.5-.6 1.3-1 2.1-1.1l.3 1.3c-.5.1-.9.4-1.1.8.9.2 1.5 1 1.5 1.9a2 2 0 0 1-2.1 2c-1.2 0-2-1-2-2.3 0-1 .4-1.9 1.3-2.6zM8 15h8v2H8v-2z"/></svg></button>
             <button class="icon-btn anno-del" :title="t('reader.deleteHighlight')" @click.stop="removeAnnotation(a)" :aria-label="t('reader.deleteHighlight')"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.3 6.3a1 1 0 0 1 1.4 0L12 10.58l4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4z"/></svg></button>
           </div>
           <p v-if="!highlights.length" class="drawer-empty">{{ t('reader.highlightEmptyHint') }}</p>
+          <div v-if="highlights.length" class="anno-foot">
+            <button class="btn btn-sm btn-primary anno-copy-all" @click="notes.copyAll()">{{ t('notes.copyAll', { n: highlights.length }) }}</button>
+            <button class="btn btn-sm" @click="notes.openExport()">{{ t('notes.export') }}</button>
+          </div>
         </div>
       </aside>
 
@@ -4810,6 +4837,10 @@ onBeforeUnmount(() => {
         <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.25" y="6.25" width="9.5" height="9.5" rx="1.75" /><path d="M13.75 6.25v-1.5a1.5 1.5 0 0 0-1.5-1.5h-7.5a1.5 1.5 0 0 0-1.5 1.5v7.5a1.5 1.5 0 0 0 1.5 1.5h1.5" /></svg>
         <span>{{ t('paper.copy') }}</span>
       </button>
+      <button type="button" class="sel-act" @click="notes.cardFromSelection(selection!.text, t('notes.page', { n: selection!.page })); selection = null">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4.25" y="3.25" width="11.5" height="13.5" rx="1.75" /><path d="M7 12.75h6M7.5 7.5c.6-.8 1.3-1 1.8-1M10.5 7.5c.6-.8 1.3-1 1.8-1" /></svg>
+        <span>{{ t('notes.makeCard') }}</span>
+      </button>
       <span class="sel-sep sel-sep-end" />
       <button type="button" class="sel-close" :aria-label="t('common.close')" :title="t('common.close')" @click="selection = null">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.75 5.75 8.5 8.5M14.25 5.75l-8.5 8.5" /></svg>
@@ -4840,11 +4871,22 @@ onBeforeUnmount(() => {
       />
       <div class="pop-actions">
         <button class="btn btn-sm btn-danger" @click="removeAnnotation(activeAnnotation)">{{ t('reader.deleteHighlight') }}</button>
+        <button class="btn btn-sm" @click="notes.copyOne(activeAnnotation)">{{ t('notes.copyOne') }}</button>
+        <button class="btn btn-sm" @click="notes.cardFromAnnotation(activeAnnotation); activeAnnotation = null">{{ t('notes.makeCard') }}</button>
         <span style="flex: 1" />
         <button class="btn btn-sm" @click="activeAnnotation = null">{{ t('common.cancel') }}</button>
         <button class="btn btn-sm btn-primary" @click="saveNote">{{ t('reader.saveNote') }}</button>
       </div>
     </div>
+
+    <NotesExportDialog
+      v-if="notes.exportOpen && meta"
+      :book="notes.book"
+      :items="notes.noteItems"
+      :lang="settings.language === 'en' ? 'en' : 'zh'"
+      @close="notes.exportOpen = false"
+    />
+    <QuoteCardDialog v-if="notes.card && cardCover !== undefined" :data="notes.card" :cover-url="cardCover || undefined" @close="notes.card = null" />
 
     <!-- 引文/目录跳转后返回原位 -->
     <button v-if="backStack.length" class="back-pill card" @click="goBack">
@@ -6386,6 +6428,25 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   cursor: pointer;
 }
+.anno-act {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+.anno-act:hover {
+  color: var(--brand);
+}
+.anno-foot {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.anno-copy-all {
+  flex: 1;
+}
 .anno-item:hover {
   background: var(--bg);
 }
@@ -6429,8 +6490,17 @@ onBeforeUnmount(() => {
   opacity: 0;
   align-self: flex-start;
 }
-.anno-item:hover .anno-del {
+.anno-act {
+  opacity: 0;
+  align-self: flex-start;
+}
+.anno-item:hover .anno-del,
+.anno-item:hover .anno-act,
+.anno-item:focus-within .anno-act {
   opacity: 1;
+}
+@media (hover: none) {
+  .anno-act { opacity: 1; }
 }
 
 /* ---- 划词浮条 ---- */

@@ -631,6 +631,9 @@ export class TauriStorage implements LibraryStorage {
     if (patch.color !== undefined) {
       await this.db.execute('UPDATE annotations SET color = $1 WHERE id = $2', [patch.color, id])
     }
+    if (patch.text !== undefined) {
+      await this.db.execute('UPDATE annotations SET text = $1 WHERE id = $2', [patch.text, id])
+    }
   }
 
   async deleteAnnotation(id: string) {

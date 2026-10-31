@@ -71,6 +71,8 @@ node scripts/build-zh-lexicon.mjs   # 重新生成中文词表 src/data/zh-lexic
 npm run test:book-sources    # 公共书源: 查询归一 / 哲学文库·研辞问典本地索引搜索 / 教材分卷合并与排序 / IA·Open Library·GitHub 相关度
 node scripts/build-philosophy-index.mjs   # 重新生成哲学文库离线索引 src/data/philosophy-index.json (限速抓目录页, 约 5 分钟)
 node scripts/build-wendian-index.mjs      # 重新生成研辞问典离线书目 src/data/wendian-index.json (sitemap + 分类列表页, ≤1 次/秒, 约 17 分钟; 不碰站内搜索)
+npm run test:notes-export / test:quote-card   # 书摘导出: MD / 微信读书纯文本 / JSON / Readwise CSV; 金句卡片纯函数 (句读分行与均衡 / 禁则 / 配色 / 短书名), 绘制见 src/services/quoteCard.ts
+E2E_BASE=http://127.0.0.1:<端口> node scripts/e2e-notes-export.mjs   # 书摘端到端 (划线 → 面板 → 复制全部 → 导出 → 15 套卡片出图), 需先起 vite dev; E2E_MOBILE=1 且 LIGHTREAD_UI=mobile 测 App 界面
 npm run test:opds-library / test:library-upload   # 自建书库: 连接信息解析·搜索发现·EPUB 优先; 上传协议
 npm run test:native-drop    # 桌面原生拖放事件与批次队列; e2e:native-drop 连接 Vite dev, 模拟 IPC 验证导入全流程
 cargo test --manifest-path src-tauri/Cargo.toml library_import --lib  # Rust 文件/文件夹扫描与复制暂存 (在 t9 执行)

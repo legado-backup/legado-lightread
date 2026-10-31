@@ -87,6 +87,8 @@ try{
   assert.ok(note)
   await p.locator('.anno-item').filter({hasText:'这是一条验证笔记。'}).click()
   await p.evaluate(cfi => document.querySelector('foliate-view').dispatchEvent(new CustomEvent('show-annotation', { detail: { value: cfi } })), note.cfi)
+  // 点已有划线: 先出划线工具条, 再从「修改想法」进入编辑
+  await p.locator('.highlight-bar').getByRole('button',{name:'修改想法',exact:true}).click()
   await p.locator('.app-modal[role=dialog]').filter({has:p.locator('.annotation-pop')}).waitFor()
   await p.locator('.note-input').fill('')
   await p.locator('.annotation-pop').getByRole('button',{name:'保存想法',exact:true}).click()
@@ -98,6 +100,7 @@ try{
   }, note.id)
   // Reopening while the success message is visible must leave note actions reachable.
   await p.evaluate(cfi => document.querySelector('foliate-view').dispatchEvent(new CustomEvent('show-annotation', { detail: { value: cfi } })), note.cfi)
+  await p.locator('.highlight-bar').getByRole('button',{name:'写想法',exact:true}).click()
   await p.waitForFunction(() => document.querySelector('.mobile-messages')?.classList.contains('above-modal'))
   assert.ok(await p.evaluate(() => {
     const toast = document.querySelector('.mobile-messages').getBoundingClientRect()
