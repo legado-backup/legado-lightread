@@ -1,0 +1,2740 @@
+页面或面板,名称或无障碍名称,动作,参数,设置项,控件
+sheet import,返回藏书,exitReader,,,BUTTON
+sheet import,添加或移除书签,bookmark,,,BUTTON
+sheet import,阅读工具,sheet,readerMore,,BUTTON
+sheet import,上一章,relativeChapter,-1,,BUTTON
+sheet import,阅读进度,,,bookProgress,INPUT
+sheet import,下一章,relativeChapter,1,,BUTTON
+sheet import,目录,sheet,toc,,BUTTON
+sheet import,笔记,sheet,notes,,BUTTON
+sheet import,进度,sheet,progress,,BUTTON
+sheet import,模式,sheet,modes,,BUTTON
+sheet import,排版,sheet,typography,,BUTTON
+sheet import,关闭面板,closeSheet,,,BUTTON
+sheet import,"本地文件
+TXT、Markdown、HTML，可多选",pickFiles,,,BUTTON
+sheet import,"从链接导入
+演示网页与下载链接的导入流程",sheet,importUrl,,BUTTON
+sheet import,"从其他设备接收
+账号、网盘或取件码",nav,transfer,,BUTTON
+sheet import,"连接私人书库
+OPDS 或 Calibre-Web",sheet,addSource,,BUTTON
+sheet import,选择本地文字文件,,,,INPUT
+sheet import,选择字体文件,,,,INPUT
+sheet import,选择原型备份,,,,INPUT
+sheet importUrl,返回藏书,exitReader,,,BUTTON
+sheet importUrl,添加或移除书签,bookmark,,,BUTTON
+sheet importUrl,阅读工具,sheet,readerMore,,BUTTON
+sheet importUrl,上一章,relativeChapter,-1,,BUTTON
+sheet importUrl,阅读进度,,,bookProgress,INPUT
+sheet importUrl,下一章,relativeChapter,1,,BUTTON
+sheet importUrl,目录,sheet,toc,,BUTTON
+sheet importUrl,笔记,sheet,notes,,BUTTON
+sheet importUrl,进度,sheet,progress,,BUTTON
+sheet importUrl,模式,sheet,modes,,BUTTON
+sheet importUrl,排版,sheet,typography,,BUTTON
+sheet importUrl,关闭面板,closeSheet,,,BUTTON
+sheet importUrl,import-url,,,,INPUT
+sheet importUrl,import-title,,,,INPUT
+sheet importUrl,检查链接,,,,BUTTON
+sheet importUrl,选择本地文字文件,,,,INPUT
+sheet importUrl,选择字体文件,,,,INPUT
+sheet importUrl,选择原型备份,,,,INPUT
+sheet sort,返回藏书,exitReader,,,BUTTON
+sheet sort,添加或移除书签,bookmark,,,BUTTON
+sheet sort,阅读工具,sheet,readerMore,,BUTTON
+sheet sort,上一章,relativeChapter,-1,,BUTTON
+sheet sort,阅读进度,,,bookProgress,INPUT
+sheet sort,下一章,relativeChapter,1,,BUTTON
+sheet sort,目录,sheet,toc,,BUTTON
+sheet sort,笔记,sheet,notes,,BUTTON
+sheet sort,进度,sheet,progress,,BUTTON
+sheet sort,模式,sheet,modes,,BUTTON
+sheet sort,排版,sheet,typography,,BUTTON
+sheet sort,关闭面板,closeSheet,,,BUTTON
+sheet sort,最近阅读,sort,recent,,BUTTON
+sheet sort,最近添加,sort,added,,BUTTON
+sheet sort,书名,sort,title,,BUTTON
+sheet sort,书封网格,layout,grid,,BUTTON
+sheet sort,书籍列表,layout,list,,BUTTON
+sheet sort,选择本地文字文件,,,,INPUT
+sheet sort,选择字体文件,,,,INPUT
+sheet sort,选择原型备份,,,,INPUT
+sheet bookMenu,返回藏书,exitReader,,,BUTTON
+sheet bookMenu,添加或移除书签,bookmark,,,BUTTON
+sheet bookMenu,阅读工具,sheet,readerMore,,BUTTON
+sheet bookMenu,上一章,relativeChapter,-1,,BUTTON
+sheet bookMenu,阅读进度,,,bookProgress,INPUT
+sheet bookMenu,下一章,relativeChapter,1,,BUTTON
+sheet bookMenu,目录,sheet,toc,,BUTTON
+sheet bookMenu,笔记,sheet,notes,,BUTTON
+sheet bookMenu,进度,sheet,progress,,BUTTON
+sheet bookMenu,模式,sheet,modes,,BUTTON
+sheet bookMenu,排版,sheet,typography,,BUTTON
+sheet bookMenu,关闭面板,closeSheet,,,BUTTON
+sheet bookMenu,书籍详情,bookDetail,mountain,,BUTTON
+sheet bookMenu,"加入书单
+本周想读",chooseList,mountain,,BUTTON
+sheet bookMenu,"标签
+散文",editTags,mountain,,BUTTON
+sheet bookMenu,标为读完,markBook,mountain,,BUTTON
+sheet bookMenu,"设为私密
+私密书籍不参与同步",privateBook,mountain,,BUTTON
+sheet bookMenu,删除书籍,confirmDelete,mountain,,BUTTON
+sheet bookMenu,选择本地文字文件,,,,INPUT
+sheet bookMenu,选择字体文件,,,,INPUT
+sheet bookMenu,选择原型备份,,,,INPUT
+sheet bookDetail,返回藏书,exitReader,,,BUTTON
+sheet bookDetail,添加或移除书签,bookmark,,,BUTTON
+sheet bookDetail,阅读工具,sheet,readerMore,,BUTTON
+sheet bookDetail,上一章,relativeChapter,-1,,BUTTON
+sheet bookDetail,阅读进度,,,bookProgress,INPUT
+sheet bookDetail,下一章,relativeChapter,1,,BUTTON
+sheet bookDetail,目录,sheet,toc,,BUTTON
+sheet bookDetail,笔记,sheet,notes,,BUTTON
+sheet bookDetail,进度,sheet,progress,,BUTTON
+sheet bookDetail,模式,sheet,modes,,BUTTON
+sheet bookDetail,排版,sheet,typography,,BUTTON
+sheet bookDetail,关闭面板,closeSheet,,,BUTTON
+sheet bookDetail,开始阅读,read,mountain,,BUTTON
+sheet bookDetail,选择本地文字文件,,,,INPUT
+sheet bookDetail,选择字体文件,,,,INPUT
+sheet bookDetail,选择原型备份,,,,INPUT
+sheet newList,返回藏书,exitReader,,,BUTTON
+sheet newList,添加或移除书签,bookmark,,,BUTTON
+sheet newList,阅读工具,sheet,readerMore,,BUTTON
+sheet newList,上一章,relativeChapter,-1,,BUTTON
+sheet newList,阅读进度,,,bookProgress,INPUT
+sheet newList,下一章,relativeChapter,1,,BUTTON
+sheet newList,目录,sheet,toc,,BUTTON
+sheet newList,笔记,sheet,notes,,BUTTON
+sheet newList,进度,sheet,progress,,BUTTON
+sheet newList,模式,sheet,modes,,BUTTON
+sheet newList,排版,sheet,typography,,BUTTON
+sheet newList,关闭面板,closeSheet,,,BUTTON
+sheet newList,list-name,,,,INPUT
+sheet newList,创建书单,,,,BUTTON
+sheet newList,选择本地文字文件,,,,INPUT
+sheet newList,选择字体文件,,,,INPUT
+sheet newList,选择原型备份,,,,INPUT
+sheet chooseList,返回藏书,exitReader,,,BUTTON
+sheet chooseList,添加或移除书签,bookmark,,,BUTTON
+sheet chooseList,阅读工具,sheet,readerMore,,BUTTON
+sheet chooseList,上一章,relativeChapter,-1,,BUTTON
+sheet chooseList,阅读进度,,,bookProgress,INPUT
+sheet chooseList,下一章,relativeChapter,1,,BUTTON
+sheet chooseList,目录,sheet,toc,,BUTTON
+sheet chooseList,笔记,sheet,notes,,BUTTON
+sheet chooseList,进度,sheet,progress,,BUTTON
+sheet chooseList,模式,sheet,modes,,BUTTON
+sheet chooseList,排版,sheet,typography,,BUTTON
+sheet chooseList,关闭面板,closeSheet,,,BUTTON
+sheet chooseList,慢慢读,assignList,慢慢读,,BUTTON
+sheet chooseList,待读,assignList,待读,,BUTTON
+sheet chooseList,本周想读,assignList,本周想读,,BUTTON
+sheet chooseList,新建书单,sheet,newList,,BUTTON
+sheet chooseList,选择本地文字文件,,,,INPUT
+sheet chooseList,选择字体文件,,,,INPUT
+sheet chooseList,选择原型备份,,,,INPUT
+sheet tags,返回藏书,exitReader,,,BUTTON
+sheet tags,添加或移除书签,bookmark,,,BUTTON
+sheet tags,阅读工具,sheet,readerMore,,BUTTON
+sheet tags,上一章,relativeChapter,-1,,BUTTON
+sheet tags,阅读进度,,,bookProgress,INPUT
+sheet tags,下一章,relativeChapter,1,,BUTTON
+sheet tags,目录,sheet,toc,,BUTTON
+sheet tags,笔记,sheet,notes,,BUTTON
+sheet tags,进度,sheet,progress,,BUTTON
+sheet tags,模式,sheet,modes,,BUTTON
+sheet tags,排版,sheet,typography,,BUTTON
+sheet tags,关闭面板,closeSheet,,,BUTTON
+sheet tags,book-tags,,,,INPUT
+sheet tags,保存标签,,,,BUTTON
+sheet tags,选择本地文字文件,,,,INPUT
+sheet tags,选择字体文件,,,,INPUT
+sheet tags,选择原型备份,,,,INPUT
+sheet delete,返回藏书,exitReader,,,BUTTON
+sheet delete,添加或移除书签,bookmark,,,BUTTON
+sheet delete,阅读工具,sheet,readerMore,,BUTTON
+sheet delete,上一章,relativeChapter,-1,,BUTTON
+sheet delete,阅读进度,,,bookProgress,INPUT
+sheet delete,下一章,relativeChapter,1,,BUTTON
+sheet delete,目录,sheet,toc,,BUTTON
+sheet delete,笔记,sheet,notes,,BUTTON
+sheet delete,进度,sheet,progress,,BUTTON
+sheet delete,模式,sheet,modes,,BUTTON
+sheet delete,排版,sheet,typography,,BUTTON
+sheet delete,关闭面板,closeSheet,,,BUTTON
+sheet delete,取消,closeSheet,,,BUTTON
+sheet delete,删除,deleteBooks,,,BUTTON
+sheet delete,选择本地文字文件,,,,INPUT
+sheet delete,选择字体文件,,,,INPUT
+sheet delete,选择原型备份,,,,INPUT
+sheet typography,返回藏书,exitReader,,,BUTTON
+sheet typography,添加或移除书签,bookmark,,,BUTTON
+sheet typography,阅读工具,sheet,readerMore,,BUTTON
+sheet typography,上一章,relativeChapter,-1,,BUTTON
+sheet typography,阅读进度,,,bookProgress,INPUT
+sheet typography,下一章,relativeChapter,1,,BUTTON
+sheet typography,目录,sheet,toc,,BUTTON
+sheet typography,笔记,sheet,notes,,BUTTON
+sheet typography,进度,sheet,progress,,BUTTON
+sheet typography,模式,sheet,modes,,BUTTON
+sheet typography,排版,sheet,typography,,BUTTON
+sheet typography,关闭面板,closeSheet,,,BUTTON
+sheet typography,文字,typeTab,text,,BUTTON
+sheet typography,配色,typeTab,color,,BUTTON
+sheet typography,页面,typeTab,page,,BUTTON
+sheet typography,字号,,,fontSize,INPUT
+sheet typography,行距,,,lineHeight,INPUT
+sheet typography,边距,,,margin,INPUT
+sheet typography,"字体
+读一段文字，选择舒服的字形
+宋体",sheet,fonts,,BUTTON
+sheet typography,首行缩进,,,indent,INPUT
+sheet typography,更多文字设置,,,,SUMMARY
+sheet typography,字距,,,letterSpacing,INPUT
+sheet typography,两端对齐,,,justify,INPUT
+sheet typography,选择本地文字文件,,,,INPUT
+sheet typography,选择字体文件,,,,INPUT
+sheet typography,选择原型备份,,,,INPUT
+sheet fonts,返回藏书,exitReader,,,BUTTON
+sheet fonts,添加或移除书签,bookmark,,,BUTTON
+sheet fonts,阅读工具,sheet,readerMore,,BUTTON
+sheet fonts,上一章,relativeChapter,-1,,BUTTON
+sheet fonts,阅读进度,,,bookProgress,INPUT
+sheet fonts,下一章,relativeChapter,1,,BUTTON
+sheet fonts,目录,sheet,toc,,BUTTON
+sheet fonts,笔记,sheet,notes,,BUTTON
+sheet fonts,进度,sheet,progress,,BUTTON
+sheet fonts,模式,sheet,modes,,BUTTON
+sheet fonts,排版,sheet,typography,,BUTTON
+sheet fonts,关闭面板,closeSheet,,,BUTTON
+sheet fonts,"读书
+黑体",setFont,sans,,BUTTON
+sheet fonts,"读书
+宋体",setFont,serif,,BUTTON
+sheet fonts,"读书
+文楷",setFont,kai,,BUTTON
+sheet fonts,"导入字体
+只在本次原型中使用，刷新后需重新选择
+TTF / OTF / WOFF2",pickFont,,,BUTTON
+sheet fonts,选择本地文字文件,,,,INPUT
+sheet fonts,选择字体文件,,,,INPUT
+sheet fonts,选择原型备份,,,,INPUT
+sheet columns,返回藏书,exitReader,,,BUTTON
+sheet columns,添加或移除书签,bookmark,,,BUTTON
+sheet columns,阅读工具,sheet,readerMore,,BUTTON
+sheet columns,上一章,relativeChapter,-1,,BUTTON
+sheet columns,阅读进度,,,bookProgress,INPUT
+sheet columns,下一章,relativeChapter,1,,BUTTON
+sheet columns,目录,sheet,toc,,BUTTON
+sheet columns,笔记,sheet,notes,,BUTTON
+sheet columns,进度,sheet,progress,,BUTTON
+sheet columns,模式,sheet,modes,,BUTTON
+sheet columns,排版,sheet,typography,,BUTTON
+sheet columns,关闭面板,closeSheet,,,BUTTON
+sheet columns,"自动
+宽屏双栏，小屏单栏",setColumns,auto,,BUTTON
+sheet columns,"单栏
+整页为一栏",setColumns,single,,BUTTON
+sheet columns,"双栏
+宽屏时显示两栏",setColumns,double,,BUTTON
+sheet columns,选择本地文字文件,,,,INPUT
+sheet columns,选择字体文件,,,,INPUT
+sheet columns,选择原型备份,,,,INPUT
+sheet progressDisplay,返回藏书,exitReader,,,BUTTON
+sheet progressDisplay,添加或移除书签,bookmark,,,BUTTON
+sheet progressDisplay,阅读工具,sheet,readerMore,,BUTTON
+sheet progressDisplay,上一章,relativeChapter,-1,,BUTTON
+sheet progressDisplay,阅读进度,,,bookProgress,INPUT
+sheet progressDisplay,下一章,relativeChapter,1,,BUTTON
+sheet progressDisplay,目录,sheet,toc,,BUTTON
+sheet progressDisplay,笔记,sheet,notes,,BUTTON
+sheet progressDisplay,进度,sheet,progress,,BUTTON
+sheet progressDisplay,模式,sheet,modes,,BUTTON
+sheet progressDisplay,排版,sheet,typography,,BUTTON
+sheet progressDisplay,关闭面板,closeSheet,,,BUTTON
+sheet progressDisplay,页码与百分比,progressDisplay,both,,BUTTON
+sheet progressDisplay,页码,progressDisplay,page,,BUTTON
+sheet progressDisplay,百分比,progressDisplay,percent,,BUTTON
+sheet progressDisplay,选择本地文字文件,,,,INPUT
+sheet progressDisplay,选择字体文件,,,,INPUT
+sheet progressDisplay,选择原型备份,,,,INPUT
+sheet toc,返回藏书,exitReader,,,BUTTON
+sheet toc,添加或移除书签,bookmark,,,BUTTON
+sheet toc,阅读工具,sheet,readerMore,,BUTTON
+sheet toc,上一章,relativeChapter,-1,,BUTTON
+sheet toc,阅读进度,,,bookProgress,INPUT
+sheet toc,下一章,relativeChapter,1,,BUTTON
+sheet toc,目录,sheet,toc,,BUTTON
+sheet toc,笔记,sheet,notes,,BUTTON
+sheet toc,进度,sheet,progress,,BUTTON
+sheet toc,模式,sheet,modes,,BUTTON
+sheet toc,排版,sheet,typography,,BUTTON
+sheet toc,关闭面板,closeSheet,,,BUTTON
+sheet toc,搜本书,sheet,searchBook,,BUTTON
+sheet toc,"第一章　山里的早晨
+当前读到",chapter,0,,BUTTON
+sheet toc,第二章　沿着溪流走,chapter,1,,BUTTON
+sheet toc,第三章　留一页空白,chapter,2,,BUTTON
+sheet toc,添加书签,bookmark,,,BUTTON
+sheet toc,选择本地文字文件,,,,INPUT
+sheet toc,选择字体文件,,,,INPUT
+sheet toc,选择原型备份,,,,INPUT
+sheet searchBook,返回藏书,exitReader,,,BUTTON
+sheet searchBook,添加或移除书签,bookmark,,,BUTTON
+sheet searchBook,阅读工具,sheet,readerMore,,BUTTON
+sheet searchBook,上一章,relativeChapter,-1,,BUTTON
+sheet searchBook,阅读进度,,,bookProgress,INPUT
+sheet searchBook,下一章,relativeChapter,1,,BUTTON
+sheet searchBook,目录,sheet,toc,,BUTTON
+sheet searchBook,笔记,sheet,notes,,BUTTON
+sheet searchBook,进度,sheet,progress,,BUTTON
+sheet searchBook,模式,sheet,modes,,BUTTON
+sheet searchBook,排版,sheet,typography,,BUTTON
+sheet searchBook,关闭面板,closeSheet,,,BUTTON
+sheet searchBook,搜索书中内容,,,,INPUT
+sheet searchBook,选择本地文字文件,,,,INPUT
+sheet searchBook,选择字体文件,,,,INPUT
+sheet searchBook,选择原型备份,,,,INPUT
+sheet notes,返回藏书,exitReader,,,BUTTON
+sheet notes,添加或移除书签,bookmark,,,BUTTON
+sheet notes,阅读工具,sheet,readerMore,,BUTTON
+sheet notes,上一章,relativeChapter,-1,,BUTTON
+sheet notes,阅读进度,,,bookProgress,INPUT
+sheet notes,下一章,relativeChapter,1,,BUTTON
+sheet notes,目录,sheet,toc,,BUTTON
+sheet notes,笔记,sheet,notes,,BUTTON
+sheet notes,进度,sheet,progress,,BUTTON
+sheet notes,模式,sheet,modes,,BUTTON
+sheet notes,排版,sheet,typography,,BUTTON
+sheet notes,关闭面板,closeSheet,,,BUTTON
+sheet notes,划线想法,noteTab,notes,,BUTTON
+sheet notes,书签,noteTab,bookmarks,,BUTTON
+sheet notes,查看原文,gotoNote,ace6b57c-567b-4c4f-99de-dc3bac4004fc,,BUTTON
+sheet notes,修改想法,editNote,ace6b57c-567b-4c4f-99de-dc3bac4004fc,,BUTTON
+sheet notes,删除笔记,deleteNote,ace6b57c-567b-4c4f-99de-dc3bac4004fc,,BUTTON
+sheet notes,导出本书笔记,exportNotes,current,,BUTTON
+sheet notes,选择本地文字文件,,,,INPUT
+sheet notes,选择字体文件,,,,INPUT
+sheet notes,选择原型备份,,,,INPUT
+sheet writeNote,返回藏书,exitReader,,,BUTTON
+sheet writeNote,添加或移除书签,bookmark,,,BUTTON
+sheet writeNote,阅读工具,sheet,readerMore,,BUTTON
+sheet writeNote,上一章,relativeChapter,-1,,BUTTON
+sheet writeNote,阅读进度,,,bookProgress,INPUT
+sheet writeNote,下一章,relativeChapter,1,,BUTTON
+sheet writeNote,目录,sheet,toc,,BUTTON
+sheet writeNote,笔记,sheet,notes,,BUTTON
+sheet writeNote,进度,sheet,progress,,BUTTON
+sheet writeNote,模式,sheet,modes,,BUTTON
+sheet writeNote,排版,sheet,typography,,BUTTON
+sheet writeNote,关闭面板,closeSheet,,,BUTTON
+sheet writeNote,保存想法,,,,BUTTON
+sheet writeNote,选择本地文字文件,,,,INPUT
+sheet writeNote,选择字体文件,,,,INPUT
+sheet writeNote,选择原型备份,,,,INPUT
+sheet progress,返回藏书,exitReader,,,BUTTON
+sheet progress,添加或移除书签,bookmark,,,BUTTON
+sheet progress,阅读工具,sheet,readerMore,,BUTTON
+sheet progress,上一章,relativeChapter,-1,,BUTTON
+sheet progress,阅读进度,,,bookProgress,INPUT
+sheet progress,下一章,relativeChapter,1,,BUTTON
+sheet progress,目录,sheet,toc,,BUTTON
+sheet progress,笔记,sheet,notes,,BUTTON
+sheet progress,进度,sheet,progress,,BUTTON
+sheet progress,模式,sheet,modes,,BUTTON
+sheet progress,排版,sheet,typography,,BUTTON
+sheet progress,关闭面板,closeSheet,,,BUTTON
+sheet progress,全书进度,,,bookProgress,INPUT
+sheet progress,自动翻页,guideSettings,auto,,BUTTON
+sheet progress,选择本地文字文件,,,,INPUT
+sheet progress,选择字体文件,,,,INPUT
+sheet progress,选择原型备份,,,,INPUT
+sheet readerMore,返回藏书,exitReader,,,BUTTON
+sheet readerMore,添加或移除书签,bookmark,,,BUTTON
+sheet readerMore,阅读工具,sheet,readerMore,,BUTTON
+sheet readerMore,上一章,relativeChapter,-1,,BUTTON
+sheet readerMore,阅读进度,,,bookProgress,INPUT
+sheet readerMore,下一章,relativeChapter,1,,BUTTON
+sheet readerMore,目录,sheet,toc,,BUTTON
+sheet readerMore,笔记,sheet,notes,,BUTTON
+sheet readerMore,进度,sheet,progress,,BUTTON
+sheet readerMore,模式,sheet,modes,,BUTTON
+sheet readerMore,排版,sheet,typography,,BUTTON
+sheet readerMore,关闭面板,closeSheet,,,BUTTON
+sheet readerMore,书内搜索,sheet,searchBook,,BUTTON
+sheet readerMore,书籍详情,bookDetail,mountain,,BUTTON
+sheet readerMore,"背景音
+未开启",sheet,ambient,,BUTTON
+sheet readerMore,阅读偏好,readerPreferences,,,BUTTON
+sheet readerMore,键盘与触屏操作,sheet,shortcuts,,BUTTON
+sheet readerMore,选择本地文字文件,,,,INPUT
+sheet readerMore,选择字体文件,,,,INPUT
+sheet readerMore,选择原型备份,,,,INPUT
+sheet modes,返回藏书,exitReader,,,BUTTON
+sheet modes,添加或移除书签,bookmark,,,BUTTON
+sheet modes,阅读工具,sheet,readerMore,,BUTTON
+sheet modes,上一章,relativeChapter,-1,,BUTTON
+sheet modes,阅读进度,,,bookProgress,INPUT
+sheet modes,下一章,relativeChapter,1,,BUTTON
+sheet modes,目录,sheet,toc,,BUTTON
+sheet modes,笔记,sheet,notes,,BUTTON
+sheet modes,进度,sheet,progress,,BUTTON
+sheet modes,模式,sheet,modes,,BUTTON
+sheet modes,排版,sheet,typography,,BUTTON
+sheet modes,关闭面板,closeSheet,,,BUTTON
+sheet modes,"点睛阅读
+让阅读重点更容易辨认
+未开启",sheet,dianjing,,BUTTON
+sheet modes,夜读,sceneToggle,night,,BUTTON
+sheet modes,护眼,sceneToggle,eye,,BUTTON
+sheet modes,墨水屏,sceneToggle,eink,,BUTTON
+sheet modes,大字,sceneToggle,large,,BUTTON
+sheet modes,沉浸,sceneToggle,immersive,,BUTTON
+sheet modes,自动翻页设置,guideSettings,auto,,BUTTON
+sheet modes,开始,startGuide,auto,,BUTTON
+sheet modes,打字机设置,guideSettings,typewriter,,BUTTON
+sheet modes,开始,startGuide,typewriter,,BUTTON
+sheet modes,歌词设置,guideSettings,lyric,,BUTTON
+sheet modes,开始,startGuide,lyric,,BUTTON
+sheet modes,打开,openPlayer,tts,,BUTTON
+sheet modes,选择本地文字文件,,,,INPUT
+sheet modes,选择字体文件,,,,INPUT
+sheet modes,选择原型备份,,,,INPUT
+sheet scene,返回藏书,exitReader,,,BUTTON
+sheet scene,添加或移除书签,bookmark,,,BUTTON
+sheet scene,阅读工具,sheet,readerMore,,BUTTON
+sheet scene,上一章,relativeChapter,-1,,BUTTON
+sheet scene,阅读进度,,,bookProgress,INPUT
+sheet scene,下一章,relativeChapter,1,,BUTTON
+sheet scene,目录,sheet,toc,,BUTTON
+sheet scene,笔记,sheet,notes,,BUTTON
+sheet scene,进度,sheet,progress,,BUTTON
+sheet scene,模式,sheet,modes,,BUTTON
+sheet scene,排版,sheet,typography,,BUTTON
+sheet scene,关闭面板,closeSheet,,,BUTTON
+sheet scene,定时开启,,,nightSchedule,INPUT
+sheet scene,在排版里微调,sceneTypography,night,,BUTTON
+sheet scene,开启夜读,sceneToggle,night,,BUTTON
+sheet scene,选择本地文字文件,,,,INPUT
+sheet scene,选择字体文件,,,,INPUT
+sheet scene,选择原型备份,,,,INPUT
+sheet guide,返回藏书,exitReader,,,BUTTON
+sheet guide,添加或移除书签,bookmark,,,BUTTON
+sheet guide,阅读工具,sheet,readerMore,,BUTTON
+sheet guide,上一章,relativeChapter,-1,,BUTTON
+sheet guide,阅读进度,,,bookProgress,INPUT
+sheet guide,下一章,relativeChapter,1,,BUTTON
+sheet guide,目录,sheet,toc,,BUTTON
+sheet guide,笔记,sheet,notes,,BUTTON
+sheet guide,进度,sheet,progress,,BUTTON
+sheet guide,模式,sheet,modes,,BUTTON
+sheet guide,排版,sheet,typography,,BUTTON
+sheet guide,关闭面板,closeSheet,,,BUTTON
+sheet guide,速度,,,autoSeconds,INPUT
+sheet guide,从本页开始,startGuide,auto,,BUTTON
+sheet guide,选择本地文字文件,,,,INPUT
+sheet guide,选择字体文件,,,,INPUT
+sheet guide,选择原型备份,,,,INPUT
+sheet dianjing,返回藏书,exitReader,,,BUTTON
+sheet dianjing,添加或移除书签,bookmark,,,BUTTON
+sheet dianjing,阅读工具,sheet,readerMore,,BUTTON
+sheet dianjing,上一章,relativeChapter,-1,,BUTTON
+sheet dianjing,阅读进度,,,bookProgress,INPUT
+sheet dianjing,下一章,relativeChapter,1,,BUTTON
+sheet dianjing,目录,sheet,toc,,BUTTON
+sheet dianjing,笔记,sheet,notes,,BUTTON
+sheet dianjing,进度,sheet,progress,,BUTTON
+sheet dianjing,模式,sheet,modes,,BUTTON
+sheet dianjing,排版,sheet,typography,,BUTTON
+sheet dianjing,关闭面板,closeSheet,,,BUTTON
+sheet dianjing,点睛阅读,,,dianjing,INPUT
+sheet dianjing,基础,djMode,basic,,BUTTON
+sheet dianjing,智能,djMode,smart,,BUTTON
+sheet dianjing,回到正文查看,closeSheet,,,BUTTON
+sheet dianjing,选择本地文字文件,,,,INPUT
+sheet dianjing,选择字体文件,,,,INPUT
+sheet dianjing,选择原型备份,,,,INPUT
+sheet ambient,返回藏书,exitReader,,,BUTTON
+sheet ambient,添加或移除书签,bookmark,,,BUTTON
+sheet ambient,阅读工具,sheet,readerMore,,BUTTON
+sheet ambient,上一章,relativeChapter,-1,,BUTTON
+sheet ambient,阅读进度,,,bookProgress,INPUT
+sheet ambient,下一章,relativeChapter,1,,BUTTON
+sheet ambient,目录,sheet,toc,,BUTTON
+sheet ambient,笔记,sheet,notes,,BUTTON
+sheet ambient,进度,sheet,progress,,BUTTON
+sheet ambient,模式,sheet,modes,,BUTTON
+sheet ambient,排版,sheet,typography,,BUTTON
+sheet ambient,关闭面板,closeSheet,,,BUTTON
+sheet ambient,"雨夜书房
+柔和的雨声",ambientScene,rain,,BUTTON
+sheet ambient,"林间风声
+缓慢起伏的风",ambientScene,wind,,BUTTON
+sheet ambient,"专注噪音
+平稳的粉噪近似声",ambientScene,noise,,BUTTON
+sheet ambient,"夜曲铺底
+低声的合成和声",ambientScene,pad,,BUTTON
+sheet ambient,音量,,,ambientVolume,INPUT
+sheet ambient,听书时自动降低,,,ambientDuck,INPUT
+sheet ambient,不定时,ambientTimer,0,,BUTTON
+sheet ambient,15 分钟,ambientTimer,15,,BUTTON
+sheet ambient,30 分钟,ambientTimer,30,,BUTTON
+sheet ambient,1 小时,ambientTimer,60,,BUTTON
+sheet ambient,选择本地文字文件,,,,INPUT
+sheet ambient,选择字体文件,,,,INPUT
+sheet ambient,选择原型备份,,,,INPUT
+sheet voices,返回藏书,exitReader,,,BUTTON
+sheet voices,添加或移除书签,bookmark,,,BUTTON
+sheet voices,阅读工具,sheet,readerMore,,BUTTON
+sheet voices,上一章,relativeChapter,-1,,BUTTON
+sheet voices,阅读进度,,,bookProgress,INPUT
+sheet voices,下一章,relativeChapter,1,,BUTTON
+sheet voices,目录,sheet,toc,,BUTTON
+sheet voices,笔记,sheet,notes,,BUTTON
+sheet voices,进度,sheet,progress,,BUTTON
+sheet voices,模式,sheet,modes,,BUTTON
+sheet voices,排版,sheet,typography,,BUTTON
+sheet voices,关闭面板,closeSheet,,,BUTTON
+sheet voices,系统,ttsEngine,system,,BUTTON
+sheet voices,在线,ttsEngine,online,,BUTTON
+sheet voices,离线,ttsEngine,local,,BUTTON
+sheet voices,"自动（中文优先）
+当前浏览器暂无可用语音",ttsVoice,auto,,BUTTON
+sheet voices,试听,audition,auto,,BUTTON
+sheet voices,使用节奏演示,,,audioDemo,INPUT
+sheet voices,选择本地文字文件,,,,INPUT
+sheet voices,选择字体文件,,,,INPUT
+sheet voices,选择原型备份,,,,INPUT
+sheet speed,返回藏书,exitReader,,,BUTTON
+sheet speed,添加或移除书签,bookmark,,,BUTTON
+sheet speed,阅读工具,sheet,readerMore,,BUTTON
+sheet speed,上一章,relativeChapter,-1,,BUTTON
+sheet speed,阅读进度,,,bookProgress,INPUT
+sheet speed,下一章,relativeChapter,1,,BUTTON
+sheet speed,目录,sheet,toc,,BUTTON
+sheet speed,笔记,sheet,notes,,BUTTON
+sheet speed,进度,sheet,progress,,BUTTON
+sheet speed,模式,sheet,modes,,BUTTON
+sheet speed,排版,sheet,typography,,BUTTON
+sheet speed,关闭面板,closeSheet,,,BUTTON
+sheet speed,语速,,,ttsRate,INPUT
+sheet speed,0.75×,ttsRate,0.75,,BUTTON
+sheet speed,1×,ttsRate,1,,BUTTON
+sheet speed,1.25×,ttsRate,1.25,,BUTTON
+sheet speed,1.5×,ttsRate,1.5,,BUTTON
+sheet speed,1.75×,ttsRate,1.75,,BUTTON
+sheet speed,2×,ttsRate,2,,BUTTON
+sheet speed,选择本地文字文件,,,,INPUT
+sheet speed,选择字体文件,,,,INPUT
+sheet speed,选择原型备份,,,,INPUT
+sheet listenPosition,返回藏书,exitReader,,,BUTTON
+sheet listenPosition,添加或移除书签,bookmark,,,BUTTON
+sheet listenPosition,阅读工具,sheet,readerMore,,BUTTON
+sheet listenPosition,上一章,relativeChapter,-1,,BUTTON
+sheet listenPosition,阅读进度,,,bookProgress,INPUT
+sheet listenPosition,下一章,relativeChapter,1,,BUTTON
+sheet listenPosition,目录,sheet,toc,,BUTTON
+sheet listenPosition,笔记,sheet,notes,,BUTTON
+sheet listenPosition,进度,sheet,progress,,BUTTON
+sheet listenPosition,模式,sheet,modes,,BUTTON
+sheet listenPosition,排版,sheet,typography,,BUTTON
+sheet listenPosition,关闭面板,closeSheet,,,BUTTON
+sheet listenPosition,"回到听书处
+山间来信",audioOriginal,,,BUTTON
+sheet listenPosition,"改听这一页
+山间来信",listenFromPage,,,BUTTON
+sheet listenPosition,选择本地文字文件,,,,INPUT
+sheet listenPosition,选择字体文件,,,,INPUT
+sheet listenPosition,选择原型备份,,,,INPUT
+sheet timer,返回藏书,exitReader,,,BUTTON
+sheet timer,添加或移除书签,bookmark,,,BUTTON
+sheet timer,阅读工具,sheet,readerMore,,BUTTON
+sheet timer,上一章,relativeChapter,-1,,BUTTON
+sheet timer,阅读进度,,,bookProgress,INPUT
+sheet timer,下一章,relativeChapter,1,,BUTTON
+sheet timer,目录,sheet,toc,,BUTTON
+sheet timer,笔记,sheet,notes,,BUTTON
+sheet timer,进度,sheet,progress,,BUTTON
+sheet timer,模式,sheet,modes,,BUTTON
+sheet timer,排版,sheet,typography,,BUTTON
+sheet timer,关闭面板,closeSheet,,,BUTTON
+sheet timer,不定时,ttsTimer,0,,BUTTON
+sheet timer,15 分钟,ttsTimer,15,,BUTTON
+sheet timer,30 分钟,ttsTimer,30,,BUTTON
+sheet timer,1 小时,ttsTimer,60,,BUTTON
+sheet timer,听完本章,ttsTimer,chapter,,BUTTON
+sheet timer,选择本地文字文件,,,,INPUT
+sheet timer,选择字体文件,,,,INPUT
+sheet timer,选择原型备份,,,,INPUT
+sheet audioToc,返回藏书,exitReader,,,BUTTON
+sheet audioToc,添加或移除书签,bookmark,,,BUTTON
+sheet audioToc,阅读工具,sheet,readerMore,,BUTTON
+sheet audioToc,上一章,relativeChapter,-1,,BUTTON
+sheet audioToc,阅读进度,,,bookProgress,INPUT
+sheet audioToc,下一章,relativeChapter,1,,BUTTON
+sheet audioToc,目录,sheet,toc,,BUTTON
+sheet audioToc,笔记,sheet,notes,,BUTTON
+sheet audioToc,进度,sheet,progress,,BUTTON
+sheet audioToc,模式,sheet,modes,,BUTTON
+sheet audioToc,排版,sheet,typography,,BUTTON
+sheet audioToc,关闭面板,closeSheet,,,BUTTON
+sheet audioToc,"第一章　山里的早晨
+正在听",ttsChapter,0,,BUTTON
+sheet audioToc,第二章　沿着溪流走,ttsChapter,1,,BUTTON
+sheet audioToc,第三章　留一页空白,ttsChapter,2,,BUTTON
+sheet audioToc,选择本地文字文件,,,,INPUT
+sheet audioToc,选择字体文件,,,,INPUT
+sheet audioToc,选择原型备份,,,,INPUT
+sheet appearance,返回藏书,exitReader,,,BUTTON
+sheet appearance,添加或移除书签,bookmark,,,BUTTON
+sheet appearance,阅读工具,sheet,readerMore,,BUTTON
+sheet appearance,上一章,relativeChapter,-1,,BUTTON
+sheet appearance,阅读进度,,,bookProgress,INPUT
+sheet appearance,下一章,relativeChapter,1,,BUTTON
+sheet appearance,目录,sheet,toc,,BUTTON
+sheet appearance,笔记,sheet,notes,,BUTTON
+sheet appearance,进度,sheet,progress,,BUTTON
+sheet appearance,模式,sheet,modes,,BUTTON
+sheet appearance,排版,sheet,typography,,BUTTON
+sheet appearance,关闭面板,closeSheet,,,BUTTON
+sheet appearance,"浅色
+清爽的浅灰与白色",appearance,light,,BUTTON
+sheet appearance,"深色
+低亮度的界面",appearance,dark,,BUTTON
+sheet appearance,"跟随系统
+与设备外观保持一致",appearance,system,,BUTTON
+sheet appearance,选择本地文字文件,,,,INPUT
+sheet appearance,选择字体文件,,,,INPUT
+sheet appearance,选择原型备份,,,,INPUT
+sheet goal,返回藏书,exitReader,,,BUTTON
+sheet goal,添加或移除书签,bookmark,,,BUTTON
+sheet goal,阅读工具,sheet,readerMore,,BUTTON
+sheet goal,上一章,relativeChapter,-1,,BUTTON
+sheet goal,阅读进度,,,bookProgress,INPUT
+sheet goal,下一章,relativeChapter,1,,BUTTON
+sheet goal,目录,sheet,toc,,BUTTON
+sheet goal,笔记,sheet,notes,,BUTTON
+sheet goal,进度,sheet,progress,,BUTTON
+sheet goal,模式,sheet,modes,,BUTTON
+sheet goal,排版,sheet,typography,,BUTTON
+sheet goal,关闭面板,closeSheet,,,BUTTON
+sheet goal,10 分钟,goal,10,,BUTTON
+sheet goal,15 分钟,goal,15,,BUTTON
+sheet goal,20 分钟,goal,20,,BUTTON
+sheet goal,30 分钟,goal,30,,BUTTON
+sheet goal,45 分钟,goal,45,,BUTTON
+sheet goal,60 分钟,goal,60,,BUTTON
+sheet goal,选择本地文字文件,,,,INPUT
+sheet goal,选择字体文件,,,,INPUT
+sheet goal,选择原型备份,,,,INPUT
+sheet account,返回藏书,exitReader,,,BUTTON
+sheet account,添加或移除书签,bookmark,,,BUTTON
+sheet account,阅读工具,sheet,readerMore,,BUTTON
+sheet account,上一章,relativeChapter,-1,,BUTTON
+sheet account,阅读进度,,,bookProgress,INPUT
+sheet account,下一章,relativeChapter,1,,BUTTON
+sheet account,目录,sheet,toc,,BUTTON
+sheet account,笔记,sheet,notes,,BUTTON
+sheet account,进度,sheet,progress,,BUTTON
+sheet account,模式,sheet,modes,,BUTTON
+sheet account,排版,sheet,typography,,BUTTON
+sheet account,关闭面板,closeSheet,,,BUTTON
+sheet account,account-email,,,,INPUT
+sheet account,account-code,,,,INPUT
+sheet account,填入演示资料,fillAccount,,,BUTTON
+sheet account,登录,,,,BUTTON
+sheet account,选择本地文字文件,,,,INPUT
+sheet account,选择字体文件,,,,INPUT
+sheet account,选择原型备份,,,,INPUT
+sheet accountInfo,返回藏书,exitReader,,,BUTTON
+sheet accountInfo,添加或移除书签,bookmark,,,BUTTON
+sheet accountInfo,阅读工具,sheet,readerMore,,BUTTON
+sheet accountInfo,上一章,relativeChapter,-1,,BUTTON
+sheet accountInfo,阅读进度,,,bookProgress,INPUT
+sheet accountInfo,下一章,relativeChapter,1,,BUTTON
+sheet accountInfo,目录,sheet,toc,,BUTTON
+sheet accountInfo,笔记,sheet,notes,,BUTTON
+sheet accountInfo,进度,sheet,progress,,BUTTON
+sheet accountInfo,模式,sheet,modes,,BUTTON
+sheet accountInfo,排版,sheet,typography,,BUTTON
+sheet accountInfo,关闭面板,closeSheet,,,BUTTON
+sheet accountInfo,同步明细,sheet,syncDetails,,BUTTON
+sheet accountInfo,"退出登录
+仅退出原型的演示账号",disconnectAccount,,,BUTTON
+sheet accountInfo,选择本地文字文件,,,,INPUT
+sheet accountInfo,选择字体文件,,,,INPUT
+sheet accountInfo,选择原型备份,,,,INPUT
+sheet webdav,返回藏书,exitReader,,,BUTTON
+sheet webdav,添加或移除书签,bookmark,,,BUTTON
+sheet webdav,阅读工具,sheet,readerMore,,BUTTON
+sheet webdav,上一章,relativeChapter,-1,,BUTTON
+sheet webdav,阅读进度,,,bookProgress,INPUT
+sheet webdav,下一章,relativeChapter,1,,BUTTON
+sheet webdav,目录,sheet,toc,,BUTTON
+sheet webdav,笔记,sheet,notes,,BUTTON
+sheet webdav,进度,sheet,progress,,BUTTON
+sheet webdav,模式,sheet,modes,,BUTTON
+sheet webdav,排版,sheet,typography,,BUTTON
+sheet webdav,关闭面板,closeSheet,,,BUTTON
+sheet webdav,坚果云,webdavProvider,jianguoyun,,BUTTON
+sheet webdav,Koofr,webdavProvider,koofr,,BUTTON
+sheet webdav,自建,webdavProvider,selfhosted,,BUTTON
+sheet webdav,其他,webdavProvider,other,,BUTTON
+sheet webdav,dav-user,,,,INPUT
+sheet webdav,dav-pass,,,,INPUT
+sheet webdav,填入演示资料,fillWebdav,,,BUTTON
+sheet webdav,连接,,,,BUTTON
+sheet webdav,选择本地文字文件,,,,INPUT
+sheet webdav,选择字体文件,,,,INPUT
+sheet webdav,选择原型备份,,,,INPUT
+sheet webdavInfo,返回藏书,exitReader,,,BUTTON
+sheet webdavInfo,添加或移除书签,bookmark,,,BUTTON
+sheet webdavInfo,阅读工具,sheet,readerMore,,BUTTON
+sheet webdavInfo,上一章,relativeChapter,-1,,BUTTON
+sheet webdavInfo,阅读进度,,,bookProgress,INPUT
+sheet webdavInfo,下一章,relativeChapter,1,,BUTTON
+sheet webdavInfo,目录,sheet,toc,,BUTTON
+sheet webdavInfo,笔记,sheet,notes,,BUTTON
+sheet webdavInfo,进度,sheet,progress,,BUTTON
+sheet webdavInfo,模式,sheet,modes,,BUTTON
+sheet webdavInfo,排版,sheet,typography,,BUTTON
+sheet webdavInfo,关闭面板,closeSheet,,,BUTTON
+sheet webdavInfo,修改连接,sheet,webdav,,BUTTON
+sheet webdavInfo,测试连接,testWebdav,,,BUTTON
+sheet webdavInfo,整库备份,webdavBackup,,,BUTTON
+sheet webdavInfo,从整库备份恢复,webdavRestore,,,BUTTON
+sheet webdavInfo,断开网盘,sheet,disconnect,,BUTTON
+sheet webdavInfo,选择本地文字文件,,,,INPUT
+sheet webdavInfo,选择字体文件,,,,INPUT
+sheet webdavInfo,选择原型备份,,,,INPUT
+sheet disconnect,返回藏书,exitReader,,,BUTTON
+sheet disconnect,添加或移除书签,bookmark,,,BUTTON
+sheet disconnect,阅读工具,sheet,readerMore,,BUTTON
+sheet disconnect,上一章,relativeChapter,-1,,BUTTON
+sheet disconnect,阅读进度,,,bookProgress,INPUT
+sheet disconnect,下一章,relativeChapter,1,,BUTTON
+sheet disconnect,目录,sheet,toc,,BUTTON
+sheet disconnect,笔记,sheet,notes,,BUTTON
+sheet disconnect,进度,sheet,progress,,BUTTON
+sheet disconnect,模式,sheet,modes,,BUTTON
+sheet disconnect,排版,sheet,typography,,BUTTON
+sheet disconnect,关闭面板,closeSheet,,,BUTTON
+sheet disconnect,取消,backSheet,,,BUTTON
+sheet disconnect,断开,disconnectWebdav,,,BUTTON
+sheet disconnect,选择本地文字文件,,,,INPUT
+sheet disconnect,选择字体文件,,,,INPUT
+sheet disconnect,选择原型备份,,,,INPUT
+sheet syncSecrets,返回藏书,exitReader,,,BUTTON
+sheet syncSecrets,添加或移除书签,bookmark,,,BUTTON
+sheet syncSecrets,阅读工具,sheet,readerMore,,BUTTON
+sheet syncSecrets,上一章,relativeChapter,-1,,BUTTON
+sheet syncSecrets,阅读进度,,,bookProgress,INPUT
+sheet syncSecrets,下一章,relativeChapter,1,,BUTTON
+sheet syncSecrets,目录,sheet,toc,,BUTTON
+sheet syncSecrets,笔记,sheet,notes,,BUTTON
+sheet syncSecrets,进度,sheet,progress,,BUTTON
+sheet syncSecrets,模式,sheet,modes,,BUTTON
+sheet syncSecrets,排版,sheet,typography,,BUTTON
+sheet syncSecrets,关闭面板,closeSheet,,,BUTTON
+sheet syncSecrets,取消,backSheet,,,BUTTON
+sheet syncSecrets,开启,enableSecrets,,,BUTTON
+sheet syncSecrets,选择本地文字文件,,,,INPUT
+sheet syncSecrets,选择字体文件,,,,INPUT
+sheet syncSecrets,选择原型备份,,,,INPUT
+sheet syncDetails,返回藏书,exitReader,,,BUTTON
+sheet syncDetails,添加或移除书签,bookmark,,,BUTTON
+sheet syncDetails,阅读工具,sheet,readerMore,,BUTTON
+sheet syncDetails,上一章,relativeChapter,-1,,BUTTON
+sheet syncDetails,阅读进度,,,bookProgress,INPUT
+sheet syncDetails,下一章,relativeChapter,1,,BUTTON
+sheet syncDetails,目录,sheet,toc,,BUTTON
+sheet syncDetails,笔记,sheet,notes,,BUTTON
+sheet syncDetails,进度,sheet,progress,,BUTTON
+sheet syncDetails,模式,sheet,modes,,BUTTON
+sheet syncDetails,排版,sheet,typography,,BUTTON
+sheet syncDetails,关闭面板,closeSheet,,,BUTTON
+sheet syncDetails,选择本地文字文件,,,,INPUT
+sheet syncDetails,选择字体文件,,,,INPUT
+sheet syncDetails,选择原型备份,,,,INPUT
+sheet addSource,返回藏书,exitReader,,,BUTTON
+sheet addSource,添加或移除书签,bookmark,,,BUTTON
+sheet addSource,阅读工具,sheet,readerMore,,BUTTON
+sheet addSource,上一章,relativeChapter,-1,,BUTTON
+sheet addSource,阅读进度,,,bookProgress,INPUT
+sheet addSource,下一章,relativeChapter,1,,BUTTON
+sheet addSource,目录,sheet,toc,,BUTTON
+sheet addSource,笔记,sheet,notes,,BUTTON
+sheet addSource,进度,sheet,progress,,BUTTON
+sheet addSource,模式,sheet,modes,,BUTTON
+sheet addSource,排版,sheet,typography,,BUTTON
+sheet addSource,关闭面板,closeSheet,,,BUTTON
+sheet addSource,source-name,,,,INPUT
+sheet addSource,source-url,,,,INPUT
+sheet addSource,source-user,,,,INPUT
+sheet addSource,source-pass,,,,INPUT
+sheet addSource,连接并保存,,,,BUTTON
+sheet addSource,选择本地文字文件,,,,INPUT
+sheet addSource,选择字体文件,,,,INPUT
+sheet addSource,选择原型备份,,,,INPUT
+sheet sourceScope,返回藏书,exitReader,,,BUTTON
+sheet sourceScope,添加或移除书签,bookmark,,,BUTTON
+sheet sourceScope,阅读工具,sheet,readerMore,,BUTTON
+sheet sourceScope,上一章,relativeChapter,-1,,BUTTON
+sheet sourceScope,阅读进度,,,bookProgress,INPUT
+sheet sourceScope,下一章,relativeChapter,1,,BUTTON
+sheet sourceScope,目录,sheet,toc,,BUTTON
+sheet sourceScope,笔记,sheet,notes,,BUTTON
+sheet sourceScope,进度,sheet,progress,,BUTTON
+sheet sourceScope,模式,sheet,modes,,BUTTON
+sheet sourceScope,排版,sheet,typography,,BUTTON
+sheet sourceScope,关闭面板,closeSheet,,,BUTTON
+sheet sourceScope,古登堡计划,,,scope0,INPUT
+sheet sourceScope,Internet Archive,,,scope1,INPUT
+sheet sourceScope,arXiv,,,scope2,INPUT
+sheet sourceScope,私人书库,,,scope3,INPUT
+sheet sourceScope,选择本地文字文件,,,,INPUT
+sheet sourceScope,选择字体文件,,,,INPUT
+sheet sourceScope,选择原型备份,,,,INPUT
+sheet paperImport,返回藏书,exitReader,,,BUTTON
+sheet paperImport,添加或移除书签,bookmark,,,BUTTON
+sheet paperImport,阅读工具,sheet,readerMore,,BUTTON
+sheet paperImport,上一章,relativeChapter,-1,,BUTTON
+sheet paperImport,阅读进度,,,bookProgress,INPUT
+sheet paperImport,下一章,relativeChapter,1,,BUTTON
+sheet paperImport,目录,sheet,toc,,BUTTON
+sheet paperImport,笔记,sheet,notes,,BUTTON
+sheet paperImport,进度,sheet,progress,,BUTTON
+sheet paperImport,模式,sheet,modes,,BUTTON
+sheet paperImport,排版,sheet,typography,,BUTTON
+sheet paperImport,关闭面板,closeSheet,,,BUTTON
+sheet paperImport,查看原版与重排样稿,openPaper,0,,BUTTON
+sheet paperImport,在书源找论文,nav,sources,,BUTTON
+sheet paperImport,选择本地文字文件,,,,INPUT
+sheet paperImport,选择字体文件,,,,INPUT
+sheet paperImport,选择原型备份,,,,INPUT
+sheet paperToc,返回藏书,exitReader,,,BUTTON
+sheet paperToc,添加或移除书签,bookmark,,,BUTTON
+sheet paperToc,阅读工具,sheet,readerMore,,BUTTON
+sheet paperToc,上一章,relativeChapter,-1,,BUTTON
+sheet paperToc,阅读进度,,,bookProgress,INPUT
+sheet paperToc,下一章,relativeChapter,1,,BUTTON
+sheet paperToc,目录,sheet,toc,,BUTTON
+sheet paperToc,笔记,sheet,notes,,BUTTON
+sheet paperToc,进度,sheet,progress,,BUTTON
+sheet paperToc,模式,sheet,modes,,BUTTON
+sheet paperToc,排版,sheet,typography,,BUTTON
+sheet paperToc,关闭面板,closeSheet,,,BUTTON
+sheet paperToc,"1. 阅读界面中的注意与留白
+1",paperGoto,1,,BUTTON
+sheet paperToc,"2. 为常用操作安排位置
+2",paperGoto,2,,BUTTON
+sheet paperToc,"3. 保持任务的连续性
+3",paperGoto,3,,BUTTON
+sheet paperToc,选择本地文字文件,,,,INPUT
+sheet paperToc,选择字体文件,,,,INPUT
+sheet paperToc,选择原型备份,,,,INPUT
+sheet paperTranslate,返回藏书,exitReader,,,BUTTON
+sheet paperTranslate,添加或移除书签,bookmark,,,BUTTON
+sheet paperTranslate,阅读工具,sheet,readerMore,,BUTTON
+sheet paperTranslate,上一章,relativeChapter,-1,,BUTTON
+sheet paperTranslate,阅读进度,,,bookProgress,INPUT
+sheet paperTranslate,下一章,relativeChapter,1,,BUTTON
+sheet paperTranslate,目录,sheet,toc,,BUTTON
+sheet paperTranslate,笔记,sheet,notes,,BUTTON
+sheet paperTranslate,进度,sheet,progress,,BUTTON
+sheet paperTranslate,模式,sheet,modes,,BUTTON
+sheet paperTranslate,排版,sheet,typography,,BUTTON
+sheet paperTranslate,关闭面板,closeSheet,,,BUTTON
+sheet paperTranslate,复制译文,copyTranslation,,,BUTTON
+sheet paperTranslate,配置 AI 助手,settingsSub,ai,,BUTTON
+sheet paperTranslate,选择本地文字文件,,,,INPUT
+sheet paperTranslate,选择字体文件,,,,INPUT
+sheet paperTranslate,选择原型备份,,,,INPUT
+sheet paperAI,返回藏书,exitReader,,,BUTTON
+sheet paperAI,添加或移除书签,bookmark,,,BUTTON
+sheet paperAI,阅读工具,sheet,readerMore,,BUTTON
+sheet paperAI,上一章,relativeChapter,-1,,BUTTON
+sheet paperAI,阅读进度,,,bookProgress,INPUT
+sheet paperAI,下一章,relativeChapter,1,,BUTTON
+sheet paperAI,目录,sheet,toc,,BUTTON
+sheet paperAI,笔记,sheet,notes,,BUTTON
+sheet paperAI,进度,sheet,progress,,BUTTON
+sheet paperAI,模式,sheet,modes,,BUTTON
+sheet paperAI,排版,sheet,typography,,BUTTON
+sheet paperAI,关闭面板,closeSheet,,,BUTTON
+sheet paperAI,主要内容,askPaper,这篇样稿在讨论什么？,,BUTTON
+sheet paperAI,检查清单,askPaper,有哪些设计检查点？,,BUTTON
+sheet paperAI,paper-question,,,,INPUT
+sheet paperAI,提问,,,,BUTTON
+sheet paperAI,选择本地文字文件,,,,INPUT
+sheet paperAI,选择字体文件,,,,INPUT
+sheet paperAI,选择原型备份,,,,INPUT
+sheet paperThumbnails,返回藏书,exitReader,,,BUTTON
+sheet paperThumbnails,添加或移除书签,bookmark,,,BUTTON
+sheet paperThumbnails,阅读工具,sheet,readerMore,,BUTTON
+sheet paperThumbnails,上一章,relativeChapter,-1,,BUTTON
+sheet paperThumbnails,阅读进度,,,bookProgress,INPUT
+sheet paperThumbnails,下一章,relativeChapter,1,,BUTTON
+sheet paperThumbnails,目录,sheet,toc,,BUTTON
+sheet paperThumbnails,笔记,sheet,notes,,BUTTON
+sheet paperThumbnails,进度,sheet,progress,,BUTTON
+sheet paperThumbnails,模式,sheet,modes,,BUTTON
+sheet paperThumbnails,排版,sheet,typography,,BUTTON
+sheet paperThumbnails,关闭面板,closeSheet,,,BUTTON
+sheet paperThumbnails,"阅读界面中的注意与留白
+阅读界面需要同时容纳长文本和工具。
+
+让内容保持连续，按需展开操作。
+
+记录读者的位置，提供清楚的反馈。
+第 1 页",paperGoto,1,,BUTTON
+sheet paperThumbnails,"为常用操作安排位置
+阅读界面需要同时容纳长文本和工具。
+
+让内容保持连续，按需展开操作。
+
+记录读者的位置，提供清楚的反馈。
+第 2 页",paperGoto,2,,BUTTON
+sheet paperThumbnails,"保持任务的连续性
+阅读界面需要同时容纳长文本和工具。
+
+让内容保持连续，按需展开操作。
+
+记录读者的位置，提供清楚的反馈。
+第 3 页",paperGoto,3,,BUTTON
+sheet paperThumbnails,选择本地文字文件,,,,INPUT
+sheet paperThumbnails,选择字体文件,,,,INPUT
+sheet paperThumbnails,选择原型备份,,,,INPUT
+sheet paperNotes,返回藏书,exitReader,,,BUTTON
+sheet paperNotes,添加或移除书签,bookmark,,,BUTTON
+sheet paperNotes,阅读工具,sheet,readerMore,,BUTTON
+sheet paperNotes,上一章,relativeChapter,-1,,BUTTON
+sheet paperNotes,阅读进度,,,bookProgress,INPUT
+sheet paperNotes,下一章,relativeChapter,1,,BUTTON
+sheet paperNotes,目录,sheet,toc,,BUTTON
+sheet paperNotes,笔记,sheet,notes,,BUTTON
+sheet paperNotes,进度,sheet,progress,,BUTTON
+sheet paperNotes,模式,sheet,modes,,BUTTON
+sheet paperNotes,排版,sheet,typography,,BUTTON
+sheet paperNotes,关闭面板,closeSheet,,,BUTTON
+sheet paperNotes,"第 1 页
+
+论文笔记可以回看",paperGoto,1,,BUTTON
+sheet paperNotes,选择本地文字文件,,,,INPUT
+sheet paperNotes,选择字体文件,,,,INPUT
+sheet paperNotes,选择原型备份,,,,INPUT
+sheet paperTools,返回藏书,exitReader,,,BUTTON
+sheet paperTools,添加或移除书签,bookmark,,,BUTTON
+sheet paperTools,阅读工具,sheet,readerMore,,BUTTON
+sheet paperTools,上一章,relativeChapter,-1,,BUTTON
+sheet paperTools,阅读进度,,,bookProgress,INPUT
+sheet paperTools,下一章,relativeChapter,1,,BUTTON
+sheet paperTools,目录,sheet,toc,,BUTTON
+sheet paperTools,笔记,sheet,notes,,BUTTON
+sheet paperTools,进度,sheet,progress,,BUTTON
+sheet paperTools,模式,sheet,modes,,BUTTON
+sheet paperTools,排版,sheet,typography,,BUTTON
+sheet paperTools,关闭面板,closeSheet,,,BUTTON
+sheet paperTools,页面缩略图,sheet,paperThumbnails,,BUTTON
+sheet paperTools,添加本页书签,paperBookmark,,,BUTTON
+sheet paperTools,记一条想法,paperNote,,,BUTTON
+sheet paperTools,"笔记与书签
+1",sheet,paperNotes,,BUTTON
+sheet paperTools,适合宽度,paperFit,,,BUTTON
+sheet paperTools,打印样稿,printPaper,,,BUTTON
+sheet paperTools,缩放,,,paperZoom,INPUT
+sheet paperTools,选择本地文字文件,,,,INPUT
+sheet paperTools,选择字体文件,,,,INPUT
+sheet paperTools,选择原型备份,,,,INPUT
+sheet resetTypography,返回藏书,exitReader,,,BUTTON
+sheet resetTypography,添加或移除书签,bookmark,,,BUTTON
+sheet resetTypography,阅读工具,sheet,readerMore,,BUTTON
+sheet resetTypography,上一章,relativeChapter,-1,,BUTTON
+sheet resetTypography,阅读进度,,,bookProgress,INPUT
+sheet resetTypography,下一章,relativeChapter,1,,BUTTON
+sheet resetTypography,目录,sheet,toc,,BUTTON
+sheet resetTypography,笔记,sheet,notes,,BUTTON
+sheet resetTypography,进度,sheet,progress,,BUTTON
+sheet resetTypography,模式,sheet,modes,,BUTTON
+sheet resetTypography,排版,sheet,typography,,BUTTON
+sheet resetTypography,关闭面板,closeSheet,,,BUTTON
+sheet resetTypography,取消,closeSheet,,,BUTTON
+sheet resetTypography,恢复默认,resetTypography,,,BUTTON
+sheet resetTypography,选择本地文字文件,,,,INPUT
+sheet resetTypography,选择字体文件,,,,INPUT
+sheet resetTypography,选择原型备份,,,,INPUT
+sheet resetDemo,返回藏书,exitReader,,,BUTTON
+sheet resetDemo,添加或移除书签,bookmark,,,BUTTON
+sheet resetDemo,阅读工具,sheet,readerMore,,BUTTON
+sheet resetDemo,上一章,relativeChapter,-1,,BUTTON
+sheet resetDemo,阅读进度,,,bookProgress,INPUT
+sheet resetDemo,下一章,relativeChapter,1,,BUTTON
+sheet resetDemo,目录,sheet,toc,,BUTTON
+sheet resetDemo,笔记,sheet,notes,,BUTTON
+sheet resetDemo,进度,sheet,progress,,BUTTON
+sheet resetDemo,模式,sheet,modes,,BUTTON
+sheet resetDemo,排版,sheet,typography,,BUTTON
+sheet resetDemo,关闭面板,closeSheet,,,BUTTON
+sheet resetDemo,取消,closeSheet,,,BUTTON
+sheet resetDemo,重置演示数据,resetDemo,,,BUTTON
+sheet resetDemo,选择本地文字文件,,,,INPUT
+sheet resetDemo,选择字体文件,,,,INPUT
+sheet resetDemo,选择原型备份,,,,INPUT
+sheet stateLab,返回藏书,exitReader,,,BUTTON
+sheet stateLab,添加或移除书签,bookmark,,,BUTTON
+sheet stateLab,阅读工具,sheet,readerMore,,BUTTON
+sheet stateLab,上一章,relativeChapter,-1,,BUTTON
+sheet stateLab,阅读进度,,,bookProgress,INPUT
+sheet stateLab,下一章,relativeChapter,1,,BUTTON
+sheet stateLab,目录,sheet,toc,,BUTTON
+sheet stateLab,笔记,sheet,notes,,BUTTON
+sheet stateLab,进度,sheet,progress,,BUTTON
+sheet stateLab,模式,sheet,modes,,BUTTON
+sheet stateLab,排版,sheet,typography,,BUTTON
+sheet stateLab,关闭面板,closeSheet,,,BUTTON
+sheet stateLab,同步超时,lab,syncError,,BUTTON
+sheet stateLab,文件待补充,lab,syncPending,,BUTTON
+sheet stateLab,听书中断,lab,ttsError,,BUTTON
+sheet stateLab,定时到点,lab,timerEnd,,BUTTON
+sheet stateLab,书源连接失败,lab,sourceError,,BUTTON
+sheet stateLab,休息提醒,lab,reminder,,BUTTON
+sheet stateLab,清除异常演示,lab,normal,,BUTTON
+sheet stateLab,选择本地文字文件,,,,INPUT
+sheet stateLab,选择字体文件,,,,INPUT
+sheet stateLab,选择原型备份,,,,INPUT
+sheet reminder,返回藏书,exitReader,,,BUTTON
+sheet reminder,添加或移除书签,bookmark,,,BUTTON
+sheet reminder,阅读工具,sheet,readerMore,,BUTTON
+sheet reminder,上一章,relativeChapter,-1,,BUTTON
+sheet reminder,阅读进度,,,bookProgress,INPUT
+sheet reminder,下一章,relativeChapter,1,,BUTTON
+sheet reminder,目录,sheet,toc,,BUTTON
+sheet reminder,笔记,sheet,notes,,BUTTON
+sheet reminder,进度,sheet,progress,,BUTTON
+sheet reminder,模式,sheet,modes,,BUTTON
+sheet reminder,排版,sheet,typography,,BUTTON
+sheet reminder,关闭面板,closeSheet,,,BUTTON
+sheet reminder,稍后提醒,snoozeReminder,,,BUTTON
+sheet reminder,休息好了,closeSheet,,,BUTTON
+sheet reminder,选择本地文字文件,,,,INPUT
+sheet reminder,选择字体文件,,,,INPUT
+sheet reminder,选择原型备份,,,,INPUT
+sheet shortcuts,返回藏书,exitReader,,,BUTTON
+sheet shortcuts,添加或移除书签,bookmark,,,BUTTON
+sheet shortcuts,阅读工具,sheet,readerMore,,BUTTON
+sheet shortcuts,上一章,relativeChapter,-1,,BUTTON
+sheet shortcuts,阅读进度,,,bookProgress,INPUT
+sheet shortcuts,下一章,relativeChapter,1,,BUTTON
+sheet shortcuts,目录,sheet,toc,,BUTTON
+sheet shortcuts,笔记,sheet,notes,,BUTTON
+sheet shortcuts,进度,sheet,progress,,BUTTON
+sheet shortcuts,模式,sheet,modes,,BUTTON
+sheet shortcuts,排版,sheet,typography,,BUTTON
+sheet shortcuts,关闭面板,closeSheet,,,BUTTON
+sheet shortcuts,选择本地文字文件,,,,INPUT
+sheet shortcuts,选择字体文件,,,,INPUT
+sheet shortcuts,选择原型备份,,,,INPUT
+sheet prototypeHelp,返回藏书,exitReader,,,BUTTON
+sheet prototypeHelp,添加或移除书签,bookmark,,,BUTTON
+sheet prototypeHelp,阅读工具,sheet,readerMore,,BUTTON
+sheet prototypeHelp,上一章,relativeChapter,-1,,BUTTON
+sheet prototypeHelp,阅读进度,,,bookProgress,INPUT
+sheet prototypeHelp,下一章,relativeChapter,1,,BUTTON
+sheet prototypeHelp,目录,sheet,toc,,BUTTON
+sheet prototypeHelp,笔记,sheet,notes,,BUTTON
+sheet prototypeHelp,进度,sheet,progress,,BUTTON
+sheet prototypeHelp,模式,sheet,modes,,BUTTON
+sheet prototypeHelp,排版,sheet,typography,,BUTTON
+sheet prototypeHelp,关闭面板,closeSheet,,,BUTTON
+sheet prototypeHelp,开始读样章,read,mountain,,BUTTON
+sheet prototypeHelp,选择本地文字文件,,,,INPUT
+sheet prototypeHelp,选择字体文件,,,,INPUT
+sheet prototypeHelp,选择原型备份,,,,INPUT
+sheet credits,返回藏书,exitReader,,,BUTTON
+sheet credits,添加或移除书签,bookmark,,,BUTTON
+sheet credits,阅读工具,sheet,readerMore,,BUTTON
+sheet credits,上一章,relativeChapter,-1,,BUTTON
+sheet credits,阅读进度,,,bookProgress,INPUT
+sheet credits,下一章,relativeChapter,1,,BUTTON
+sheet credits,目录,sheet,toc,,BUTTON
+sheet credits,笔记,sheet,notes,,BUTTON
+sheet credits,进度,sheet,progress,,BUTTON
+sheet credits,模式,sheet,modes,,BUTTON
+sheet credits,排版,sheet,typography,,BUTTON
+sheet credits,关闭面板,closeSheet,,,BUTTON
+sheet credits,选择本地文字文件,,,,INPUT
+sheet credits,选择字体文件,,,,INPUT
+sheet credits,选择原型备份,,,,INPUT
+320 library,藏书,nav,library,,BUTTON
+320 library,论文,nav,papers,,BUTTON
+320 library,书源,nav,sources,,BUTTON
+320 library,阅读记录,nav,stats,,BUTTON
+320 library,设置,nav,settings,,BUTTON
+320 library,搜索藏书,focusSearch,,,BUTTON
+320 library,添加书籍,sheet,import,,BUTTON
+320 library,收起原型提示,dismissDemo,,,BUTTON
+320 library,搜索藏书,,,,INPUT
+320 library,继续阅读,read,mountain,,BUTTON
+320 library,管理,selectBooks,,,BUTTON
+320 library,全部,filter,all,,BUTTON
+320 library,在读,filter,reading,,BUTTON
+320 library,未读,filter,unread,,BUTTON
+320 library,读完,filter,finished,,BUTTON
+320 library,书单,filter,lists,,BUTTON
+320 library,排序与视图,sheet,sort,,BUTTON
+320 library,阅读《山间来信》,read,mountain,,BUTTON
+320 library,山间来信的更多操作,bookMenu,mountain,,BUTTON
+320 library,阅读《验收导入》,read,8b0dbae2-0d22-411e-8004-6863e5b53caa,,BUTTON
+320 library,验收导入的更多操作,bookMenu,8b0dbae2-0d22-411e-8004-6863e5b53caa,,BUTTON
+320 library,阅读《慢读的日常》,read,sample0,,BUTTON
+320 library,慢读的日常的更多操作,bookMenu,sample0,,BUTTON
+320 library,阅读《给未来的笔记》,read,sample1,,BUTTON
+320 library,给未来的笔记的更多操作,bookMenu,sample1,,BUTTON
+320 library,阅读《城市与步行》,read,sample2,,BUTTON
+320 library,城市与步行的更多操作,bookMenu,sample2,,BUTTON
+320 library,阅读《看见微小的事》,read,sample3,,BUTTON
+320 library,看见微小的事的更多操作,bookMenu,sample3,,BUTTON
+320 library,阅读《海边书简》,read,sample4,,BUTTON
+320 library,海边书简的更多操作,bookMenu,sample4,,BUTTON
+320 library,选择本地文字文件,,,,INPUT
+320 library,选择字体文件,,,,INPUT
+320 library,选择原型备份,,,,INPUT
+320 papers,藏书,nav,library,,BUTTON
+320 papers,论文,nav,papers,,BUTTON
+320 papers,书源,nav,sources,,BUTTON
+320 papers,阅读记录,nav,stats,,BUTTON
+320 papers,设置,nav,settings,,BUTTON
+320 papers,添加论文,sheet,paperImport,,BUTTON
+320 papers,搜索论文,,,,INPUT
+320 papers,全部,paperFilter,全部,,BUTTON
+320 papers,在读,paperFilter,在读,,BUTTON
+320 papers,未读,paperFilter,未读,,BUTTON
+320 papers,读完,paperFilter,读完,,BUTTON
+320 papers,"阅读样稿
+阅读界面中的注意与留白
+
+原创研究样稿 · 3 页 · 在读",openPaper,0,,BUTTON
+320 papers,选择本地文字文件,,,,INPUT
+320 papers,选择字体文件,,,,INPUT
+320 papers,选择原型备份,,,,INPUT
+320 sources,藏书,nav,library,,BUTTON
+320 sources,论文,nav,papers,,BUTTON
+320 sources,书源,nav,sources,,BUTTON
+320 sources,阅读记录,nav,stats,,BUTTON
+320 sources,设置,nav,settings,,BUTTON
+320 sources,添加书源,sheet,addSource,,BUTTON
+320 sources,搜索书源,,,,INPUT
+320 sources,搜索,,,,BUTTON
+320 sources,选择,sheet,sourceScope,,BUTTON
+320 sources,"古登堡计划
+公版图书",sourceOpen,古登堡计划,,BUTTON
+320 sources,"Internet Archive
+数字馆藏",sourceOpen,Internet Archive,,BUTTON
+320 sources,"arXiv
+学术论文",sourceOpen,arXiv,,BUTTON
+320 sources,"GitHub 书源
+社区共建",sourceOpen,GitHub 书源,,BUTTON
+320 sources,"连接私人书库
+按你习惯的方式管理藏书
+OPDS / Calibre-Web",sheet,addSource,,BUTTON
+320 sources,"慢慢读
+从已有藏书开始",openList,慢慢读,,BUTTON
+320 sources,"待读
+从已有藏书开始",openList,待读,,BUTTON
+320 sources,"本周想读
+从已有藏书开始",openList,本周想读,,BUTTON
+320 sources,选择本地文字文件,,,,INPUT
+320 sources,选择字体文件,,,,INPUT
+320 sources,选择原型备份,,,,INPUT
+320 stats,藏书,nav,library,,BUTTON
+320 stats,论文,nav,papers,,BUTTON
+320 stats,书源,nav,sources,,BUTTON
+320 stats,阅读记录,nav,stats,,BUTTON
+320 stats,设置,nav,settings,,BUTTON
+320 stats,阅读目标,sheet,goal,,BUTTON
+320 stats,周,statsRange,week,,BUTTON
+320 stats,月,statsRange,month,,BUTTON
+320 stats,年,statsRange,year,,BUTTON
+320 stats,全部,statsRange,all,,BUTTON
+320 stats,目标 30 分钟,sheet,goal,,BUTTON
+320 stats,"0
+一",statsDay,0,,BUTTON
+320 stats,"0
+二",statsDay,1,,BUTTON
+320 stats,"0
+三",statsDay,2,,BUTTON
+320 stats,"0
+四",statsDay,3,,BUTTON
+320 stats,"0
+五",statsDay,4,,BUTTON
+320 stats,"0
+六",statsDay,5,,BUTTON
+320 stats,"0
+日",statsDay,6,,BUTTON
+320 stats,1,calendarDay,1,,BUTTON
+320 stats,2,calendarDay,2,,BUTTON
+320 stats,3,calendarDay,3,,BUTTON
+320 stats,4,calendarDay,4,,BUTTON
+320 stats,5,calendarDay,5,,BUTTON
+320 stats,6,calendarDay,6,,BUTTON
+320 stats,7,calendarDay,7,,BUTTON
+320 stats,8,calendarDay,8,,BUTTON
+320 stats,9,calendarDay,9,,BUTTON
+320 stats,10,calendarDay,10,,BUTTON
+320 stats,11,calendarDay,11,,BUTTON
+320 stats,12,calendarDay,12,,BUTTON
+320 stats,13,calendarDay,13,,BUTTON
+320 stats,14,calendarDay,14,,BUTTON
+320 stats,15,calendarDay,15,,BUTTON
+320 stats,16,calendarDay,16,,BUTTON
+320 stats,17,calendarDay,17,,BUTTON
+320 stats,18,calendarDay,18,,BUTTON
+320 stats,19,calendarDay,19,,BUTTON
+320 stats,20,calendarDay,20,,BUTTON
+320 stats,21,calendarDay,21,,BUTTON
+320 stats,22,calendarDay,22,,BUTTON
+320 stats,23,calendarDay,23,,BUTTON
+320 stats,24,calendarDay,24,,BUTTON
+320 stats,25,calendarDay,25,,BUTTON
+320 stats,26,calendarDay,26,,BUTTON
+320 stats,27,calendarDay,27,,BUTTON
+320 stats,28,calendarDay,28,,BUTTON
+320 stats,29,calendarDay,29,,BUTTON
+320 stats,30,calendarDay,30,,BUTTON
+320 stats,31,calendarDay,31,,BUTTON
+320 stats,"山间来信
+第一章　山里的早晨
+继续阅读",read,mountain,,BUTTON
+320 stats,"慢读的日常
+第一章　在窗边读十分钟
+继续阅读",read,sample0,,BUTTON
+320 stats,选择本地文字文件,,,,INPUT
+320 stats,选择字体文件,,,,INPUT
+320 stats,选择原型备份,,,,INPUT
+320 settings,藏书,nav,library,,BUTTON
+320 settings,论文,nav,papers,,BUTTON
+320 settings,书源,nav,sources,,BUTTON
+320 settings,阅读记录,nav,stats,,BUTTON
+320 settings,设置,nav,settings,,BUTTON
+320 settings,"账号与同步
+网盘已连接 · 流程演示",settingsSub,sync,,BUTTON
+320 settings,"外观
+浅色",sheet,appearance,,BUTTON
+320 settings,阅读偏好,settingsSub,reading,,BUTTON
+320 settings,功能,settingsSub,features,,BUTTON
+320 settings,"账号与同步
+演示已连接",settingsSub,sync,,BUTTON
+320 settings,设备互传,nav,transfer,,BUTTON
+320 settings,数据与备份,settingsSub,data,,BUTTON
+320 settings,"网络
+未设置",settingsSub,network,,BUTTON
+320 settings,"AI 助手
+未配置",settingsSub,ai,,BUTTON
+320 settings,"关于轻阅
+交互原型 v3",settingsSub,about,,BUTTON
+320 settings,选择本地文字文件,,,,INPUT
+320 settings,选择字体文件,,,,INPUT
+320 settings,选择原型备份,,,,INPUT
+320 transfer,藏书,nav,library,,BUTTON
+320 transfer,论文,nav,papers,,BUTTON
+320 transfer,书源,nav,sources,,BUTTON
+320 transfer,阅读记录,nav,stats,,BUTTON
+320 transfer,设置,nav,settings,,BUTTON
+320 transfer,返回,nav,library,,BUTTON
+320 transfer,接收,transferTab,receive,,BUTTON
+320 transfer,发送,transferTab,send,,BUTTON
+320 transfer,pickup-code,,,,INPUT
+320 transfer,取件,,,,BUTTON
+320 transfer,选择本地文字文件,,,,INPUT
+320 transfer,选择字体文件,,,,INPUT
+320 transfer,选择原型备份,,,,INPUT
+320 settings/reading,藏书,nav,library,,BUTTON
+320 settings/reading,论文,nav,papers,,BUTTON
+320 settings/reading,书源,nav,sources,,BUTTON
+320 settings/reading,阅读记录,nav,stats,,BUTTON
+320 settings/reading,设置,nav,settings,,BUTTON
+320 settings/reading,返回,nav,settings,,BUTTON
+320 settings/reading,"打开阅读排版
+继续上次的书",openTypography,,,BUTTON
+320 settings/reading,"每日阅读目标
+30 分钟",sheet,goal,,BUTTON
+320 settings/reading,阅读时保持屏幕常亮,,,keepAwake,INPUT
+320 settings/reading,点击左侧也翻到下一页,,,tapLeftNext,INPUT
+320 settings/reading,翻页动画,,,animation,INPUT
+320 settings/reading,"恢复默认排版
+仅恢复字号、配色和页面设置",sheet,resetTypography,,BUTTON
+320 settings/reading,选择本地文字文件,,,,INPUT
+320 settings/reading,选择字体文件,,,,INPUT
+320 settings/reading,选择原型备份,,,,INPUT
+320 settings/sync,藏书,nav,library,,BUTTON
+320 settings/sync,论文,nav,papers,,BUTTON
+320 settings/sync,书源,nav,sources,,BUTTON
+320 settings/sync,阅读记录,nav,stats,,BUTTON
+320 settings/sync,设置,nav,settings,,BUTTON
+320 settings/sync,返回,nav,settings,,BUTTON
+320 settings/sync,立即同步,syncNow,,,BUTTON
+320 settings/sync,"轻阅账号
+未登录",sheet,account,,BUTTON
+320 settings/sync,"网盘（WebDAV）
+坚果云 · 演示",sheet,webdavInfo,,BUTTON
+320 settings/sync,自动同步,,,autoSync,INPUT
+320 settings/sync,同步书籍文件,,,syncFiles,INPUT
+320 settings/sync,同步设置,,,syncSettings,INPUT
+320 settings/sync,同时同步密码与密钥,,,syncSecrets,INPUT
+320 settings/sync,同步明细,sheet,syncDetails,,BUTTON
+320 settings/sync,设备互传,nav,transfer,,BUTTON
+320 settings/sync,选择本地文字文件,,,,INPUT
+320 settings/sync,选择字体文件,,,,INPUT
+320 settings/sync,选择原型备份,,,,INPUT
+320 settings/ai,藏书,nav,library,,BUTTON
+320 settings/ai,论文,nav,papers,,BUTTON
+320 settings/ai,书源,nav,sources,,BUTTON
+320 settings/ai,阅读记录,nav,stats,,BUTTON
+320 settings/ai,设置,nav,settings,,BUTTON
+320 settings/ai,返回,nav,settings,,BUTTON
+320 settings/ai,ai-provider,,,,INPUT
+320 settings/ai,ai-model,,,,INPUT
+320 settings/ai,ai-url,,,,INPUT
+320 settings/ai,ai-key,,,,INPUT
+320 settings/ai,填入演示资料,fillAI,,,BUTTON
+320 settings/ai,测试并保存,,,,BUTTON
+320 settings/ai,选择本地文字文件,,,,INPUT
+320 settings/ai,选择字体文件,,,,INPUT
+320 settings/ai,选择原型备份,,,,INPUT
+320 settings/network,藏书,nav,library,,BUTTON
+320 settings/network,论文,nav,papers,,BUTTON
+320 settings/network,书源,nav,sources,,BUTTON
+320 settings/network,阅读记录,nav,stats,,BUTTON
+320 settings/network,设置,nav,settings,,BUTTON
+320 settings/network,返回,nav,settings,,BUTTON
+320 settings/network,proxy-type,,,,INPUT
+320 settings/network,proxy-host,,,,INPUT
+320 settings/network,proxy-port,,,,INPUT
+320 settings/network,保存并测试,,,,BUTTON
+320 settings/network,不使用代理,clearNetwork,,,BUTTON
+320 settings/network,选择本地文字文件,,,,INPUT
+320 settings/network,选择字体文件,,,,INPUT
+320 settings/network,选择原型备份,,,,INPUT
+320 settings/data,藏书,nav,library,,BUTTON
+320 settings/data,论文,nav,papers,,BUTTON
+320 settings/data,书源,nav,sources,,BUTTON
+320 settings/data,阅读记录,nav,stats,,BUTTON
+320 settings/data,设置,nav,settings,,BUTTON
+320 settings/data,返回,nav,settings,,BUTTON
+320 settings/data,"导出原型备份
+包含原型藏书、阅读位置、笔记和偏好
+JSON",exportBackup,,,BUTTON
+320 settings/data,"导入原型备份
+已有内容会先保留，确认后恢复",importBackup,,,BUTTON
+320 settings/data,"导出全部笔记
+Markdown",exportNotes,all,,BUTTON
+320 settings/data,"重置原型演示数据
+恢复原创样章和初始设置",sheet,resetDemo,,BUTTON
+320 settings/data,选择本地文字文件,,,,INPUT
+320 settings/data,选择字体文件,,,,INPUT
+320 settings/data,选择原型备份,,,,INPUT
+320 settings/features,藏书,nav,library,,BUTTON
+320 settings/features,论文,nav,papers,,BUTTON
+320 settings/features,书源,nav,sources,,BUTTON
+320 settings/features,阅读记录,nav,stats,,BUTTON
+320 settings/features,设置,nav,settings,,BUTTON
+320 settings/features,返回,nav,settings,,BUTTON
+320 settings/features,书单推荐,,,featureBooklists,INPUT
+320 settings/features,互传,,,featureTransfer,INPUT
+320 settings/features,选择本地文字文件,,,,INPUT
+320 settings/features,选择字体文件,,,,INPUT
+320 settings/features,选择原型备份,,,,INPUT
+320 settings/about,藏书,nav,library,,BUTTON
+320 settings/about,论文,nav,papers,,BUTTON
+320 settings/about,书源,nav,sources,,BUTTON
+320 settings/about,阅读记录,nav,stats,,BUTTON
+320 settings/about,设置,nav,settings,,BUTTON
+320 settings/about,返回,nav,settings,,BUTTON
+320 settings/about,原型使用说明,sheet,prototypeHelp,,BUTTON
+320 settings/about,可验证的状态,sheet,stateLab,,BUTTON
+320 settings/about,键盘与触屏操作,sheet,shortcuts,,BUTTON
+320 settings/about,字体与内容来源,sheet,credits,,BUTTON
+320 settings/about,选择本地文字文件,,,,INPUT
+320 settings/about,选择字体文件,,,,INPUT
+320 settings/about,选择原型备份,,,,INPUT
+320 reading,返回藏书,exitReader,,,BUTTON
+320 reading,添加或移除书签,bookmark,,,BUTTON
+320 reading,阅读工具,sheet,readerMore,,BUTTON
+320 reading,上一章,relativeChapter,-1,,BUTTON
+320 reading,阅读进度,,,bookProgress,INPUT
+320 reading,下一章,relativeChapter,1,,BUTTON
+320 reading,目录,sheet,toc,,BUTTON
+320 reading,笔记,sheet,notes,,BUTTON
+320 reading,进度,sheet,progress,,BUTTON
+320 reading,模式,sheet,modes,,BUTTON
+320 reading,排版,sheet,typography,,BUTTON
+320 reading,选择本地文字文件,,,,INPUT
+320 reading,选择字体文件,,,,INPUT
+320 reading,选择原型备份,,,,INPUT
+320 typography,返回藏书,exitReader,,,BUTTON
+320 typography,添加或移除书签,bookmark,,,BUTTON
+320 typography,阅读工具,sheet,readerMore,,BUTTON
+320 typography,上一章,relativeChapter,-1,,BUTTON
+320 typography,阅读进度,,,bookProgress,INPUT
+320 typography,下一章,relativeChapter,1,,BUTTON
+320 typography,目录,sheet,toc,,BUTTON
+320 typography,笔记,sheet,notes,,BUTTON
+320 typography,进度,sheet,progress,,BUTTON
+320 typography,模式,sheet,modes,,BUTTON
+320 typography,排版,sheet,typography,,BUTTON
+320 typography,关闭面板,closeSheet,,,BUTTON
+320 typography,文字,typeTab,text,,BUTTON
+320 typography,配色,typeTab,color,,BUTTON
+320 typography,页面,typeTab,page,,BUTTON
+320 typography,字号,,,fontSize,INPUT
+320 typography,行距,,,lineHeight,INPUT
+320 typography,边距,,,margin,INPUT
+320 typography,"字体
+读一段文字，选择舒服的字形
+宋体",sheet,fonts,,BUTTON
+320 typography,首行缩进,,,indent,INPUT
+320 typography,更多文字设置,,,,SUMMARY
+320 typography,字距,,,letterSpacing,INPUT
+320 typography,两端对齐,,,justify,INPUT
+320 typography,选择本地文字文件,,,,INPUT
+320 typography,选择字体文件,,,,INPUT
+320 typography,选择原型备份,,,,INPUT
+375 library,藏书,nav,library,,BUTTON
+375 library,论文,nav,papers,,BUTTON
+375 library,书源,nav,sources,,BUTTON
+375 library,阅读记录,nav,stats,,BUTTON
+375 library,设置,nav,settings,,BUTTON
+375 library,搜索藏书,focusSearch,,,BUTTON
+375 library,添加书籍,sheet,import,,BUTTON
+375 library,收起原型提示,dismissDemo,,,BUTTON
+375 library,搜索藏书,,,,INPUT
+375 library,继续阅读,read,mountain,,BUTTON
+375 library,管理,selectBooks,,,BUTTON
+375 library,全部,filter,all,,BUTTON
+375 library,在读,filter,reading,,BUTTON
+375 library,未读,filter,unread,,BUTTON
+375 library,读完,filter,finished,,BUTTON
+375 library,书单,filter,lists,,BUTTON
+375 library,排序与视图,sheet,sort,,BUTTON
+375 library,阅读《山间来信》,read,mountain,,BUTTON
+375 library,山间来信的更多操作,bookMenu,mountain,,BUTTON
+375 library,阅读《验收导入》,read,8b0dbae2-0d22-411e-8004-6863e5b53caa,,BUTTON
+375 library,验收导入的更多操作,bookMenu,8b0dbae2-0d22-411e-8004-6863e5b53caa,,BUTTON
+375 library,阅读《慢读的日常》,read,sample0,,BUTTON
+375 library,慢读的日常的更多操作,bookMenu,sample0,,BUTTON
+375 library,阅读《给未来的笔记》,read,sample1,,BUTTON
+375 library,给未来的笔记的更多操作,bookMenu,sample1,,BUTTON
+375 library,阅读《城市与步行》,read,sample2,,BUTTON
+375 library,城市与步行的更多操作,bookMenu,sample2,,BUTTON
+375 library,阅读《看见微小的事》,read,sample3,,BUTTON
+375 library,看见微小的事的更多操作,bookMenu,sample3,,BUTTON
+375 library,阅读《海边书简》,read,sample4,,BUTTON
+375 library,海边书简的更多操作,bookMenu,sample4,,BUTTON
+375 library,选择本地文字文件,,,,INPUT
+375 library,选择字体文件,,,,INPUT
+375 library,选择原型备份,,,,INPUT
+375 papers,藏书,nav,library,,BUTTON
+375 papers,论文,nav,papers,,BUTTON
+375 papers,书源,nav,sources,,BUTTON
+375 papers,阅读记录,nav,stats,,BUTTON
+375 papers,设置,nav,settings,,BUTTON
+375 papers,添加论文,sheet,paperImport,,BUTTON
+375 papers,搜索论文,,,,INPUT
+375 papers,全部,paperFilter,全部,,BUTTON
+375 papers,在读,paperFilter,在读,,BUTTON
+375 papers,未读,paperFilter,未读,,BUTTON
+375 papers,读完,paperFilter,读完,,BUTTON
+375 papers,"阅读样稿
+阅读界面中的注意与留白
+
+原创研究样稿 · 3 页 · 在读",openPaper,0,,BUTTON
+375 papers,选择本地文字文件,,,,INPUT
+375 papers,选择字体文件,,,,INPUT
+375 papers,选择原型备份,,,,INPUT
+375 sources,藏书,nav,library,,BUTTON
+375 sources,论文,nav,papers,,BUTTON
+375 sources,书源,nav,sources,,BUTTON
+375 sources,阅读记录,nav,stats,,BUTTON
+375 sources,设置,nav,settings,,BUTTON
+375 sources,添加书源,sheet,addSource,,BUTTON
+375 sources,搜索书源,,,,INPUT
+375 sources,搜索,,,,BUTTON
+375 sources,选择,sheet,sourceScope,,BUTTON
+375 sources,"古登堡计划
+公版图书",sourceOpen,古登堡计划,,BUTTON
+375 sources,"Internet Archive
+数字馆藏",sourceOpen,Internet Archive,,BUTTON
+375 sources,"arXiv
+学术论文",sourceOpen,arXiv,,BUTTON
+375 sources,"GitHub 书源
+社区共建",sourceOpen,GitHub 书源,,BUTTON
+375 sources,"连接私人书库
+按你习惯的方式管理藏书
+OPDS / Calibre-Web",sheet,addSource,,BUTTON
+375 sources,"慢慢读
+从已有藏书开始",openList,慢慢读,,BUTTON
+375 sources,"待读
+从已有藏书开始",openList,待读,,BUTTON
+375 sources,"本周想读
+从已有藏书开始",openList,本周想读,,BUTTON
+375 sources,选择本地文字文件,,,,INPUT
+375 sources,选择字体文件,,,,INPUT
+375 sources,选择原型备份,,,,INPUT
+375 stats,藏书,nav,library,,BUTTON
+375 stats,论文,nav,papers,,BUTTON
+375 stats,书源,nav,sources,,BUTTON
+375 stats,阅读记录,nav,stats,,BUTTON
+375 stats,设置,nav,settings,,BUTTON
+375 stats,阅读目标,sheet,goal,,BUTTON
+375 stats,周,statsRange,week,,BUTTON
+375 stats,月,statsRange,month,,BUTTON
+375 stats,年,statsRange,year,,BUTTON
+375 stats,全部,statsRange,all,,BUTTON
+375 stats,目标 30 分钟,sheet,goal,,BUTTON
+375 stats,"0
+一",statsDay,0,,BUTTON
+375 stats,"0
+二",statsDay,1,,BUTTON
+375 stats,"0
+三",statsDay,2,,BUTTON
+375 stats,"0
+四",statsDay,3,,BUTTON
+375 stats,"0
+五",statsDay,4,,BUTTON
+375 stats,"0
+六",statsDay,5,,BUTTON
+375 stats,"0
+日",statsDay,6,,BUTTON
+375 stats,1,calendarDay,1,,BUTTON
+375 stats,2,calendarDay,2,,BUTTON
+375 stats,3,calendarDay,3,,BUTTON
+375 stats,4,calendarDay,4,,BUTTON
+375 stats,5,calendarDay,5,,BUTTON
+375 stats,6,calendarDay,6,,BUTTON
+375 stats,7,calendarDay,7,,BUTTON
+375 stats,8,calendarDay,8,,BUTTON
+375 stats,9,calendarDay,9,,BUTTON
+375 stats,10,calendarDay,10,,BUTTON
+375 stats,11,calendarDay,11,,BUTTON
+375 stats,12,calendarDay,12,,BUTTON
+375 stats,13,calendarDay,13,,BUTTON
+375 stats,14,calendarDay,14,,BUTTON
+375 stats,15,calendarDay,15,,BUTTON
+375 stats,16,calendarDay,16,,BUTTON
+375 stats,17,calendarDay,17,,BUTTON
+375 stats,18,calendarDay,18,,BUTTON
+375 stats,19,calendarDay,19,,BUTTON
+375 stats,20,calendarDay,20,,BUTTON
+375 stats,21,calendarDay,21,,BUTTON
+375 stats,22,calendarDay,22,,BUTTON
+375 stats,23,calendarDay,23,,BUTTON
+375 stats,24,calendarDay,24,,BUTTON
+375 stats,25,calendarDay,25,,BUTTON
+375 stats,26,calendarDay,26,,BUTTON
+375 stats,27,calendarDay,27,,BUTTON
+375 stats,28,calendarDay,28,,BUTTON
+375 stats,29,calendarDay,29,,BUTTON
+375 stats,30,calendarDay,30,,BUTTON
+375 stats,31,calendarDay,31,,BUTTON
+375 stats,"山间来信
+第一章　山里的早晨
+继续阅读",read,mountain,,BUTTON
+375 stats,"慢读的日常
+第一章　在窗边读十分钟
+继续阅读",read,sample0,,BUTTON
+375 stats,选择本地文字文件,,,,INPUT
+375 stats,选择字体文件,,,,INPUT
+375 stats,选择原型备份,,,,INPUT
+375 settings,藏书,nav,library,,BUTTON
+375 settings,论文,nav,papers,,BUTTON
+375 settings,书源,nav,sources,,BUTTON
+375 settings,阅读记录,nav,stats,,BUTTON
+375 settings,设置,nav,settings,,BUTTON
+375 settings,"账号与同步
+网盘已连接 · 流程演示",settingsSub,sync,,BUTTON
+375 settings,"外观
+浅色",sheet,appearance,,BUTTON
+375 settings,阅读偏好,settingsSub,reading,,BUTTON
+375 settings,功能,settingsSub,features,,BUTTON
+375 settings,"账号与同步
+演示已连接",settingsSub,sync,,BUTTON
+375 settings,设备互传,nav,transfer,,BUTTON
+375 settings,数据与备份,settingsSub,data,,BUTTON
+375 settings,"网络
+未设置",settingsSub,network,,BUTTON
+375 settings,"AI 助手
+未配置",settingsSub,ai,,BUTTON
+375 settings,"关于轻阅
+交互原型 v3",settingsSub,about,,BUTTON
+375 settings,选择本地文字文件,,,,INPUT
+375 settings,选择字体文件,,,,INPUT
+375 settings,选择原型备份,,,,INPUT
+375 transfer,藏书,nav,library,,BUTTON
+375 transfer,论文,nav,papers,,BUTTON
+375 transfer,书源,nav,sources,,BUTTON
+375 transfer,阅读记录,nav,stats,,BUTTON
+375 transfer,设置,nav,settings,,BUTTON
+375 transfer,返回,nav,library,,BUTTON
+375 transfer,接收,transferTab,receive,,BUTTON
+375 transfer,发送,transferTab,send,,BUTTON
+375 transfer,pickup-code,,,,INPUT
+375 transfer,取件,,,,BUTTON
+375 transfer,选择本地文字文件,,,,INPUT
+375 transfer,选择字体文件,,,,INPUT
+375 transfer,选择原型备份,,,,INPUT
+375 settings/reading,藏书,nav,library,,BUTTON
+375 settings/reading,论文,nav,papers,,BUTTON
+375 settings/reading,书源,nav,sources,,BUTTON
+375 settings/reading,阅读记录,nav,stats,,BUTTON
+375 settings/reading,设置,nav,settings,,BUTTON
+375 settings/reading,返回,nav,settings,,BUTTON
+375 settings/reading,"打开阅读排版
+继续上次的书",openTypography,,,BUTTON
+375 settings/reading,"每日阅读目标
+30 分钟",sheet,goal,,BUTTON
+375 settings/reading,阅读时保持屏幕常亮,,,keepAwake,INPUT
+375 settings/reading,点击左侧也翻到下一页,,,tapLeftNext,INPUT
+375 settings/reading,翻页动画,,,animation,INPUT
+375 settings/reading,"恢复默认排版
+仅恢复字号、配色和页面设置",sheet,resetTypography,,BUTTON
+375 settings/reading,选择本地文字文件,,,,INPUT
+375 settings/reading,选择字体文件,,,,INPUT
+375 settings/reading,选择原型备份,,,,INPUT
+375 settings/sync,藏书,nav,library,,BUTTON
+375 settings/sync,论文,nav,papers,,BUTTON
+375 settings/sync,书源,nav,sources,,BUTTON
+375 settings/sync,阅读记录,nav,stats,,BUTTON
+375 settings/sync,设置,nav,settings,,BUTTON
+375 settings/sync,返回,nav,settings,,BUTTON
+375 settings/sync,立即同步,syncNow,,,BUTTON
+375 settings/sync,"轻阅账号
+未登录",sheet,account,,BUTTON
+375 settings/sync,"网盘（WebDAV）
+坚果云 · 演示",sheet,webdavInfo,,BUTTON
+375 settings/sync,自动同步,,,autoSync,INPUT
+375 settings/sync,同步书籍文件,,,syncFiles,INPUT
+375 settings/sync,同步设置,,,syncSettings,INPUT
+375 settings/sync,同时同步密码与密钥,,,syncSecrets,INPUT
+375 settings/sync,同步明细,sheet,syncDetails,,BUTTON
+375 settings/sync,设备互传,nav,transfer,,BUTTON
+375 settings/sync,选择本地文字文件,,,,INPUT
+375 settings/sync,选择字体文件,,,,INPUT
+375 settings/sync,选择原型备份,,,,INPUT
+375 settings/ai,藏书,nav,library,,BUTTON
+375 settings/ai,论文,nav,papers,,BUTTON
+375 settings/ai,书源,nav,sources,,BUTTON
+375 settings/ai,阅读记录,nav,stats,,BUTTON
+375 settings/ai,设置,nav,settings,,BUTTON
+375 settings/ai,返回,nav,settings,,BUTTON
+375 settings/ai,ai-provider,,,,INPUT
+375 settings/ai,ai-model,,,,INPUT
+375 settings/ai,ai-url,,,,INPUT
+375 settings/ai,ai-key,,,,INPUT
+375 settings/ai,填入演示资料,fillAI,,,BUTTON
+375 settings/ai,测试并保存,,,,BUTTON
+375 settings/ai,选择本地文字文件,,,,INPUT
+375 settings/ai,选择字体文件,,,,INPUT
+375 settings/ai,选择原型备份,,,,INPUT
+375 settings/network,藏书,nav,library,,BUTTON
+375 settings/network,论文,nav,papers,,BUTTON
+375 settings/network,书源,nav,sources,,BUTTON
+375 settings/network,阅读记录,nav,stats,,BUTTON
+375 settings/network,设置,nav,settings,,BUTTON
+375 settings/network,返回,nav,settings,,BUTTON
+375 settings/network,proxy-type,,,,INPUT
+375 settings/network,proxy-host,,,,INPUT
+375 settings/network,proxy-port,,,,INPUT
+375 settings/network,保存并测试,,,,BUTTON
+375 settings/network,不使用代理,clearNetwork,,,BUTTON
+375 settings/network,选择本地文字文件,,,,INPUT
+375 settings/network,选择字体文件,,,,INPUT
+375 settings/network,选择原型备份,,,,INPUT
+375 settings/data,藏书,nav,library,,BUTTON
+375 settings/data,论文,nav,papers,,BUTTON
+375 settings/data,书源,nav,sources,,BUTTON
+375 settings/data,阅读记录,nav,stats,,BUTTON
+375 settings/data,设置,nav,settings,,BUTTON
+375 settings/data,返回,nav,settings,,BUTTON
+375 settings/data,"导出原型备份
+包含原型藏书、阅读位置、笔记和偏好
+JSON",exportBackup,,,BUTTON
+375 settings/data,"导入原型备份
+已有内容会先保留，确认后恢复",importBackup,,,BUTTON
+375 settings/data,"导出全部笔记
+Markdown",exportNotes,all,,BUTTON
+375 settings/data,"重置原型演示数据
+恢复原创样章和初始设置",sheet,resetDemo,,BUTTON
+375 settings/data,选择本地文字文件,,,,INPUT
+375 settings/data,选择字体文件,,,,INPUT
+375 settings/data,选择原型备份,,,,INPUT
+375 settings/features,藏书,nav,library,,BUTTON
+375 settings/features,论文,nav,papers,,BUTTON
+375 settings/features,书源,nav,sources,,BUTTON
+375 settings/features,阅读记录,nav,stats,,BUTTON
+375 settings/features,设置,nav,settings,,BUTTON
+375 settings/features,返回,nav,settings,,BUTTON
+375 settings/features,书单推荐,,,featureBooklists,INPUT
+375 settings/features,互传,,,featureTransfer,INPUT
+375 settings/features,选择本地文字文件,,,,INPUT
+375 settings/features,选择字体文件,,,,INPUT
+375 settings/features,选择原型备份,,,,INPUT
+375 settings/about,藏书,nav,library,,BUTTON
+375 settings/about,论文,nav,papers,,BUTTON
+375 settings/about,书源,nav,sources,,BUTTON
+375 settings/about,阅读记录,nav,stats,,BUTTON
+375 settings/about,设置,nav,settings,,BUTTON
+375 settings/about,返回,nav,settings,,BUTTON
+375 settings/about,原型使用说明,sheet,prototypeHelp,,BUTTON
+375 settings/about,可验证的状态,sheet,stateLab,,BUTTON
+375 settings/about,键盘与触屏操作,sheet,shortcuts,,BUTTON
+375 settings/about,字体与内容来源,sheet,credits,,BUTTON
+375 settings/about,选择本地文字文件,,,,INPUT
+375 settings/about,选择字体文件,,,,INPUT
+375 settings/about,选择原型备份,,,,INPUT
+375 reading,返回藏书,exitReader,,,BUTTON
+375 reading,添加或移除书签,bookmark,,,BUTTON
+375 reading,阅读工具,sheet,readerMore,,BUTTON
+375 reading,上一章,relativeChapter,-1,,BUTTON
+375 reading,阅读进度,,,bookProgress,INPUT
+375 reading,下一章,relativeChapter,1,,BUTTON
+375 reading,目录,sheet,toc,,BUTTON
+375 reading,笔记,sheet,notes,,BUTTON
+375 reading,进度,sheet,progress,,BUTTON
+375 reading,模式,sheet,modes,,BUTTON
+375 reading,排版,sheet,typography,,BUTTON
+375 reading,选择本地文字文件,,,,INPUT
+375 reading,选择字体文件,,,,INPUT
+375 reading,选择原型备份,,,,INPUT
+375 typography,返回藏书,exitReader,,,BUTTON
+375 typography,添加或移除书签,bookmark,,,BUTTON
+375 typography,阅读工具,sheet,readerMore,,BUTTON
+375 typography,上一章,relativeChapter,-1,,BUTTON
+375 typography,阅读进度,,,bookProgress,INPUT
+375 typography,下一章,relativeChapter,1,,BUTTON
+375 typography,目录,sheet,toc,,BUTTON
+375 typography,笔记,sheet,notes,,BUTTON
+375 typography,进度,sheet,progress,,BUTTON
+375 typography,模式,sheet,modes,,BUTTON
+375 typography,排版,sheet,typography,,BUTTON
+375 typography,关闭面板,closeSheet,,,BUTTON
+375 typography,文字,typeTab,text,,BUTTON
+375 typography,配色,typeTab,color,,BUTTON
+375 typography,页面,typeTab,page,,BUTTON
+375 typography,字号,,,fontSize,INPUT
+375 typography,行距,,,lineHeight,INPUT
+375 typography,边距,,,margin,INPUT
+375 typography,"字体
+读一段文字，选择舒服的字形
+宋体",sheet,fonts,,BUTTON
+375 typography,首行缩进,,,indent,INPUT
+375 typography,更多文字设置,,,,SUMMARY
+375 typography,字距,,,letterSpacing,INPUT
+375 typography,两端对齐,,,justify,INPUT
+375 typography,选择本地文字文件,,,,INPUT
+375 typography,选择字体文件,,,,INPUT
+375 typography,选择原型备份,,,,INPUT
+414 library,藏书,nav,library,,BUTTON
+414 library,论文,nav,papers,,BUTTON
+414 library,书源,nav,sources,,BUTTON
+414 library,阅读记录,nav,stats,,BUTTON
+414 library,设置,nav,settings,,BUTTON
+414 library,搜索藏书,focusSearch,,,BUTTON
+414 library,添加书籍,sheet,import,,BUTTON
+414 library,收起原型提示,dismissDemo,,,BUTTON
+414 library,搜索藏书,,,,INPUT
+414 library,继续阅读,read,mountain,,BUTTON
+414 library,管理,selectBooks,,,BUTTON
+414 library,全部,filter,all,,BUTTON
+414 library,在读,filter,reading,,BUTTON
+414 library,未读,filter,unread,,BUTTON
+414 library,读完,filter,finished,,BUTTON
+414 library,书单,filter,lists,,BUTTON
+414 library,排序与视图,sheet,sort,,BUTTON
+414 library,阅读《山间来信》,read,mountain,,BUTTON
+414 library,山间来信的更多操作,bookMenu,mountain,,BUTTON
+414 library,阅读《验收导入》,read,8b0dbae2-0d22-411e-8004-6863e5b53caa,,BUTTON
+414 library,验收导入的更多操作,bookMenu,8b0dbae2-0d22-411e-8004-6863e5b53caa,,BUTTON
+414 library,阅读《慢读的日常》,read,sample0,,BUTTON
+414 library,慢读的日常的更多操作,bookMenu,sample0,,BUTTON
+414 library,阅读《给未来的笔记》,read,sample1,,BUTTON
+414 library,给未来的笔记的更多操作,bookMenu,sample1,,BUTTON
+414 library,阅读《城市与步行》,read,sample2,,BUTTON
+414 library,城市与步行的更多操作,bookMenu,sample2,,BUTTON
+414 library,阅读《看见微小的事》,read,sample3,,BUTTON
+414 library,看见微小的事的更多操作,bookMenu,sample3,,BUTTON
+414 library,阅读《海边书简》,read,sample4,,BUTTON
+414 library,海边书简的更多操作,bookMenu,sample4,,BUTTON
+414 library,选择本地文字文件,,,,INPUT
+414 library,选择字体文件,,,,INPUT
+414 library,选择原型备份,,,,INPUT
+414 papers,藏书,nav,library,,BUTTON
+414 papers,论文,nav,papers,,BUTTON
+414 papers,书源,nav,sources,,BUTTON
+414 papers,阅读记录,nav,stats,,BUTTON
+414 papers,设置,nav,settings,,BUTTON
+414 papers,添加论文,sheet,paperImport,,BUTTON
+414 papers,搜索论文,,,,INPUT
+414 papers,全部,paperFilter,全部,,BUTTON
+414 papers,在读,paperFilter,在读,,BUTTON
+414 papers,未读,paperFilter,未读,,BUTTON
+414 papers,读完,paperFilter,读完,,BUTTON
+414 papers,"阅读样稿
+阅读界面中的注意与留白
+
+原创研究样稿 · 3 页 · 在读",openPaper,0,,BUTTON
+414 papers,选择本地文字文件,,,,INPUT
+414 papers,选择字体文件,,,,INPUT
+414 papers,选择原型备份,,,,INPUT
+414 sources,藏书,nav,library,,BUTTON
+414 sources,论文,nav,papers,,BUTTON
+414 sources,书源,nav,sources,,BUTTON
+414 sources,阅读记录,nav,stats,,BUTTON
+414 sources,设置,nav,settings,,BUTTON
+414 sources,添加书源,sheet,addSource,,BUTTON
+414 sources,搜索书源,,,,INPUT
+414 sources,搜索,,,,BUTTON
+414 sources,选择,sheet,sourceScope,,BUTTON
+414 sources,"古登堡计划
+公版图书",sourceOpen,古登堡计划,,BUTTON
+414 sources,"Internet Archive
+数字馆藏",sourceOpen,Internet Archive,,BUTTON
+414 sources,"arXiv
+学术论文",sourceOpen,arXiv,,BUTTON
+414 sources,"GitHub 书源
+社区共建",sourceOpen,GitHub 书源,,BUTTON
+414 sources,"连接私人书库
+按你习惯的方式管理藏书
+OPDS / Calibre-Web",sheet,addSource,,BUTTON
+414 sources,"慢慢读
+从已有藏书开始",openList,慢慢读,,BUTTON
+414 sources,"待读
+从已有藏书开始",openList,待读,,BUTTON
+414 sources,"本周想读
+从已有藏书开始",openList,本周想读,,BUTTON
+414 sources,选择本地文字文件,,,,INPUT
+414 sources,选择字体文件,,,,INPUT
+414 sources,选择原型备份,,,,INPUT
+414 stats,藏书,nav,library,,BUTTON
+414 stats,论文,nav,papers,,BUTTON
+414 stats,书源,nav,sources,,BUTTON
+414 stats,阅读记录,nav,stats,,BUTTON
+414 stats,设置,nav,settings,,BUTTON
+414 stats,阅读目标,sheet,goal,,BUTTON
+414 stats,周,statsRange,week,,BUTTON
+414 stats,月,statsRange,month,,BUTTON
+414 stats,年,statsRange,year,,BUTTON
+414 stats,全部,statsRange,all,,BUTTON
+414 stats,目标 30 分钟,sheet,goal,,BUTTON
+414 stats,"0
+一",statsDay,0,,BUTTON
+414 stats,"0
+二",statsDay,1,,BUTTON
+414 stats,"0
+三",statsDay,2,,BUTTON
+414 stats,"0
+四",statsDay,3,,BUTTON
+414 stats,"0
+五",statsDay,4,,BUTTON
+414 stats,"0
+六",statsDay,5,,BUTTON
+414 stats,"0
+日",statsDay,6,,BUTTON
+414 stats,1,calendarDay,1,,BUTTON
+414 stats,2,calendarDay,2,,BUTTON
+414 stats,3,calendarDay,3,,BUTTON
+414 stats,4,calendarDay,4,,BUTTON
+414 stats,5,calendarDay,5,,BUTTON
+414 stats,6,calendarDay,6,,BUTTON
+414 stats,7,calendarDay,7,,BUTTON
+414 stats,8,calendarDay,8,,BUTTON
+414 stats,9,calendarDay,9,,BUTTON
+414 stats,10,calendarDay,10,,BUTTON
+414 stats,11,calendarDay,11,,BUTTON
+414 stats,12,calendarDay,12,,BUTTON
+414 stats,13,calendarDay,13,,BUTTON
+414 stats,14,calendarDay,14,,BUTTON
+414 stats,15,calendarDay,15,,BUTTON
+414 stats,16,calendarDay,16,,BUTTON
+414 stats,17,calendarDay,17,,BUTTON
+414 stats,18,calendarDay,18,,BUTTON
+414 stats,19,calendarDay,19,,BUTTON
+414 stats,20,calendarDay,20,,BUTTON
+414 stats,21,calendarDay,21,,BUTTON
+414 stats,22,calendarDay,22,,BUTTON
+414 stats,23,calendarDay,23,,BUTTON
+414 stats,24,calendarDay,24,,BUTTON
+414 stats,25,calendarDay,25,,BUTTON
+414 stats,26,calendarDay,26,,BUTTON
+414 stats,27,calendarDay,27,,BUTTON
+414 stats,28,calendarDay,28,,BUTTON
+414 stats,29,calendarDay,29,,BUTTON
+414 stats,30,calendarDay,30,,BUTTON
+414 stats,31,calendarDay,31,,BUTTON
+414 stats,"山间来信
+第一章　山里的早晨
+继续阅读",read,mountain,,BUTTON
+414 stats,"慢读的日常
+第一章　在窗边读十分钟
+继续阅读",read,sample0,,BUTTON
+414 stats,选择本地文字文件,,,,INPUT
+414 stats,选择字体文件,,,,INPUT
+414 stats,选择原型备份,,,,INPUT
+414 settings,藏书,nav,library,,BUTTON
+414 settings,论文,nav,papers,,BUTTON
+414 settings,书源,nav,sources,,BUTTON
+414 settings,阅读记录,nav,stats,,BUTTON
+414 settings,设置,nav,settings,,BUTTON
+414 settings,"账号与同步
+网盘已连接 · 流程演示",settingsSub,sync,,BUTTON
+414 settings,"外观
+浅色",sheet,appearance,,BUTTON
+414 settings,阅读偏好,settingsSub,reading,,BUTTON
+414 settings,功能,settingsSub,features,,BUTTON
+414 settings,"账号与同步
+演示已连接",settingsSub,sync,,BUTTON
+414 settings,设备互传,nav,transfer,,BUTTON
+414 settings,数据与备份,settingsSub,data,,BUTTON
+414 settings,"网络
+未设置",settingsSub,network,,BUTTON
+414 settings,"AI 助手
+未配置",settingsSub,ai,,BUTTON
+414 settings,"关于轻阅
+交互原型 v3",settingsSub,about,,BUTTON
+414 settings,选择本地文字文件,,,,INPUT
+414 settings,选择字体文件,,,,INPUT
+414 settings,选择原型备份,,,,INPUT
+414 transfer,藏书,nav,library,,BUTTON
+414 transfer,论文,nav,papers,,BUTTON
+414 transfer,书源,nav,sources,,BUTTON
+414 transfer,阅读记录,nav,stats,,BUTTON
+414 transfer,设置,nav,settings,,BUTTON
+414 transfer,返回,nav,library,,BUTTON
+414 transfer,接收,transferTab,receive,,BUTTON
+414 transfer,发送,transferTab,send,,BUTTON
+414 transfer,pickup-code,,,,INPUT
+414 transfer,取件,,,,BUTTON
+414 transfer,选择本地文字文件,,,,INPUT
+414 transfer,选择字体文件,,,,INPUT
+414 transfer,选择原型备份,,,,INPUT
+414 settings/reading,藏书,nav,library,,BUTTON
+414 settings/reading,论文,nav,papers,,BUTTON
+414 settings/reading,书源,nav,sources,,BUTTON
+414 settings/reading,阅读记录,nav,stats,,BUTTON
+414 settings/reading,设置,nav,settings,,BUTTON
+414 settings/reading,返回,nav,settings,,BUTTON
+414 settings/reading,"打开阅读排版
+继续上次的书",openTypography,,,BUTTON
+414 settings/reading,"每日阅读目标
+30 分钟",sheet,goal,,BUTTON
+414 settings/reading,阅读时保持屏幕常亮,,,keepAwake,INPUT
+414 settings/reading,点击左侧也翻到下一页,,,tapLeftNext,INPUT
+414 settings/reading,翻页动画,,,animation,INPUT
+414 settings/reading,"恢复默认排版
+仅恢复字号、配色和页面设置",sheet,resetTypography,,BUTTON
+414 settings/reading,选择本地文字文件,,,,INPUT
+414 settings/reading,选择字体文件,,,,INPUT
+414 settings/reading,选择原型备份,,,,INPUT
+414 settings/sync,藏书,nav,library,,BUTTON
+414 settings/sync,论文,nav,papers,,BUTTON
+414 settings/sync,书源,nav,sources,,BUTTON
+414 settings/sync,阅读记录,nav,stats,,BUTTON
+414 settings/sync,设置,nav,settings,,BUTTON
+414 settings/sync,返回,nav,settings,,BUTTON
+414 settings/sync,立即同步,syncNow,,,BUTTON
+414 settings/sync,"轻阅账号
+未登录",sheet,account,,BUTTON
+414 settings/sync,"网盘（WebDAV）
+坚果云 · 演示",sheet,webdavInfo,,BUTTON
+414 settings/sync,自动同步,,,autoSync,INPUT
+414 settings/sync,同步书籍文件,,,syncFiles,INPUT
+414 settings/sync,同步设置,,,syncSettings,INPUT
+414 settings/sync,同时同步密码与密钥,,,syncSecrets,INPUT
+414 settings/sync,同步明细,sheet,syncDetails,,BUTTON
+414 settings/sync,设备互传,nav,transfer,,BUTTON
+414 settings/sync,选择本地文字文件,,,,INPUT
+414 settings/sync,选择字体文件,,,,INPUT
+414 settings/sync,选择原型备份,,,,INPUT
+414 settings/ai,藏书,nav,library,,BUTTON
+414 settings/ai,论文,nav,papers,,BUTTON
+414 settings/ai,书源,nav,sources,,BUTTON
+414 settings/ai,阅读记录,nav,stats,,BUTTON
+414 settings/ai,设置,nav,settings,,BUTTON
+414 settings/ai,返回,nav,settings,,BUTTON
+414 settings/ai,ai-provider,,,,INPUT
+414 settings/ai,ai-model,,,,INPUT
+414 settings/ai,ai-url,,,,INPUT
+414 settings/ai,ai-key,,,,INPUT
+414 settings/ai,填入演示资料,fillAI,,,BUTTON
+414 settings/ai,测试并保存,,,,BUTTON
+414 settings/ai,选择本地文字文件,,,,INPUT
+414 settings/ai,选择字体文件,,,,INPUT
+414 settings/ai,选择原型备份,,,,INPUT
+414 settings/network,藏书,nav,library,,BUTTON
+414 settings/network,论文,nav,papers,,BUTTON
+414 settings/network,书源,nav,sources,,BUTTON
+414 settings/network,阅读记录,nav,stats,,BUTTON
+414 settings/network,设置,nav,settings,,BUTTON
+414 settings/network,返回,nav,settings,,BUTTON
+414 settings/network,proxy-type,,,,INPUT
+414 settings/network,proxy-host,,,,INPUT
+414 settings/network,proxy-port,,,,INPUT
+414 settings/network,保存并测试,,,,BUTTON
+414 settings/network,不使用代理,clearNetwork,,,BUTTON
+414 settings/network,选择本地文字文件,,,,INPUT
+414 settings/network,选择字体文件,,,,INPUT
+414 settings/network,选择原型备份,,,,INPUT
+414 settings/data,藏书,nav,library,,BUTTON
+414 settings/data,论文,nav,papers,,BUTTON
+414 settings/data,书源,nav,sources,,BUTTON
+414 settings/data,阅读记录,nav,stats,,BUTTON
+414 settings/data,设置,nav,settings,,BUTTON
+414 settings/data,返回,nav,settings,,BUTTON
+414 settings/data,"导出原型备份
+包含原型藏书、阅读位置、笔记和偏好
+JSON",exportBackup,,,BUTTON
+414 settings/data,"导入原型备份
+已有内容会先保留，确认后恢复",importBackup,,,BUTTON
+414 settings/data,"导出全部笔记
+Markdown",exportNotes,all,,BUTTON
+414 settings/data,"重置原型演示数据
+恢复原创样章和初始设置",sheet,resetDemo,,BUTTON
+414 settings/data,选择本地文字文件,,,,INPUT
+414 settings/data,选择字体文件,,,,INPUT
+414 settings/data,选择原型备份,,,,INPUT
+414 settings/features,藏书,nav,library,,BUTTON
+414 settings/features,论文,nav,papers,,BUTTON
+414 settings/features,书源,nav,sources,,BUTTON
+414 settings/features,阅读记录,nav,stats,,BUTTON
+414 settings/features,设置,nav,settings,,BUTTON
+414 settings/features,返回,nav,settings,,BUTTON
+414 settings/features,书单推荐,,,featureBooklists,INPUT
+414 settings/features,互传,,,featureTransfer,INPUT
+414 settings/features,选择本地文字文件,,,,INPUT
+414 settings/features,选择字体文件,,,,INPUT
+414 settings/features,选择原型备份,,,,INPUT
+414 settings/about,藏书,nav,library,,BUTTON
+414 settings/about,论文,nav,papers,,BUTTON
+414 settings/about,书源,nav,sources,,BUTTON
+414 settings/about,阅读记录,nav,stats,,BUTTON
+414 settings/about,设置,nav,settings,,BUTTON
+414 settings/about,返回,nav,settings,,BUTTON
+414 settings/about,原型使用说明,sheet,prototypeHelp,,BUTTON
+414 settings/about,可验证的状态,sheet,stateLab,,BUTTON
+414 settings/about,键盘与触屏操作,sheet,shortcuts,,BUTTON
+414 settings/about,字体与内容来源,sheet,credits,,BUTTON
+414 settings/about,选择本地文字文件,,,,INPUT
+414 settings/about,选择字体文件,,,,INPUT
+414 settings/about,选择原型备份,,,,INPUT
+414 reading,返回藏书,exitReader,,,BUTTON
+414 reading,添加或移除书签,bookmark,,,BUTTON
+414 reading,阅读工具,sheet,readerMore,,BUTTON
+414 reading,上一章,relativeChapter,-1,,BUTTON
+414 reading,阅读进度,,,bookProgress,INPUT
+414 reading,下一章,relativeChapter,1,,BUTTON
+414 reading,目录,sheet,toc,,BUTTON
+414 reading,笔记,sheet,notes,,BUTTON
+414 reading,进度,sheet,progress,,BUTTON
+414 reading,模式,sheet,modes,,BUTTON
+414 reading,排版,sheet,typography,,BUTTON
+414 reading,选择本地文字文件,,,,INPUT
+414 reading,选择字体文件,,,,INPUT
+414 reading,选择原型备份,,,,INPUT
+414 typography,返回藏书,exitReader,,,BUTTON
+414 typography,添加或移除书签,bookmark,,,BUTTON
+414 typography,阅读工具,sheet,readerMore,,BUTTON
+414 typography,上一章,relativeChapter,-1,,BUTTON
+414 typography,阅读进度,,,bookProgress,INPUT
+414 typography,下一章,relativeChapter,1,,BUTTON
+414 typography,目录,sheet,toc,,BUTTON
+414 typography,笔记,sheet,notes,,BUTTON
+414 typography,进度,sheet,progress,,BUTTON
+414 typography,模式,sheet,modes,,BUTTON
+414 typography,排版,sheet,typography,,BUTTON
+414 typography,关闭面板,closeSheet,,,BUTTON
+414 typography,文字,typeTab,text,,BUTTON
+414 typography,配色,typeTab,color,,BUTTON
+414 typography,页面,typeTab,page,,BUTTON
+414 typography,字号,,,fontSize,INPUT
+414 typography,行距,,,lineHeight,INPUT
+414 typography,边距,,,margin,INPUT
+414 typography,"字体
+读一段文字，选择舒服的字形
+宋体",sheet,fonts,,BUTTON
+414 typography,首行缩进,,,indent,INPUT
+414 typography,更多文字设置,,,,SUMMARY
+414 typography,字距,,,letterSpacing,INPUT
+414 typography,两端对齐,,,justify,INPUT
+414 typography,选择本地文字文件,,,,INPUT
+414 typography,选择字体文件,,,,INPUT
+414 typography,选择原型备份,,,,INPUT
+768 library,藏书,nav,library,,BUTTON
+768 library,论文,nav,papers,,BUTTON
+768 library,书源,nav,sources,,BUTTON
+768 library,阅读记录,nav,stats,,BUTTON
+768 library,设置,nav,settings,,BUTTON
+768 library,搜索藏书,focusSearch,,,BUTTON
+768 library,添加书籍,sheet,import,,BUTTON
+768 library,收起原型提示,dismissDemo,,,BUTTON
+768 library,搜索藏书,,,,INPUT
+768 library,继续阅读,read,mountain,,BUTTON
+768 library,管理,selectBooks,,,BUTTON
+768 library,全部,filter,all,,BUTTON
+768 library,在读,filter,reading,,BUTTON
+768 library,未读,filter,unread,,BUTTON
+768 library,读完,filter,finished,,BUTTON
+768 library,书单,filter,lists,,BUTTON
+768 library,排序与视图,sheet,sort,,BUTTON
+768 library,阅读《山间来信》,read,mountain,,BUTTON
+768 library,山间来信的更多操作,bookMenu,mountain,,BUTTON
+768 library,阅读《验收导入》,read,8b0dbae2-0d22-411e-8004-6863e5b53caa,,BUTTON
+768 library,验收导入的更多操作,bookMenu,8b0dbae2-0d22-411e-8004-6863e5b53caa,,BUTTON
+768 library,阅读《慢读的日常》,read,sample0,,BUTTON
+768 library,慢读的日常的更多操作,bookMenu,sample0,,BUTTON
+768 library,阅读《给未来的笔记》,read,sample1,,BUTTON
+768 library,给未来的笔记的更多操作,bookMenu,sample1,,BUTTON
+768 library,阅读《城市与步行》,read,sample2,,BUTTON
+768 library,城市与步行的更多操作,bookMenu,sample2,,BUTTON
+768 library,阅读《看见微小的事》,read,sample3,,BUTTON
+768 library,看见微小的事的更多操作,bookMenu,sample3,,BUTTON
+768 library,阅读《海边书简》,read,sample4,,BUTTON
+768 library,海边书简的更多操作,bookMenu,sample4,,BUTTON
+768 library,选择本地文字文件,,,,INPUT
+768 library,选择字体文件,,,,INPUT
+768 library,选择原型备份,,,,INPUT
+768 papers,藏书,nav,library,,BUTTON
+768 papers,论文,nav,papers,,BUTTON
+768 papers,书源,nav,sources,,BUTTON
+768 papers,阅读记录,nav,stats,,BUTTON
+768 papers,设置,nav,settings,,BUTTON
+768 papers,添加论文,sheet,paperImport,,BUTTON
+768 papers,搜索论文,,,,INPUT
+768 papers,全部,paperFilter,全部,,BUTTON
+768 papers,在读,paperFilter,在读,,BUTTON
+768 papers,未读,paperFilter,未读,,BUTTON
+768 papers,读完,paperFilter,读完,,BUTTON
+768 papers,"阅读样稿
+阅读界面中的注意与留白
+
+原创研究样稿 · 3 页 · 在读",openPaper,0,,BUTTON
+768 papers,选择本地文字文件,,,,INPUT
+768 papers,选择字体文件,,,,INPUT
+768 papers,选择原型备份,,,,INPUT
+768 sources,藏书,nav,library,,BUTTON
+768 sources,论文,nav,papers,,BUTTON
+768 sources,书源,nav,sources,,BUTTON
+768 sources,阅读记录,nav,stats,,BUTTON
+768 sources,设置,nav,settings,,BUTTON
+768 sources,添加书源,sheet,addSource,,BUTTON
+768 sources,搜索书源,,,,INPUT
+768 sources,搜索,,,,BUTTON
+768 sources,选择,sheet,sourceScope,,BUTTON
+768 sources,"古登堡计划
+公版图书",sourceOpen,古登堡计划,,BUTTON
+768 sources,"Internet Archive
+数字馆藏",sourceOpen,Internet Archive,,BUTTON
+768 sources,"arXiv
+学术论文",sourceOpen,arXiv,,BUTTON
+768 sources,"GitHub 书源
+社区共建",sourceOpen,GitHub 书源,,BUTTON
+768 sources,"连接私人书库
+按你习惯的方式管理藏书
+OPDS / Calibre-Web",sheet,addSource,,BUTTON
+768 sources,"慢慢读
+从已有藏书开始",openList,慢慢读,,BUTTON
+768 sources,"待读
+从已有藏书开始",openList,待读,,BUTTON
+768 sources,"本周想读
+从已有藏书开始",openList,本周想读,,BUTTON
+768 sources,选择本地文字文件,,,,INPUT
+768 sources,选择字体文件,,,,INPUT
+768 sources,选择原型备份,,,,INPUT
+768 stats,藏书,nav,library,,BUTTON
+768 stats,论文,nav,papers,,BUTTON
+768 stats,书源,nav,sources,,BUTTON
+768 stats,阅读记录,nav,stats,,BUTTON
+768 stats,设置,nav,settings,,BUTTON
+768 stats,阅读目标,sheet,goal,,BUTTON
+768 stats,周,statsRange,week,,BUTTON
+768 stats,月,statsRange,month,,BUTTON
+768 stats,年,statsRange,year,,BUTTON
+768 stats,全部,statsRange,all,,BUTTON
+768 stats,目标 30 分钟,sheet,goal,,BUTTON
+768 stats,"0
+一",statsDay,0,,BUTTON
+768 stats,"0
+二",statsDay,1,,BUTTON
+768 stats,"0
+三",statsDay,2,,BUTTON
+768 stats,"0
+四",statsDay,3,,BUTTON
+768 stats,"0
+五",statsDay,4,,BUTTON
+768 stats,"0
+六",statsDay,5,,BUTTON
+768 stats,"0
+日",statsDay,6,,BUTTON
+768 stats,1,calendarDay,1,,BUTTON
+768 stats,2,calendarDay,2,,BUTTON
+768 stats,3,calendarDay,3,,BUTTON
+768 stats,4,calendarDay,4,,BUTTON
+768 stats,5,calendarDay,5,,BUTTON
+768 stats,6,calendarDay,6,,BUTTON
+768 stats,7,calendarDay,7,,BUTTON
+768 stats,8,calendarDay,8,,BUTTON
+768 stats,9,calendarDay,9,,BUTTON
+768 stats,10,calendarDay,10,,BUTTON
+768 stats,11,calendarDay,11,,BUTTON
+768 stats,12,calendarDay,12,,BUTTON
+768 stats,13,calendarDay,13,,BUTTON
+768 stats,14,calendarDay,14,,BUTTON
+768 stats,15,calendarDay,15,,BUTTON
+768 stats,16,calendarDay,16,,BUTTON
+768 stats,17,calendarDay,17,,BUTTON
+768 stats,18,calendarDay,18,,BUTTON
+768 stats,19,calendarDay,19,,BUTTON
+768 stats,20,calendarDay,20,,BUTTON
+768 stats,21,calendarDay,21,,BUTTON
+768 stats,22,calendarDay,22,,BUTTON
+768 stats,23,calendarDay,23,,BUTTON
+768 stats,24,calendarDay,24,,BUTTON
+768 stats,25,calendarDay,25,,BUTTON
+768 stats,26,calendarDay,26,,BUTTON
+768 stats,27,calendarDay,27,,BUTTON
+768 stats,28,calendarDay,28,,BUTTON
+768 stats,29,calendarDay,29,,BUTTON
+768 stats,30,calendarDay,30,,BUTTON
+768 stats,31,calendarDay,31,,BUTTON
+768 stats,"山间来信
+第一章　山里的早晨
+继续阅读",read,mountain,,BUTTON
+768 stats,"慢读的日常
+第一章　在窗边读十分钟
+继续阅读",read,sample0,,BUTTON
+768 stats,选择本地文字文件,,,,INPUT
+768 stats,选择字体文件,,,,INPUT
+768 stats,选择原型备份,,,,INPUT
+768 settings,藏书,nav,library,,BUTTON
+768 settings,论文,nav,papers,,BUTTON
+768 settings,书源,nav,sources,,BUTTON
+768 settings,阅读记录,nav,stats,,BUTTON
+768 settings,设置,nav,settings,,BUTTON
+768 settings,"账号与同步
+网盘已连接 · 流程演示",settingsSub,sync,,BUTTON
+768 settings,"外观
+浅色",sheet,appearance,,BUTTON
+768 settings,阅读偏好,settingsSub,reading,,BUTTON
+768 settings,功能,settingsSub,features,,BUTTON
+768 settings,"账号与同步
+演示已连接",settingsSub,sync,,BUTTON
+768 settings,设备互传,nav,transfer,,BUTTON
+768 settings,数据与备份,settingsSub,data,,BUTTON
+768 settings,"网络
+未设置",settingsSub,network,,BUTTON
+768 settings,"AI 助手
+未配置",settingsSub,ai,,BUTTON
+768 settings,"关于轻阅
+交互原型 v3",settingsSub,about,,BUTTON
+768 settings,选择本地文字文件,,,,INPUT
+768 settings,选择字体文件,,,,INPUT
+768 settings,选择原型备份,,,,INPUT
+768 transfer,藏书,nav,library,,BUTTON
+768 transfer,论文,nav,papers,,BUTTON
+768 transfer,书源,nav,sources,,BUTTON
+768 transfer,阅读记录,nav,stats,,BUTTON
+768 transfer,设置,nav,settings,,BUTTON
+768 transfer,返回,nav,library,,BUTTON
+768 transfer,接收,transferTab,receive,,BUTTON
+768 transfer,发送,transferTab,send,,BUTTON
+768 transfer,pickup-code,,,,INPUT
+768 transfer,取件,,,,BUTTON
+768 transfer,选择本地文字文件,,,,INPUT
+768 transfer,选择字体文件,,,,INPUT
+768 transfer,选择原型备份,,,,INPUT
+768 settings/reading,藏书,nav,library,,BUTTON
+768 settings/reading,论文,nav,papers,,BUTTON
+768 settings/reading,书源,nav,sources,,BUTTON
+768 settings/reading,阅读记录,nav,stats,,BUTTON
+768 settings/reading,设置,nav,settings,,BUTTON
+768 settings/reading,返回,nav,settings,,BUTTON
+768 settings/reading,"打开阅读排版
+继续上次的书",openTypography,,,BUTTON
+768 settings/reading,"每日阅读目标
+30 分钟",sheet,goal,,BUTTON
+768 settings/reading,阅读时保持屏幕常亮,,,keepAwake,INPUT
+768 settings/reading,点击左侧也翻到下一页,,,tapLeftNext,INPUT
+768 settings/reading,翻页动画,,,animation,INPUT
+768 settings/reading,"恢复默认排版
+仅恢复字号、配色和页面设置",sheet,resetTypography,,BUTTON
+768 settings/reading,选择本地文字文件,,,,INPUT
+768 settings/reading,选择字体文件,,,,INPUT
+768 settings/reading,选择原型备份,,,,INPUT
+768 settings/sync,藏书,nav,library,,BUTTON
+768 settings/sync,论文,nav,papers,,BUTTON
+768 settings/sync,书源,nav,sources,,BUTTON
+768 settings/sync,阅读记录,nav,stats,,BUTTON
+768 settings/sync,设置,nav,settings,,BUTTON
+768 settings/sync,返回,nav,settings,,BUTTON
+768 settings/sync,立即同步,syncNow,,,BUTTON
+768 settings/sync,"轻阅账号
+未登录",sheet,account,,BUTTON
+768 settings/sync,"网盘（WebDAV）
+坚果云 · 演示",sheet,webdavInfo,,BUTTON
+768 settings/sync,自动同步,,,autoSync,INPUT
+768 settings/sync,同步书籍文件,,,syncFiles,INPUT
+768 settings/sync,同步设置,,,syncSettings,INPUT
+768 settings/sync,同时同步密码与密钥,,,syncSecrets,INPUT
+768 settings/sync,同步明细,sheet,syncDetails,,BUTTON
+768 settings/sync,设备互传,nav,transfer,,BUTTON
+768 settings/sync,选择本地文字文件,,,,INPUT
+768 settings/sync,选择字体文件,,,,INPUT
+768 settings/sync,选择原型备份,,,,INPUT
+768 settings/ai,藏书,nav,library,,BUTTON
+768 settings/ai,论文,nav,papers,,BUTTON
+768 settings/ai,书源,nav,sources,,BUTTON
+768 settings/ai,阅读记录,nav,stats,,BUTTON
+768 settings/ai,设置,nav,settings,,BUTTON
+768 settings/ai,返回,nav,settings,,BUTTON
+768 settings/ai,ai-provider,,,,INPUT
+768 settings/ai,ai-model,,,,INPUT
+768 settings/ai,ai-url,,,,INPUT
+768 settings/ai,ai-key,,,,INPUT
+768 settings/ai,填入演示资料,fillAI,,,BUTTON
+768 settings/ai,测试并保存,,,,BUTTON
+768 settings/ai,选择本地文字文件,,,,INPUT
+768 settings/ai,选择字体文件,,,,INPUT
+768 settings/ai,选择原型备份,,,,INPUT
+768 settings/network,藏书,nav,library,,BUTTON
+768 settings/network,论文,nav,papers,,BUTTON
+768 settings/network,书源,nav,sources,,BUTTON
+768 settings/network,阅读记录,nav,stats,,BUTTON
+768 settings/network,设置,nav,settings,,BUTTON
+768 settings/network,返回,nav,settings,,BUTTON
+768 settings/network,proxy-type,,,,INPUT
+768 settings/network,proxy-host,,,,INPUT
+768 settings/network,proxy-port,,,,INPUT
+768 settings/network,保存并测试,,,,BUTTON
+768 settings/network,不使用代理,clearNetwork,,,BUTTON
+768 settings/network,选择本地文字文件,,,,INPUT
+768 settings/network,选择字体文件,,,,INPUT
+768 settings/network,选择原型备份,,,,INPUT
+768 settings/data,藏书,nav,library,,BUTTON
+768 settings/data,论文,nav,papers,,BUTTON
+768 settings/data,书源,nav,sources,,BUTTON
+768 settings/data,阅读记录,nav,stats,,BUTTON
+768 settings/data,设置,nav,settings,,BUTTON
+768 settings/data,返回,nav,settings,,BUTTON
+768 settings/data,"导出原型备份
+包含原型藏书、阅读位置、笔记和偏好
+JSON",exportBackup,,,BUTTON
+768 settings/data,"导入原型备份
+已有内容会先保留，确认后恢复",importBackup,,,BUTTON
+768 settings/data,"导出全部笔记
+Markdown",exportNotes,all,,BUTTON
+768 settings/data,"重置原型演示数据
+恢复原创样章和初始设置",sheet,resetDemo,,BUTTON
+768 settings/data,选择本地文字文件,,,,INPUT
+768 settings/data,选择字体文件,,,,INPUT
+768 settings/data,选择原型备份,,,,INPUT
+768 settings/features,藏书,nav,library,,BUTTON
+768 settings/features,论文,nav,papers,,BUTTON
+768 settings/features,书源,nav,sources,,BUTTON
+768 settings/features,阅读记录,nav,stats,,BUTTON
+768 settings/features,设置,nav,settings,,BUTTON
+768 settings/features,返回,nav,settings,,BUTTON
+768 settings/features,书单推荐,,,featureBooklists,INPUT
+768 settings/features,互传,,,featureTransfer,INPUT
+768 settings/features,选择本地文字文件,,,,INPUT
+768 settings/features,选择字体文件,,,,INPUT
+768 settings/features,选择原型备份,,,,INPUT
+768 settings/about,藏书,nav,library,,BUTTON
+768 settings/about,论文,nav,papers,,BUTTON
+768 settings/about,书源,nav,sources,,BUTTON
+768 settings/about,阅读记录,nav,stats,,BUTTON
+768 settings/about,设置,nav,settings,,BUTTON
+768 settings/about,返回,nav,settings,,BUTTON
+768 settings/about,原型使用说明,sheet,prototypeHelp,,BUTTON
+768 settings/about,可验证的状态,sheet,stateLab,,BUTTON
+768 settings/about,键盘与触屏操作,sheet,shortcuts,,BUTTON
+768 settings/about,字体与内容来源,sheet,credits,,BUTTON
+768 settings/about,选择本地文字文件,,,,INPUT
+768 settings/about,选择字体文件,,,,INPUT
+768 settings/about,选择原型备份,,,,INPUT
+768 reading,返回藏书,exitReader,,,BUTTON
+768 reading,添加或移除书签,bookmark,,,BUTTON
+768 reading,阅读工具,sheet,readerMore,,BUTTON
+768 reading,上一章,relativeChapter,-1,,BUTTON
+768 reading,阅读进度,,,bookProgress,INPUT
+768 reading,下一章,relativeChapter,1,,BUTTON
+768 reading,目录,sheet,toc,,BUTTON
+768 reading,笔记,sheet,notes,,BUTTON
+768 reading,进度,sheet,progress,,BUTTON
+768 reading,模式,sheet,modes,,BUTTON
+768 reading,排版,sheet,typography,,BUTTON
+768 reading,选择本地文字文件,,,,INPUT
+768 reading,选择字体文件,,,,INPUT
+768 reading,选择原型备份,,,,INPUT
+768 typography,返回藏书,exitReader,,,BUTTON
+768 typography,添加或移除书签,bookmark,,,BUTTON
+768 typography,阅读工具,sheet,readerMore,,BUTTON
+768 typography,上一章,relativeChapter,-1,,BUTTON
+768 typography,阅读进度,,,bookProgress,INPUT
+768 typography,下一章,relativeChapter,1,,BUTTON
+768 typography,目录,sheet,toc,,BUTTON
+768 typography,笔记,sheet,notes,,BUTTON
+768 typography,进度,sheet,progress,,BUTTON
+768 typography,模式,sheet,modes,,BUTTON
+768 typography,排版,sheet,typography,,BUTTON
+768 typography,关闭面板,closeSheet,,,BUTTON
+768 typography,文字,typeTab,text,,BUTTON
+768 typography,配色,typeTab,color,,BUTTON
+768 typography,页面,typeTab,page,,BUTTON
+768 typography,字号,,,fontSize,INPUT
+768 typography,行距,,,lineHeight,INPUT
+768 typography,边距,,,margin,INPUT
+768 typography,"字体
+读一段文字，选择舒服的字形
+宋体",sheet,fonts,,BUTTON
+768 typography,首行缩进,,,indent,INPUT
+768 typography,更多文字设置,,,,SUMMARY
+768 typography,字距,,,letterSpacing,INPUT
+768 typography,两端对齐,,,justify,INPUT
+768 typography,选择本地文字文件,,,,INPUT
+768 typography,选择字体文件,,,,INPUT
+768 typography,选择原型备份,,,,INPUT
+1440 library,藏书,nav,library,,BUTTON
+1440 library,论文,nav,papers,,BUTTON
+1440 library,书源,nav,sources,,BUTTON
+1440 library,阅读记录,nav,stats,,BUTTON
+1440 library,设置,nav,settings,,BUTTON
+1440 library,搜索藏书,focusSearch,,,BUTTON
+1440 library,添加书籍,sheet,import,,BUTTON
+1440 library,收起原型提示,dismissDemo,,,BUTTON
+1440 library,搜索藏书,,,,INPUT
+1440 library,继续阅读,read,mountain,,BUTTON
+1440 library,管理,selectBooks,,,BUTTON
+1440 library,全部,filter,all,,BUTTON
+1440 library,在读,filter,reading,,BUTTON
+1440 library,未读,filter,unread,,BUTTON
+1440 library,读完,filter,finished,,BUTTON
+1440 library,书单,filter,lists,,BUTTON
+1440 library,排序与视图,sheet,sort,,BUTTON
+1440 library,阅读《山间来信》,read,mountain,,BUTTON
+1440 library,山间来信的更多操作,bookMenu,mountain,,BUTTON
+1440 library,阅读《验收导入》,read,8b0dbae2-0d22-411e-8004-6863e5b53caa,,BUTTON
+1440 library,验收导入的更多操作,bookMenu,8b0dbae2-0d22-411e-8004-6863e5b53caa,,BUTTON
+1440 library,阅读《慢读的日常》,read,sample0,,BUTTON
+1440 library,慢读的日常的更多操作,bookMenu,sample0,,BUTTON
+1440 library,阅读《给未来的笔记》,read,sample1,,BUTTON
+1440 library,给未来的笔记的更多操作,bookMenu,sample1,,BUTTON
+1440 library,阅读《城市与步行》,read,sample2,,BUTTON
+1440 library,城市与步行的更多操作,bookMenu,sample2,,BUTTON
+1440 library,阅读《看见微小的事》,read,sample3,,BUTTON
+1440 library,看见微小的事的更多操作,bookMenu,sample3,,BUTTON
+1440 library,阅读《海边书简》,read,sample4,,BUTTON
+1440 library,海边书简的更多操作,bookMenu,sample4,,BUTTON
+1440 library,选择本地文字文件,,,,INPUT
+1440 library,选择字体文件,,,,INPUT
+1440 library,选择原型备份,,,,INPUT
+1440 papers,藏书,nav,library,,BUTTON
+1440 papers,论文,nav,papers,,BUTTON
+1440 papers,书源,nav,sources,,BUTTON
+1440 papers,阅读记录,nav,stats,,BUTTON
+1440 papers,设置,nav,settings,,BUTTON
+1440 papers,添加论文,sheet,paperImport,,BUTTON
+1440 papers,搜索论文,,,,INPUT
+1440 papers,全部,paperFilter,全部,,BUTTON
+1440 papers,在读,paperFilter,在读,,BUTTON
+1440 papers,未读,paperFilter,未读,,BUTTON
+1440 papers,读完,paperFilter,读完,,BUTTON
+1440 papers,"阅读样稿
+阅读界面中的注意与留白
+
+原创研究样稿 · 3 页 · 在读",openPaper,0,,BUTTON
+1440 papers,选择本地文字文件,,,,INPUT
+1440 papers,选择字体文件,,,,INPUT
+1440 papers,选择原型备份,,,,INPUT
+1440 sources,藏书,nav,library,,BUTTON
+1440 sources,论文,nav,papers,,BUTTON
+1440 sources,书源,nav,sources,,BUTTON
+1440 sources,阅读记录,nav,stats,,BUTTON
+1440 sources,设置,nav,settings,,BUTTON
+1440 sources,添加书源,sheet,addSource,,BUTTON
+1440 sources,搜索书源,,,,INPUT
+1440 sources,搜索,,,,BUTTON
+1440 sources,选择,sheet,sourceScope,,BUTTON
+1440 sources,"古登堡计划
+公版图书",sourceOpen,古登堡计划,,BUTTON
+1440 sources,"Internet Archive
+数字馆藏",sourceOpen,Internet Archive,,BUTTON
+1440 sources,"arXiv
+学术论文",sourceOpen,arXiv,,BUTTON
+1440 sources,"GitHub 书源
+社区共建",sourceOpen,GitHub 书源,,BUTTON
+1440 sources,"连接私人书库
+按你习惯的方式管理藏书
+OPDS / Calibre-Web",sheet,addSource,,BUTTON
+1440 sources,"慢慢读
+从已有藏书开始",openList,慢慢读,,BUTTON
+1440 sources,"待读
+从已有藏书开始",openList,待读,,BUTTON
+1440 sources,"本周想读
+从已有藏书开始",openList,本周想读,,BUTTON
+1440 sources,选择本地文字文件,,,,INPUT
+1440 sources,选择字体文件,,,,INPUT
+1440 sources,选择原型备份,,,,INPUT
+1440 stats,藏书,nav,library,,BUTTON
+1440 stats,论文,nav,papers,,BUTTON
+1440 stats,书源,nav,sources,,BUTTON
+1440 stats,阅读记录,nav,stats,,BUTTON
+1440 stats,设置,nav,settings,,BUTTON
+1440 stats,阅读目标,sheet,goal,,BUTTON
+1440 stats,周,statsRange,week,,BUTTON
+1440 stats,月,statsRange,month,,BUTTON
+1440 stats,年,statsRange,year,,BUTTON
+1440 stats,全部,statsRange,all,,BUTTON
+1440 stats,目标 30 分钟,sheet,goal,,BUTTON
+1440 stats,"0
+一",statsDay,0,,BUTTON
+1440 stats,"0
+二",statsDay,1,,BUTTON
+1440 stats,"0
+三",statsDay,2,,BUTTON
+1440 stats,"0
+四",statsDay,3,,BUTTON
+1440 stats,"0
+五",statsDay,4,,BUTTON
+1440 stats,"0
+六",statsDay,5,,BUTTON
+1440 stats,"0
+日",statsDay,6,,BUTTON
+1440 stats,1,calendarDay,1,,BUTTON
+1440 stats,2,calendarDay,2,,BUTTON
+1440 stats,3,calendarDay,3,,BUTTON
+1440 stats,4,calendarDay,4,,BUTTON
+1440 stats,5,calendarDay,5,,BUTTON
+1440 stats,6,calendarDay,6,,BUTTON
+1440 stats,7,calendarDay,7,,BUTTON
+1440 stats,8,calendarDay,8,,BUTTON
+1440 stats,9,calendarDay,9,,BUTTON
+1440 stats,10,calendarDay,10,,BUTTON
+1440 stats,11,calendarDay,11,,BUTTON
+1440 stats,12,calendarDay,12,,BUTTON
+1440 stats,13,calendarDay,13,,BUTTON
+1440 stats,14,calendarDay,14,,BUTTON
+1440 stats,15,calendarDay,15,,BUTTON
+1440 stats,16,calendarDay,16,,BUTTON
+1440 stats,17,calendarDay,17,,BUTTON
+1440 stats,18,calendarDay,18,,BUTTON
+1440 stats,19,calendarDay,19,,BUTTON
+1440 stats,20,calendarDay,20,,BUTTON
+1440 stats,21,calendarDay,21,,BUTTON
+1440 stats,22,calendarDay,22,,BUTTON
+1440 stats,23,calendarDay,23,,BUTTON
+1440 stats,24,calendarDay,24,,BUTTON
+1440 stats,25,calendarDay,25,,BUTTON
+1440 stats,26,calendarDay,26,,BUTTON
+1440 stats,27,calendarDay,27,,BUTTON
+1440 stats,28,calendarDay,28,,BUTTON
+1440 stats,29,calendarDay,29,,BUTTON
+1440 stats,30,calendarDay,30,,BUTTON
+1440 stats,31,calendarDay,31,,BUTTON
+1440 stats,"山间来信
+第一章　山里的早晨
+继续阅读",read,mountain,,BUTTON
+1440 stats,"慢读的日常
+第一章　在窗边读十分钟
+继续阅读",read,sample0,,BUTTON
+1440 stats,选择本地文字文件,,,,INPUT
+1440 stats,选择字体文件,,,,INPUT
+1440 stats,选择原型备份,,,,INPUT
+1440 settings,藏书,nav,library,,BUTTON
+1440 settings,论文,nav,papers,,BUTTON
+1440 settings,书源,nav,sources,,BUTTON
+1440 settings,阅读记录,nav,stats,,BUTTON
+1440 settings,设置,nav,settings,,BUTTON
+1440 settings,"账号与同步
+网盘已连接 · 流程演示",settingsSub,sync,,BUTTON
+1440 settings,"外观
+浅色",sheet,appearance,,BUTTON
+1440 settings,阅读偏好,settingsSub,reading,,BUTTON
+1440 settings,功能,settingsSub,features,,BUTTON
+1440 settings,"账号与同步
+演示已连接",settingsSub,sync,,BUTTON
+1440 settings,设备互传,nav,transfer,,BUTTON
+1440 settings,数据与备份,settingsSub,data,,BUTTON
+1440 settings,"网络
+未设置",settingsSub,network,,BUTTON
+1440 settings,"AI 助手
+未配置",settingsSub,ai,,BUTTON
+1440 settings,"关于轻阅
+交互原型 v3",settingsSub,about,,BUTTON
+1440 settings,选择本地文字文件,,,,INPUT
+1440 settings,选择字体文件,,,,INPUT
+1440 settings,选择原型备份,,,,INPUT
+1440 transfer,藏书,nav,library,,BUTTON
+1440 transfer,论文,nav,papers,,BUTTON
+1440 transfer,书源,nav,sources,,BUTTON
+1440 transfer,阅读记录,nav,stats,,BUTTON
+1440 transfer,设置,nav,settings,,BUTTON
+1440 transfer,返回,nav,library,,BUTTON
+1440 transfer,接收,transferTab,receive,,BUTTON
+1440 transfer,发送,transferTab,send,,BUTTON
+1440 transfer,pickup-code,,,,INPUT
+1440 transfer,取件,,,,BUTTON
+1440 transfer,选择本地文字文件,,,,INPUT
+1440 transfer,选择字体文件,,,,INPUT
+1440 transfer,选择原型备份,,,,INPUT
+1440 settings/reading,藏书,nav,library,,BUTTON
+1440 settings/reading,论文,nav,papers,,BUTTON
+1440 settings/reading,书源,nav,sources,,BUTTON
+1440 settings/reading,阅读记录,nav,stats,,BUTTON
+1440 settings/reading,设置,nav,settings,,BUTTON
+1440 settings/reading,返回,nav,settings,,BUTTON
+1440 settings/reading,"打开阅读排版
+继续上次的书",openTypography,,,BUTTON
+1440 settings/reading,"每日阅读目标
+30 分钟",sheet,goal,,BUTTON
+1440 settings/reading,阅读时保持屏幕常亮,,,keepAwake,INPUT
+1440 settings/reading,点击左侧也翻到下一页,,,tapLeftNext,INPUT
+1440 settings/reading,翻页动画,,,animation,INPUT
+1440 settings/reading,"恢复默认排版
+仅恢复字号、配色和页面设置",sheet,resetTypography,,BUTTON
+1440 settings/reading,选择本地文字文件,,,,INPUT
+1440 settings/reading,选择字体文件,,,,INPUT
+1440 settings/reading,选择原型备份,,,,INPUT
+1440 settings/sync,藏书,nav,library,,BUTTON
+1440 settings/sync,论文,nav,papers,,BUTTON
+1440 settings/sync,书源,nav,sources,,BUTTON
+1440 settings/sync,阅读记录,nav,stats,,BUTTON
+1440 settings/sync,设置,nav,settings,,BUTTON
+1440 settings/sync,返回,nav,settings,,BUTTON
+1440 settings/sync,立即同步,syncNow,,,BUTTON
+1440 settings/sync,"轻阅账号
+未登录",sheet,account,,BUTTON
+1440 settings/sync,"网盘（WebDAV）
+坚果云 · 演示",sheet,webdavInfo,,BUTTON
+1440 settings/sync,自动同步,,,autoSync,INPUT
+1440 settings/sync,同步书籍文件,,,syncFiles,INPUT
+1440 settings/sync,同步设置,,,syncSettings,INPUT
+1440 settings/sync,同时同步密码与密钥,,,syncSecrets,INPUT
+1440 settings/sync,同步明细,sheet,syncDetails,,BUTTON
+1440 settings/sync,设备互传,nav,transfer,,BUTTON
+1440 settings/sync,选择本地文字文件,,,,INPUT
+1440 settings/sync,选择字体文件,,,,INPUT
+1440 settings/sync,选择原型备份,,,,INPUT
+1440 settings/ai,藏书,nav,library,,BUTTON
+1440 settings/ai,论文,nav,papers,,BUTTON
+1440 settings/ai,书源,nav,sources,,BUTTON
+1440 settings/ai,阅读记录,nav,stats,,BUTTON
+1440 settings/ai,设置,nav,settings,,BUTTON
+1440 settings/ai,返回,nav,settings,,BUTTON
+1440 settings/ai,ai-provider,,,,INPUT
+1440 settings/ai,ai-model,,,,INPUT
+1440 settings/ai,ai-url,,,,INPUT
+1440 settings/ai,ai-key,,,,INPUT
+1440 settings/ai,填入演示资料,fillAI,,,BUTTON
+1440 settings/ai,测试并保存,,,,BUTTON
+1440 settings/ai,选择本地文字文件,,,,INPUT
+1440 settings/ai,选择字体文件,,,,INPUT
+1440 settings/ai,选择原型备份,,,,INPUT
+1440 settings/network,藏书,nav,library,,BUTTON
+1440 settings/network,论文,nav,papers,,BUTTON
+1440 settings/network,书源,nav,sources,,BUTTON
+1440 settings/network,阅读记录,nav,stats,,BUTTON
+1440 settings/network,设置,nav,settings,,BUTTON
+1440 settings/network,返回,nav,settings,,BUTTON
+1440 settings/network,proxy-type,,,,INPUT
+1440 settings/network,proxy-host,,,,INPUT
+1440 settings/network,proxy-port,,,,INPUT
+1440 settings/network,保存并测试,,,,BUTTON
+1440 settings/network,不使用代理,clearNetwork,,,BUTTON
+1440 settings/network,选择本地文字文件,,,,INPUT
+1440 settings/network,选择字体文件,,,,INPUT
+1440 settings/network,选择原型备份,,,,INPUT
+1440 settings/data,藏书,nav,library,,BUTTON
+1440 settings/data,论文,nav,papers,,BUTTON
+1440 settings/data,书源,nav,sources,,BUTTON
+1440 settings/data,阅读记录,nav,stats,,BUTTON
+1440 settings/data,设置,nav,settings,,BUTTON
+1440 settings/data,返回,nav,settings,,BUTTON
+1440 settings/data,"导出原型备份
+包含原型藏书、阅读位置、笔记和偏好
+JSON",exportBackup,,,BUTTON
+1440 settings/data,"导入原型备份
+已有内容会先保留，确认后恢复",importBackup,,,BUTTON
+1440 settings/data,"导出全部笔记
+Markdown",exportNotes,all,,BUTTON
+1440 settings/data,"重置原型演示数据
+恢复原创样章和初始设置",sheet,resetDemo,,BUTTON
+1440 settings/data,选择本地文字文件,,,,INPUT
+1440 settings/data,选择字体文件,,,,INPUT
+1440 settings/data,选择原型备份,,,,INPUT
+1440 settings/features,藏书,nav,library,,BUTTON
+1440 settings/features,论文,nav,papers,,BUTTON
+1440 settings/features,书源,nav,sources,,BUTTON
+1440 settings/features,阅读记录,nav,stats,,BUTTON
+1440 settings/features,设置,nav,settings,,BUTTON
+1440 settings/features,返回,nav,settings,,BUTTON
+1440 settings/features,书单推荐,,,featureBooklists,INPUT
+1440 settings/features,互传,,,featureTransfer,INPUT
+1440 settings/features,选择本地文字文件,,,,INPUT
+1440 settings/features,选择字体文件,,,,INPUT
+1440 settings/features,选择原型备份,,,,INPUT
+1440 settings/about,藏书,nav,library,,BUTTON
+1440 settings/about,论文,nav,papers,,BUTTON
+1440 settings/about,书源,nav,sources,,BUTTON
+1440 settings/about,阅读记录,nav,stats,,BUTTON
+1440 settings/about,设置,nav,settings,,BUTTON
+1440 settings/about,返回,nav,settings,,BUTTON
+1440 settings/about,原型使用说明,sheet,prototypeHelp,,BUTTON
+1440 settings/about,可验证的状态,sheet,stateLab,,BUTTON
+1440 settings/about,键盘与触屏操作,sheet,shortcuts,,BUTTON
+1440 settings/about,字体与内容来源,sheet,credits,,BUTTON
+1440 settings/about,选择本地文字文件,,,,INPUT
+1440 settings/about,选择字体文件,,,,INPUT
+1440 settings/about,选择原型备份,,,,INPUT
+1440 reading,返回藏书,exitReader,,,BUTTON
+1440 reading,添加或移除书签,bookmark,,,BUTTON
+1440 reading,阅读工具,sheet,readerMore,,BUTTON
+1440 reading,上一章,relativeChapter,-1,,BUTTON
+1440 reading,阅读进度,,,bookProgress,INPUT
+1440 reading,下一章,relativeChapter,1,,BUTTON
+1440 reading,目录,sheet,toc,,BUTTON
+1440 reading,笔记,sheet,notes,,BUTTON
+1440 reading,进度,sheet,progress,,BUTTON
+1440 reading,模式,sheet,modes,,BUTTON
+1440 reading,排版,sheet,typography,,BUTTON
+1440 reading,选择本地文字文件,,,,INPUT
+1440 reading,选择字体文件,,,,INPUT
+1440 reading,选择原型备份,,,,INPUT
+1440 typography,返回藏书,exitReader,,,BUTTON
+1440 typography,添加或移除书签,bookmark,,,BUTTON
+1440 typography,阅读工具,sheet,readerMore,,BUTTON
+1440 typography,上一章,relativeChapter,-1,,BUTTON
+1440 typography,阅读进度,,,bookProgress,INPUT
+1440 typography,下一章,relativeChapter,1,,BUTTON
+1440 typography,目录,sheet,toc,,BUTTON
+1440 typography,笔记,sheet,notes,,BUTTON
+1440 typography,进度,sheet,progress,,BUTTON
+1440 typography,模式,sheet,modes,,BUTTON
+1440 typography,排版,sheet,typography,,BUTTON
+1440 typography,关闭面板,closeSheet,,,BUTTON
+1440 typography,文字,typeTab,text,,BUTTON
+1440 typography,配色,typeTab,color,,BUTTON
+1440 typography,页面,typeTab,page,,BUTTON
+1440 typography,字号,,,fontSize,INPUT
+1440 typography,行距,,,lineHeight,INPUT
+1440 typography,边距,,,margin,INPUT
+1440 typography,"字体
+读一段文字，选择舒服的字形
+宋体",sheet,fonts,,BUTTON
+1440 typography,首行缩进,,,indent,INPUT
+1440 typography,更多文字设置,,,,SUMMARY
+1440 typography,字距,,,letterSpacing,INPUT
+1440 typography,两端对齐,,,justify,INPUT
+1440 typography,选择本地文字文件,,,,INPUT
+1440 typography,选择字体文件,,,,INPUT
+1440 typography,选择原型备份,,,,INPUT

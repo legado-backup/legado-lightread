@@ -1,0 +1,73 @@
+{
+  "checks": [
+    {
+      "name": "自动阅读真实推进页码",
+      "pass": true
+    },
+    {
+      "name": "逐字确实部分显示",
+      "pass": true
+    },
+    {
+      "name": "逐字退出不残留透明尾字",
+      "pass": true
+    },
+    {
+      "name": "逐段同时显示同段多句",
+      "pass": true
+    },
+    {
+      "name": "夜间面板与正文共同变暗",
+      "pass": true
+    },
+    {
+      "name": "宽屏实际双栏",
+      "pass": true
+    },
+    {
+      "name": "手机自动单栏保留双栏偏好",
+      "pass": true
+    },
+    {
+      "name": "无系统音色时反馈可恢复错误",
+      "pass": true
+    },
+    {
+      "name": "语音失败切演示可恢复",
+      "pass": true
+    },
+    {
+      "name": "HTML导入提取文字且不执行脚本",
+      "pass": true
+    },
+    {
+      "name": "过期取件码有恢复提示",
+      "pass": true
+    },
+    {
+      "name": "接收样章保存进藏书",
+      "pass": true
+    },
+    {
+      "name": "文件互传演示显示所选文件",
+      "pass": true
+    },
+    {
+      "name": "互传撤回移除记录",
+      "pass": true
+    },
+    {
+      "name": "备份包含实际藏书与偏好",
+      "pass": true
+    },
+    {
+      "name": "备份恢复先确认",
+      "pass": true
+    },
+    {
+      "name": "备份恢复完成",
+      "pass": true
+    }
+  ],
+  "errors": []
+}

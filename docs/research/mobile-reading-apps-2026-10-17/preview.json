@@ -1,0 +1,11 @@
+{
+  "deploy_id": "6ad3b5338a21595bf6b4d6cb",
+  "deploy_url": "https://6ad3b5338a21595bf6b4d6cb--yzfly-html-preview.netlify.app",
+  "anonymous_status": 401,
+  "server": "Netlify",
+  "login_redirect_present": true,
+  "prototype_title_exposed": false,
+  "sso_login": true,
+  "sso_login_context": "all",
+  "prototype_sha256": "02c332d253408595c717a49d874c193fe83d418f42e7801c7f1af9222e1e4444"
+}

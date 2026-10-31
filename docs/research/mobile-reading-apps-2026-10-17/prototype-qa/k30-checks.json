@@ -1,0 +1,10 @@
+{
+  "browser": "Android Edge 155",
+  "device": "Redmi K30 Pro",
+  "delivery": "DevTools request fulfillment of unchanged HTML at localhost; network reverse alone did not finish loading",
+  "errors": [],
+  "viewport": {
+    "width": 392,
+    "height": 718
+  }
+}

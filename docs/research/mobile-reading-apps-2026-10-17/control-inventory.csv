@@ -1,0 +1,780 @@
+截图编号,可见文字 XML,无障碍名称 XML,控件类,资源ID,屏幕范围,可点击,选中,勾选
+cang-02-desk,搜索书名/作者/讲书/书友馆,,android.widget.TextView,,"[149,166][515,207]",false,false,false
+cang-02-desk,书桌,,android.widget.TextView,,"[301,331][389,395]",false,true,false
+cang-02-desk,书馆,,android.widget.TextView,,"[496,331][584,395]",false,false,false
+cang-02-desk,讲解,,android.widget.TextView,,"[691,331][779,395]",false,false,false
+cang-02-desk,书桌中还没有书籍,,android.widget.TextView,com.cliff:id/book_resource_no_data,"[28,1062][1052,1221]",false,false,false
+cang-02-desk,阅读计划,,android.widget.TextView,,"[237,2001][413,2060]",false,false,false
+cang-02-desk,用计划约束阅读，告别半途而废,,android.widget.TextView,,"[237,2071][773,2123]",false,false,false
+cang-02-desk,讲书,,android.widget.TextView,com.cliff:id/tv_home_tab,"[80,2290][136,2328]",false,false,false
+cang-02-desk,找书,,android.widget.TextView,com.cliff:id/tv_borrow_tab,"[296,2290][352,2328]",false,false,false
+cang-02-desk,书桌,,android.widget.TextView,com.cliff:id/tv_reader_tab,"[512,2290][568,2328]",false,true,false
+cang-02-desk,逛逛,,android.widget.TextView,com.cliff:id/tv_circle_tab,"[728,2290][784,2328]",false,false,false
+cang-02-desk,我的,,android.widget.TextView,com.cliff:id/tv_mine_tab,"[944,2290][1000,2328]",false,false,false
+cang-03-discover,签到,,android.widget.TextView,,"[44,184][100,222]",false,false,false
+cang-03-discover,搜索书名/作者/讲书/书友馆,,android.widget.TextView,com.cliff:id/tv_search,"[176,118][915,214]",true,false,false
+cang-03-discover,精选,,android.widget.TextView,,"[39,244][195,379]",true,true,false
+cang-03-discover,借阅,,android.widget.TextView,,"[195,244][333,379]",true,false,false
+cang-03-discover,她读,,android.widget.TextView,,"[333,244][471,379]",true,false,false
+cang-03-discover,书单,,android.widget.TextView,,"[471,244][609,379]",true,false,false
+cang-03-discover,书讯,,android.widget.TextView,,"[609,244][747,379]",true,false,false
+cang-03-discover,启智你的政治观,,android.widget.TextView,com.cliff:id/tv_title,"[44,434][394,506]",false,false,false
+cang-03-discover,"《政治学十五讲》AI智能书是颠覆传统知识传播方式的创新产品！智能书不仅包含《政治学十五讲》完整电子书内容，还特别加入了丰富的音频、视频等多模态内容资源，同时嵌入定制化AI互动智能体，彻底革新了电子书产品样态，不再是一个简单的知识载体，更是一个充满活力的多模态、智能化、交互性的知识生态系统！让你的知识获取体验更上一层楼！学习过程中，你可以随心所欲地切换学习模式！读电子书，听有声书，看课程视频，随时与AI导师互动交流，获得专业解答与脑力激荡。在这里，你可以通过""视—听—读—问""四位一体的学习方式，让知识真正活起来！这种沉浸式的深度交互体验，让你的学习过程既轻松又高效，还能激发你对政治学的深入思考。即刻拥有《政治学十五讲》AI智能书，开启你的政治学智慧之旅吧！",,android.widget.TextView,com.cliff:id/tv_content,"[314,600][995,773]",false,false,false
+cang-03-discover,政治与军事 > 政治理论,,android.widget.TextView,com.cliff:id/tv_classify,"[314,806][673,863]",false,false,false
+cang-03-discover,984人在读,,android.widget.TextView,,"[686,806][845,863]",false,false,false
+cang-03-discover,《政治学十五讲》AI智能书,,android.widget.TextView,com.cliff:id/tv_book_name,"[44,919][940,978]",false,false,false
+cang-03-discover,燕继荣,,android.widget.TextView,com.cliff:id/tv_author,"[44,986][940,1031]",false,false,false
+cang-03-discover,与陀翁灵魂对谈,,android.widget.TextView,com.cliff:id/tv_title,"[44,1141][394,1213]",false,false,false
+cang-03-discover,"在数字化浪潮席卷的时代，经典文学的传承与创新迎来了新的可能。《罪与罚》AI智能书，以颠覆性的姿态重新定义了知识获取的边界，将百年前的文学巨著转化为一个生机勃勃的知识生态系统。打开这扇数智文学之门，经典原著的智慧将透过多维感官叩击心灵。中文译本的细腻文字与AI互动导师的智慧对话交相辉映，让每一次阅读都成为一场思想的盛宴。在这里，知识化作了流动的音符，跳跃的画面，以及与你对话的智慧生命。以""视—听—读—问""四位一体的沉浸式阅读方式，带你深入陀思妥耶夫斯基的精神世界。无论是静心品读原著，还是聆听专业导读，亦或是观看深度解析视频，智识体都能满足你对文学的无限畅想。而AI导师的实时互动，则像一位智慧的引路人，随时答疑解惑，激荡思维。这是一个充满活力的文学实验室。在这里，你可以通过多模态的体验方式，感受经典文学的永恒魅力。让思维在数字空间中自由翱翔，让智慧在交互体验中不断生长。现在，就让我们一起，开启这场跨越时空的文学对话。启动《罪与罚》AI智能书，不仅是在获取文学体验，更是参与一场思想的狂欢，一次灵魂的重塑。在这里，经典不再遥远，智慧触手可及，思维无限延伸。与智能书同行，让经典焕发新生。",,android.widget.TextView,com.cliff:id/tv_content,"[314,1307][995,1480]",false,false,false
+cang-03-discover,小说 > 世界名著,,android.widget.TextView,com.cliff:id/tv_classify,"[314,1513][574,1570]",false,false,false
+cang-03-discover,256人在读,,android.widget.TextView,,"[587,1513][746,1570]",false,false,false
+cang-03-discover,《罪与罚》AI智能书,,android.widget.TextView,com.cliff:id/tv_book_name,"[44,1626][940,1685]",false,false,false
+cang-03-discover,[俄]陀思妥耶夫斯基【著】；曾思艺【译】,,android.widget.TextView,com.cliff:id/tv_author,"[44,1693][940,1738]",false,false,false
+cang-03-discover,书库分类,,android.widget.TextView,com.cliff:id/tv_title,"[44,1848][244,1920]",false,false,false
+cang-03-discover,查看更多,,android.widget.TextView,com.cliff:id/tv_more,"[837,1848][1036,1908]",true,false,false
+cang-03-discover,小说,,android.widget.TextView,,"[46,2158][239,2190]",false,false,false
+cang-03-discover,文学,,android.widget.TextView,,"[314,2158][507,2190]",false,false,false
+cang-03-discover,历史,,android.widget.TextView,,"[582,2158][775,2190]",false,false,false
+cang-03-discover,传记,,android.widget.TextView,,"[850,2158][1043,2190]",false,false,false
+cang-03-discover,讲书,,android.widget.TextView,com.cliff:id/tv_home_tab,"[80,2290][136,2328]",false,false,false
+cang-03-discover,找书,,android.widget.TextView,com.cliff:id/tv_borrow_tab,"[296,2290][352,2328]",false,true,false
+cang-03-discover,书桌,,android.widget.TextView,com.cliff:id/tv_reader_tab,"[512,2290][568,2328]",false,false,false
+cang-03-discover,逛逛,,android.widget.TextView,com.cliff:id/tv_circle_tab,"[728,2290][784,2328]",false,false,false
+cang-03-discover,我的,,android.widget.TextView,com.cliff:id/tv_mine_tab,"[944,2290][1000,2328]",false,false,false
+cang-05-audio-home,经典解读,,android.widget.TextView,com.cliff:id/tvTabJiedu,"[232,124][540,218]",true,false,false
+cang-05-audio-home,好书讲解,,android.widget.TextView,com.cliff:id/tvTabHaoshu,"[540,124][848,218]",true,false,false
+cang-05-audio-home,15大分类,,android.widget.TextView,com.cliff:id/tvTitle,"[0,270][1080,386]",false,false,false
+cang-05-audio-home,人生必读经典讲书专题,,android.widget.TextView,com.cliff:id/tvSubtitle,"[0,389][1080,505]",false,false,false
+cang-05-audio-home,怎么搞懂经济学？,,android.widget.TextView,com.cliff:id/tvBarrageTitle,"[179,713][179,772]",false,false,false
+cang-05-audio-home,用价格、选择与激励拆解现实。,,android.widget.TextView,com.cliff:id/tvBarrageIntro,"[179,787][179,824]",false,false,false
+cang-05-audio-home,进入专题 听经典讲解,,android.widget.TextView,com.cliff:id/tvView,"[179,1678][179,1872]",true,false,false
+cang-05-audio-home,政治学关我什么事？,,android.widget.TextView,com.cliff:id/tvBarrageTitle,"[179,610][901,676]",false,false,false
+cang-05-audio-home,看懂身边规则，守住自身权利。,,android.widget.TextView,com.cliff:id/tvBarrageIntro,"[179,693][901,736]",false,false,false
+cang-05-audio-home,进入专题 听经典讲解,,android.widget.TextView,com.cliff:id/tvView,"[179,1706][901,1926]",true,false,false
+cang-05-audio-home,社会学研究什么？,,android.widget.TextView,com.cliff:id/tvBarrageTitle,"[901,713][901,772]",false,false,false
+cang-05-audio-home,看见人与群体如何彼此塑造。,,android.widget.TextView,com.cliff:id/tvBarrageIntro,"[901,787][901,824]",false,false,false
+cang-05-audio-home,进入专题 听经典讲解,,android.widget.TextView,com.cliff:id/tvView,"[901,1678][901,1872]",true,false,false
+cang-05-audio-home,查看更多·15个专题,,android.widget.TextView,com.cliff:id/tvViewAll,"[366,2062][681,2111]",false,false,false
+cang-05-audio-home,讲书,,android.widget.TextView,com.cliff:id/tv_home_tab,"[80,2290][136,2328]",false,true,false
+cang-05-audio-home,找书,,android.widget.TextView,com.cliff:id/tv_borrow_tab,"[296,2290][352,2328]",false,false,false
+cang-05-audio-home,书桌,,android.widget.TextView,com.cliff:id/tv_reader_tab,"[512,2290][568,2328]",false,false,false
+cang-05-audio-home,逛逛,,android.widget.TextView,com.cliff:id/tv_circle_tab,"[728,2290][784,2328]",false,false,false
+cang-05-audio-home,我的,,android.widget.TextView,com.cliff:id/tv_mine_tab,"[944,2290][1000,2328]",false,false,false
+jd-25-listen-voices,讲书人,,android.widget.TextView,com.jd.app.reader:id/player_speed_title,"[474,1419][606,1478]",false,false,false
+jd-25-listen-voices,经典男声,,android.widget.TextView,com.jd.app.reader:id/tv_announcer_name,"[66,1585][230,1640]",false,false,false
+jd-25-listen-voices,经典女声,,android.widget.TextView,com.jd.app.reader:id/tv_announcer_name,"[66,1783][230,1838]",false,false,false
+jd-25-listen-voices,沉稳男声,,android.widget.TextView,com.jd.app.reader:id/tv_announcer_name,"[66,1981][230,2036]",false,false,false
+jd-25-listen-voices,温柔淑女,,android.widget.TextView,com.jd.app.reader:id/tv_announcer_name,"[66,2179][230,2234]",false,false,false
+jd-25-listen-voices,,关闭,android.widget.ImageView,com.jd.app.reader:id/iv_toolbar_close,"[28,96][152,217]",true,false,false
+jd-25-listen-voices,轻阅界面调研样本,,android.widget.TextView,com.jd.app.reader:id/book_chapter,"[127,1104][953,1178]",true,false,false
+jd-25-listen-voices,经典男声,,android.widget.TextView,com.jd.app.reader:id/tv_announcer,"[413,1219][666,1299]",true,false,false
+jd-25-listen-voices,语速,,android.widget.TextView,,"[415,1876][471,1914]",false,false,false
+jd-25-listen-voices,原文,,android.widget.TextView,,"[608,1876][664,1914]",false,false,false
+jd-25-listen-voices,,快退或上一句,android.widget.ImageView,com.jd.app.reader:id/bookplayer_pre_15,"[52,2020][132,2100]",true,false,false
+jd-25-listen-voices,02:38 / 03:18,,android.widget.TextView,,"[583,2032][794,2087]",false,false,false
+jd-25-listen-voices,,快进或下一句,android.widget.ImageView,com.jd.app.reader:id/bookplayer_next_15,"[948,2020][1028,2100]",true,false,false
+jd-25-listen-voices,,目录,android.widget.ImageView,com.jd.app.reader:id/bookplayer_catalog,"[50,2175][144,2269]",true,false,false
+jd-25-listen-voices,,上一章节,android.widget.ImageView,com.jd.app.reader:id/bookplayer_pre,"[286,2184][363,2261]",true,false,false
+jd-25-listen-voices,,播放或暂停,android.widget.ImageView,com.jd.app.reader:id/bookplayer_play,"[476,2159][603,2286]",true,false,false
+jd-25-listen-voices,,下一章节,android.widget.ImageView,com.jd.app.reader:id/bookplayer_next,"[716,2184][793,2261]",true,false,false
+jd-25-listen-voices,14:47,定时设置,android.widget.TextView,com.jd.app.reader:id/bookplayer_timing_text,"[952,2227][1016,2262]",false,false,false
+jd-30-listen-restored-paused,,关闭,android.widget.ImageView,com.jd.app.reader:id/iv_toolbar_close,"[28,96][152,217]",true,false,false
+jd-30-listen-restored-paused,第2章清楚的层级,,android.widget.TextView,com.jd.app.reader:id/book_chapter,"[127,1104][953,1178]",true,false,false
+jd-30-listen-restored-paused,经典女声,,android.widget.TextView,com.jd.app.reader:id/tv_announcer,"[413,1219][666,1299]",true,false,false
+jd-30-listen-restored-paused,语速,,android.widget.TextView,,"[415,1876][471,1914]",false,false,false
+jd-30-listen-restored-paused,原文,,android.widget.TextView,,"[608,1876][664,1914]",false,false,false
+jd-30-listen-restored-paused,,快退或上一句,android.widget.ImageView,com.jd.app.reader:id/bookplayer_pre_15,"[52,2020][132,2100]",true,false,false
+jd-30-listen-restored-paused,00:51 / 03:41,,android.widget.TextView,,"[298,2032][509,2087]",false,false,false
+jd-30-listen-restored-paused,,快进或下一句,android.widget.ImageView,com.jd.app.reader:id/bookplayer_next_15,"[948,2020][1028,2100]",true,false,false
+jd-30-listen-restored-paused,,目录,android.widget.ImageView,com.jd.app.reader:id/bookplayer_catalog,"[50,2175][144,2269]",true,false,false
+jd-30-listen-restored-paused,,上一章节,android.widget.ImageView,com.jd.app.reader:id/bookplayer_pre,"[286,2184][363,2261]",true,false,false
+jd-30-listen-restored-paused,,播放或暂停,android.widget.ImageView,com.jd.app.reader:id/bookplayer_play,"[476,2159][603,2286]",true,false,false
+jd-30-listen-restored-paused,,下一章节,android.widget.ImageView,com.jd.app.reader:id/bookplayer_next,"[716,2184][793,2261]",true,false,false
+jd-31-listen-voices-more,讲书人,,android.widget.TextView,com.jd.app.reader:id/player_speed_title,"[474,1419][606,1478]",false,false,false
+jd-31-listen-voices-more,磁性男声,,android.widget.TextView,com.jd.app.reader:id/tv_announcer_name,"[66,1636][230,1691]",false,false,false
+jd-31-listen-voices-more,成熟女声,,android.widget.TextView,com.jd.app.reader:id/tv_announcer_name,"[66,1834][230,1889]",false,false,false
+jd-31-listen-voices-more,醇厚低音,,android.widget.TextView,com.jd.app.reader:id/tv_announcer_name,"[66,2032][230,2087]",false,false,false
+jd-31-listen-voices-more,清亮女声,,android.widget.TextView,com.jd.app.reader:id/tv_announcer_name,"[66,2230][230,2285]",false,false,false
+jd-31-listen-voices-more,,关闭,android.widget.ImageView,com.jd.app.reader:id/iv_toolbar_close,"[28,96][152,217]",true,false,false
+jd-31-listen-voices-more,第2章清楚的层级,,android.widget.TextView,com.jd.app.reader:id/book_chapter,"[127,1104][953,1178]",true,false,false
+jd-31-listen-voices-more,经典女声,,android.widget.TextView,com.jd.app.reader:id/tv_announcer,"[413,1219][666,1299]",true,false,false
+jd-31-listen-voices-more,语速,,android.widget.TextView,,"[415,1876][471,1914]",false,false,false
+jd-31-listen-voices-more,原文,,android.widget.TextView,,"[608,1876][664,1914]",false,false,false
+jd-31-listen-voices-more,,快退或上一句,android.widget.ImageView,com.jd.app.reader:id/bookplayer_pre_15,"[52,2020][132,2100]",true,false,false
+jd-31-listen-voices-more,00:51 / 03:41,,android.widget.TextView,,"[298,2032][509,2087]",false,false,false
+jd-31-listen-voices-more,,快进或下一句,android.widget.ImageView,com.jd.app.reader:id/bookplayer_next_15,"[948,2020][1028,2100]",true,false,false
+jd-31-listen-voices-more,,目录,android.widget.ImageView,com.jd.app.reader:id/bookplayer_catalog,"[50,2175][144,2269]",true,false,false
+jd-31-listen-voices-more,,上一章节,android.widget.ImageView,com.jd.app.reader:id/bookplayer_pre,"[286,2184][363,2261]",true,false,false
+jd-31-listen-voices-more,,播放或暂停,android.widget.ImageView,com.jd.app.reader:id/bookplayer_play,"[476,2159][603,2286]",true,false,false
+jd-31-listen-voices-more,,下一章节,android.widget.ImageView,com.jd.app.reader:id/bookplayer_next,"[716,2184][793,2261]",true,false,false
+jd-32-profile,欢迎,,android.widget.TextView,com.jd.app.reader:id/welcomeTv,"[44,236][220,333]",false,false,false
+jd-32-profile,开通VIP,,android.widget.TextView,com.jd.app.reader:id/tv_mine_vip_layout_vip_tip,"[185,478][354,544]",false,false,false
+jd-32-profile,尊享6项特权，每天不到1元,,android.widget.TextView,com.jd.app.reader:id/tv_mine_vip_layout_vip_prompt,"[185,550][766,597]",false,false,false
+jd-32-profile,立即开通,,android.widget.Button,com.jd.app.reader:id/btn_mine_vip_open_vip,"[780,503][1006,575]",false,false,false
+jd-32-profile,阅豆,,android.widget.TextView,,"[74,699][162,760]",false,false,false
+jd-32-profile,0,,android.widget.TextView,com.jd.app.reader:id/balanceTv,"[188,658][435,807]",true,false,false
+jd-32-profile,已购,,android.widget.TextView,,"[584,699][672,760]",false,false,false
+jd-32-profile,0本,,android.widget.TextView,com.jd.app.reader:id/boughtTv,"[698,658][945,807]",true,false,false
+jd-32-profile,我的账户,,android.widget.TextView,com.jd.app.reader:id/accountTv,"[172,897][360,961]",false,false,false
+jd-32-profile,读书记录,,android.widget.TextView,com.jd.app.reader:id/historyTv,"[172,1059][348,1118]",false,false,false
+jd-32-profile,设置,,android.widget.TextView,com.jd.app.reader:id/settingsTv,"[174,1219][262,1278]",false,false,false
+jd-32-profile,新用户登录领取7天VIP,,android.widget.TextView,com.jd.app.reader:id/tv_login_tip,"[178,2096][745,2144]",false,false,false
+jd-32-profile,立即登录,,android.widget.TextView,com.jd.app.reader:id/tv_login_btn,"[745,2084][976,2156]",true,false,false
+jd-32-profile,书架,,android.widget.TextView,com.jd.app.reader:id/main_tab_bookshelf_txt,"[95,2301][155,2342]",false,false,false
+jd-32-profile,书城,,android.widget.TextView,com.jd.app.reader:id/main_tab_bookcity_txt,"[375,2301][435,2342]",false,false,false
+jd-32-profile,社区,,android.widget.TextView,com.jd.app.reader:id/main_tab_community_txt,"[645,2301][705,2342]",false,false,false
+jd-32-profile,我的,,android.widget.TextView,com.jd.app.reader:id/main_tab_mine_txt,"[915,2301][975,2342]",false,true,false
+jd-33-settings,设置,,android.widget.TextView,com.jd.app.reader:id/title,"[0,96][1080,217]",false,false,false
+jd-33-settings,阅读设置,,android.widget.TextView,,"[55,272][219,327]",false,false,false
+jd-33-settings,隐私设置,,android.widget.TextView,,"[55,437][219,492]",false,false,false
+jd-33-settings,接收推送消息,,android.widget.TextView,,"[55,616][301,671]",false,false,false
+jd-33-settings,已设置,,android.widget.TextView,com.jd.app.reader:id/mMessageSwitchTextView,"[926,621][1025,666]",false,false,false
+jd-33-settings,清除缓存,,android.widget.TextView,,"[55,781][219,836]",false,false,false
+jd-33-settings,19.96M,,android.widget.TextView,com.jd.app.reader:id/mCacheSizeTextVeiw,"[915,786][1025,831]",false,false,false
+jd-33-settings,设备管理,,android.widget.TextView,,"[55,946][219,1001]",false,false,false
+jd-33-settings,帮助与反馈,,android.widget.TextView,,"[55,1111][260,1166]",false,false,false
+jd-33-settings,商务合作,,android.widget.TextView,,"[55,1276][219,1331]",false,false,false
+jd-33-settings,关于京东读书,,android.widget.TextView,,"[55,1455][301,1510]",false,false,false
+jd-33-settings,V4.70.7,,android.widget.TextView,com.jd.app.reader:id/mVersionTextView,"[852,1460][971,1505]",false,false,false
+jd-33-settings,证照信息,,android.widget.TextView,,"[55,1620][219,1675]",false,false,false
+jd-33-settings,隐私政策简要版,,android.widget.TextView,,"[55,1785][342,1840]",false,false,false
+jd-33-settings,个人信息收集清单,,android.widget.TextView,,"[55,1950][383,2005]",false,false,false
+jd-33-settings,应用权限说明,,android.widget.TextView,,"[55,2115][301,2170]",false,false,false
+jd-33-settings,个人信息共享清单,,android.widget.TextView,,"[55,2280][383,2335]",false,false,false
+jd-35-categories,分类,,android.widget.TextView,com.jd.app.reader:id/readSortTitle,"[490,122][590,190]",false,false,false
+jd-35-categories,出版,,android.widget.TextView,com.jd.app.reader:id/tv_tab_title,"[115,247][285,297]",false,false,false
+jd-35-categories,有声,,android.widget.TextView,com.jd.app.reader:id/tv_tab_title,"[285,247][455,297]",false,false,false
+jd-35-categories,男生,,android.widget.TextView,com.jd.app.reader:id/tv_tab_title,"[455,247][625,297]",false,false,false
+jd-35-categories,女生,,android.widget.TextView,com.jd.app.reader:id/tv_tab_title,"[625,247][795,297]",false,false,false
+jd-35-categories,纸书,,android.widget.TextView,com.jd.app.reader:id/tv_tab_title,"[795,247][965,297]",false,false,false
+jd-35-categories,经济管理,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[94,382][342,575]",false,false,false
+jd-35-categories,社会科学,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[595,382][843,575]",false,false,false
+jd-35-categories,影视原著,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[94,630][342,823]",false,false,false
+jd-35-categories,小说频道,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[595,630][843,823]",false,false,false
+jd-35-categories,成功励志,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[94,878][342,1071]",false,false,false
+jd-35-categories,计算机,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[595,878][843,1071]",false,false,false
+jd-35-categories,生活休闲,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[94,1126][342,1319]",false,false,false
+jd-35-categories,教材教辅,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[595,1126][843,1319]",false,false,false
+jd-35-categories,科学新知,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[94,1374][342,1567]",false,false,false
+jd-35-categories,文学频道,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[595,1374][843,1567]",false,false,false
+jd-35-categories,历史考古,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[94,1622][342,1815]",false,false,false
+jd-35-categories,人物传记,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[595,1622][843,1815]",false,false,false
+jd-35-categories,外语学习,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[94,1870][342,2063]",false,false,false
+jd-35-categories,家教育儿,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[595,1870][843,2063]",false,false,false
+jd-35-categories,职场进阶,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[94,2118][342,2311]",false,false,false
+jd-35-categories,艺术摄影,,android.widget.TextView,com.jd.app.reader:id/mSortName,"[595,2118][843,2311]",false,false,false
+jd-38-delete-confirm,确认删除《lightread-ui-research》？,,android.widget.TextView,com.jd.app.reader:id/bottom_content,"[41,1870][1039,2038]",false,false,false
+jd-38-delete-confirm,删除,,android.widget.TextView,com.jd.app.reader:id/confirm,"[0,2039][1080,2197]",true,false,false
+jd-38-delete-confirm,取消,,android.widget.TextView,com.jd.app.reader:id/cancel,"[0,2198][1080,2356]",true,false,false
+qq-02-bookshelf,,书架,android.widget.ImageView,,"[58,96][231,217]",true,false,false
+qq-02-bookshelf,,"暂未开始阅读
+本周阅读",android.view.View,,"[0,217][1080,437]",true,false,false
+qq-02-bookshelf,,"签满1周抽奖
+登录领赠币",android.widget.ImageView,,"[690,246][1016,431]",true,false,false
+qq-02-bookshelf,,空空如也,android.view.View,,"[471,1483][609,1530]",false,false,false
+qq-02-bookshelf,,找好书，去书城逛逛,android.view.View,,"[245,1530][835,1665]",true,false,false
+qq-02-bookshelf,,书架,android.view.View,,"[0,2208][270,2340]",true,false,false
+qq-02-bookshelf,,书城,android.widget.ImageView,,"[270,2208][540,2340]",true,false,false
+qq-02-bookshelf,,发现,android.widget.ImageView,,"[540,2208][810,2340]",true,false,false
+qq-02-bookshelf,,我的,android.widget.ImageView,,"[810,2208][1080,2340]",true,false,false
+qq-03-publication,,男生,android.view.View,,"[29,96][187,217]",true,false,false
+qq-03-publication,,女生,android.view.View,,"[187,96][344,217]",true,false,false
+qq-03-publication,,出版,android.view.View,,"[344,96][502,217]",true,false,false
+qq-03-publication,,会员,android.view.View,,"[502,96][660,217]",true,false,false
+qq-03-publication,,漫剧,android.view.View,,"[660,96][817,217]",true,false,false
+qq-03-publication,,听书,android.view.View,,"[817,96][975,217]",true,false,false
+qq-03-publication,,免费,android.view.View,,"[975,96][1080,217]",true,false,false
+qq-03-publication,,正在加载,android.widget.ImageView,,"[0,0][1080,2208]",false,false,false
+qq-03-publication,,极道世界，我以恐怖淬炼肉身,android.view.View,,"[72,255][866,341]",false,false,false
+qq-03-publication,,"排行榜
+高分必读",android.view.View,,"[35,367][523,546]",true,false,false
+qq-03-publication,,"书库
+100万+好书",android.view.View,,"[557,367][1045,546]",true,false,false
+qq-03-publication,,热门推荐,android.view.View,,"[0,546][1080,1946]",false,false,false
+qq-03-publication,,更多,android.widget.ImageView,,"[869,639][1011,703]",true,false,false
+qq-03-publication,,"会员
+中国神探：共和国刑警崔道植（电影《神探之痕迹》原著）
+冯锐",android.view.View,,"[69,749][345,1301]",true,false,false
+qq-03-publication,,"会员
+龙族Ⅰ：火之晨曦（修订版）
+江南",android.view.View,,"[402,749][678,1301]",true,false,false
+qq-03-publication,,"会员
+秦二世必须死
+马伯庸",android.view.View,,"[735,749][1011,1241]",true,false,false
+qq-03-publication,,"会员
+以日为鉴：衰退时代生存指南
+分析师Boden",android.view.View,,"[69,1347][345,1900]",true,false,false
+qq-03-publication,,"会员
+夺嫡
+月落",android.view.View,,"[402,1347][678,1839]",true,false,false
+qq-03-publication,,"会员
+道德经（译注本）
+许结 宋永祥译注",android.view.View,,"[735,1347][1011,1900]",true,false,false
+qq-03-publication,,影视热书,android.view.View,,"[0,1946][1080,2208]",false,false,false
+qq-03-publication,,更多,android.widget.ImageView,,"[869,2039][1011,2102]",true,false,false
+qq-03-publication,,"会员
+魅​影​神​捕​（​罗​云​熙​、​方​逸​伦​主​演​影​视​剧​原​著​）
+影视",android.view.View,,"[69,2148][279,2208]",true,false,false
+qq-03-publication,,"会员
+美​人​余​（​李​一​桐​、​常​华​森​主​演​同​名​电​视​剧​原​著​）
+影视",android.view.View,,"[313,2148][523,2208]",true,false,false
+qq-03-publication,,"会员
+我​是​个​算​命​先​生​（​全​4​册​，​影​视​剧​《​我​不​是​大​师​》​原​著​）
+玄学",android.view.View,,"[557,2148][767,2208]",true,false,false
+qq-03-publication,,"会员
+中​国​神​探​：​共​和​国​刑​警​崔​道​植​（​电​影​《​神​探​之​痕​迹​》​原​著​）
+纪实文学",android.view.View,,"[801,2148][1011,2208]",true,false,false
+qq-03-publication,,书架,android.widget.ImageView,,"[0,2208][270,2340]",true,false,false
+qq-03-publication,,书城,android.view.View,,"[270,2208][540,2340]",true,false,false
+qq-03-publication,,发现,android.widget.ImageView,,"[540,2208][810,2340]",true,false,false
+qq-03-publication,,我的,android.widget.ImageView,,"[810,2208][1080,2340]",true,false,false
+qq-06-profile,,我的,android.view.View,,"[0,0][1080,2208]",false,false,false
+qq-06-profile,,消息,android.widget.ImageView,,"[35,217][270,333]",true,false,false
+qq-06-profile,,等级,android.widget.ImageView,,"[293,217][528,333]",true,false,false
+qq-06-profile,,关注,android.widget.ImageView,,"[552,217][787,333]",true,false,false
+qq-06-profile,,发布,android.widget.ImageView,,"[810,217][1045,333]",true,false,false
+qq-06-profile,,装扮,android.widget.ImageView,,"[35,391][270,536]",true,false,false
+qq-06-profile,,卡牌,android.widget.ImageView,,"[293,391][528,536]",true,false,false
+qq-06-profile,,勋章,android.widget.ImageView,,"[552,391][787,536]",true,false,false
+qq-06-profile,,"上新
+图章",android.widget.ImageView,,"[810,391][1045,536]",true,false,false
+qq-06-profile,,基因,android.widget.ImageView,,"[35,594][270,738]",true,false,false
+qq-06-profile,,阅读故事,android.widget.ImageView,,"[293,594][528,738]",true,false,false
+qq-06-profile,,浏览历史,android.widget.ImageView,,"[552,594][787,738]",true,false,false
+qq-06-profile,,游戏中心,android.widget.ImageView,,"[810,594][1045,738]",true,false,false
+qq-06-profile,,领31天会员+10元话费,android.widget.ImageView,,"[69,854][771,911]",true,false,false
+qq-06-profile,,全部活动,android.view.View,,"[800,854][1011,911]",true,false,false
+qq-06-profile,,周边商城,android.widget.ImageView,,"[69,1557][1011,1695]",true,false,false
+qq-06-profile,,成为作家,android.widget.ImageView,,"[69,1697][1011,1836]",true,false,false
+qq-06-profile,,帮助与反馈,android.widget.ImageView,,"[69,1837][1011,1976]",true,false,false
+qq-06-profile,,《QQ阅读隐私政策摘要》,android.view.View,,"[0,1987][1080,2121]",true,false,false
+qq-06-profile,,书架,android.widget.ImageView,,"[0,2208][270,2340]",true,false,false
+qq-06-profile,,书城,android.widget.ImageView,,"[270,2208][540,2340]",true,false,false
+qq-06-profile,,发现,android.widget.ImageView,,"[540,2208][810,2340]",true,false,false
+qq-06-profile,,我的,android.view.View,,"[810,2208][1080,2340]",true,false,false
+qq-07-settings,设置,,android.widget.TextView,com.qq.reader:id/profile_header_title,"[486,132][594,203]",false,false,false
+qq-07-settings,兑换中心,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_text,"[84,302][252,358]",false,false,false
+qq-07-settings,,箭头,android.widget.ImageView,com.qq.reader:id/profile_setting_list_item_image,"[954,312][990,348]",false,false,false
+qq-07-settings,添加小组件,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_text,"[84,420][294,476]",false,false,false
+qq-07-settings,建议添加,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_blue_tips,"[324,427][480,468]",false,false,false
+qq-07-settings,一键签到不漏签，功能使用更方便,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_bottom_tips,"[84,488][527,529]",false,false,false
+qq-07-settings,,箭头,android.widget.ImageView,com.qq.reader:id/profile_setting_list_item_image,"[954,456][990,492]",false,false,false
+qq-07-settings,通知提醒,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_text,"[84,594][252,650]",false,false,false
+qq-07-settings,关闭通知，在“设置”-“应用通知管理”-“QQ阅读”,,android.widget.TextView,com.qq.reader:id/profile_setting_list_tip_text,"[84,662][737,701]",false,false,false
+qq-07-settings,AI助手小Q,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_text,"[84,797][285,853]",false,false,false
+qq-07-settings,擅长深度思考，找书、答疑都可以找我 >,,android.widget.TextView,com.qq.reader:id/profile_setting_list_tip_text,"[84,865][607,904]",true,false,false
+qq-07-settings,我的插件,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_text,"[84,996][252,1052]",false,false,false
+qq-07-settings,,箭头,android.widget.ImageView,com.qq.reader:id/profile_setting_list_item_image,"[954,1006][990,1042]",false,false,false
+qq-07-settings,主题模式跟随系统,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_text,"[84,1180][420,1236]",false,false,false
+qq-07-settings,开启后，跟随系统设置中浅色/深色模式同步切换,,android.widget.TextView,com.qq.reader:id/profile_setting_list_tip_text,"[84,1248][719,1287]",false,false,false
+qq-07-settings,护眼模式,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_text,"[84,1379][252,1435]",false,false,false
+qq-07-settings,未开启,,android.widget.TextView,com.qq.reader:id/profile_setting_list_tip_text,"[834,1383][942,1432]",false,false,false
+qq-07-settings,,箭头,android.widget.ImageView,com.qq.reader:id/profile_setting_list_item_image,"[954,1389][990,1425]",false,false,false
+qq-07-settings,检查更新,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_text,"[84,1559][252,1615]",false,false,false
+qq-07-settings,,箭头,android.widget.ImageView,com.qq.reader:id/profile_setting_list_item_image,"[954,1569][990,1605]",false,false,false
+qq-07-settings,意见反馈,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_text,"[84,1703][252,1759]",false,false,false
+qq-07-settings,,箭头,android.widget.ImageView,com.qq.reader:id/profile_setting_list_item_image,"[954,1713][990,1749]",false,false,false
+qq-07-settings,给我们评分,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_text,"[84,1847][294,1903]",false,false,false
+qq-07-settings,,箭头,android.widget.ImageView,com.qq.reader:id/profile_setting_list_item_image,"[954,1857][990,1893]",false,false,false
+qq-07-settings,清理缓存,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_text,"[84,1991][252,2047]",false,false,false
+qq-07-settings,833KB,,android.widget.TextView,com.qq.reader:id/profile_setting_list_tip_text,"[830,1995][942,2044]",false,false,false
+qq-07-settings,,箭头,android.widget.ImageView,com.qq.reader:id/profile_setting_list_item_image,"[954,2001][990,2037]",false,false,false
+qq-07-settings,未成年人模式,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_text,"[84,2171][336,2227]",false,false,false
+qq-07-settings,未开启,,android.widget.TextView,com.qq.reader:id/profile_setting_list_tip_text,"[834,2175][942,2224]",false,false,false
+qq-07-settings,,箭头,android.widget.ImageView,com.qq.reader:id/profile_setting_list_item_image,"[954,2181][990,2217]",false,false,false
+qq-07-settings,账号与安全,,android.widget.TextView,com.qq.reader:id/profile_setting_list_item_text,"[84,2315][294,2356]",false,false,false
+qq-07-settings,,箭头,android.widget.ImageView,com.qq.reader:id/profile_setting_list_item_image,"[954,2325][990,2356]",false,false,false
+weread-26-categories,,"微信读书出品, 4463 本书籍",android.view.ViewGroup,,"[44,281][523,506]",true,false,false
+weread-26-categories,微信读书出品,,android.widget.TextView,,"[220,341][472,396]",false,false,false
+weread-26-categories,4463 本书籍,,android.widget.TextView,,"[220,407][472,446]",false,false,false
+weread-26-categories,,"有声书, 57173 张专辑",android.view.ViewGroup,,"[558,281][1036,506]",true,false,false
+weread-26-categories,有声书,,android.widget.TextView,,"[734,341][923,396]",false,false,false
+weread-26-categories,57173 张专辑,,android.widget.TextView,,"[734,407][923,446]",false,false,false
+weread-26-categories,,"会员专享, 260028 本书籍",android.view.ViewGroup,,"[44,537][523,763]",true,false,false
+weread-26-categories,会员专享,,android.widget.TextView,,"[220,597][428,652]",false,false,false
+weread-26-categories,260028 本书籍,,android.widget.TextView,,"[220,663][428,702]",false,false,false
+weread-26-categories,,"期刊杂志, 3396 本书籍",android.view.ViewGroup,,"[558,537][1036,763]",true,false,false
+weread-26-categories,期刊杂志,,android.widget.TextView,,"[734,597][908,652]",false,false,false
+weread-26-categories,3396 本书籍,,android.widget.TextView,,"[734,663][908,702]",false,false,false
+weread-26-categories,,"精品小说, 42345 本书籍",android.view.ViewGroup,,"[44,793][523,1019]",true,false,false
+weread-26-categories,精品小说,,android.widget.TextView,,"[220,853][411,908]",false,false,false
+weread-26-categories,42345 本书籍,,android.widget.TextView,,"[220,919][411,958]",false,false,false
+weread-26-categories,,"历史, 33228 本书籍",android.view.ViewGroup,,"[44,1048][523,1273]",true,false,false
+weread-26-categories,历史,,android.widget.TextView,,"[220,1108][411,1163]",false,false,false
+weread-26-categories,33228 本书籍,,android.widget.TextView,,"[220,1174][411,1213]",false,false,false
+weread-26-categories,,"文学, 54686 本书籍",android.view.ViewGroup,,"[558,793][1036,1019]",true,false,false
+weread-26-categories,文学,,android.widget.TextView,,"[734,853][925,908]",false,false,false
+weread-26-categories,54686 本书籍,,android.widget.TextView,,"[734,919][925,958]",false,false,false
+weread-26-categories,,"社会小说, 11341 本书籍",android.view.ViewGroup,,"[558,1048][1036,1273]",true,false,false
+weread-26-categories,社会小说,,android.widget.TextView,,"[734,1108][919,1163]",false,false,false
+weread-26-categories,11341 本书籍,,android.widget.TextView,,"[734,1174][919,1213]",false,false,false
+weread-26-categories,,"个人成长, 17220 本书籍",android.view.ViewGroup,,"[44,1304][523,1529]",true,false,false
+weread-26-categories,个人成长,,android.widget.TextView,,"[220,1364][409,1419]",false,false,false
+weread-26-categories,17220 本书籍,,android.widget.TextView,,"[220,1430][409,1469]",false,false,false
+weread-26-categories,,"影视原著, 1280 本书籍",android.view.ViewGroup,,"[558,1304][1036,1529]",true,false,false
+weread-26-categories,影视原著,,android.widget.TextView,,"[734,1364][906,1419]",false,false,false
+weread-26-categories,1280 本书籍,,android.widget.TextView,,"[734,1430][906,1469]",false,false,false
+weread-26-categories,,"经济理财, 28324 本书籍",android.view.ViewGroup,,"[44,1560][523,1786]",true,false,false
+weread-26-categories,经济理财,,android.widget.TextView,,"[220,1620][411,1675]",false,false,false
+weread-26-categories,28324 本书籍,,android.widget.TextView,,"[220,1686][411,1725]",false,false,false
+weread-26-categories,,"心理, 5700 本书籍",android.view.ViewGroup,,"[558,1560][1036,1786]",true,false,false
+weread-26-categories,心理,,android.widget.TextView,,"[734,1620][908,1675]",false,false,false
+weread-26-categories,5700 本书籍,,android.widget.TextView,,"[734,1686][908,1725]",false,false,false
+weread-26-categories,,"哲学宗教, 13072 本书籍",android.view.ViewGroup,,"[44,1816][523,2042]",true,false,false
+weread-26-categories,哲学宗教,,android.widget.TextView,,"[220,1876][409,1931]",false,false,false
+weread-26-categories,13072 本书籍,,android.widget.TextView,,"[220,1942][409,1981]",false,false,false
+weread-26-categories,,"人物传记, 7822 本书籍",android.view.ViewGroup,,"[44,2071][523,2296]",true,false,false
+weread-26-categories,人物传记,,android.widget.TextView,,"[220,2131][394,2186]",false,false,false
+weread-26-categories,7822 本书籍,,android.widget.TextView,,"[220,2197][394,2236]",false,false,false
+weread-26-categories,,"悬疑推理, 5797 本书籍",android.view.ViewGroup,,"[558,1816][1036,2042]",true,false,false
+weread-26-categories,悬疑推理,,android.widget.TextView,,"[734,1876][908,1931]",false,false,false
+weread-26-categories,5797 本书籍,,android.widget.TextView,,"[734,1942][908,1981]",false,false,false
+weread-26-categories,,"社会文化, 22255 本书籍",android.view.ViewGroup,,"[558,2071][1036,2296]",true,false,false
+weread-26-categories,社会文化,,android.widget.TextView,,"[734,2131][925,2186]",false,false,false
+weread-26-categories,22255 本书籍,,android.widget.TextView,,"[734,2197][925,2236]",false,false,false
+weread-26-categories,,"医学健康, 17591 本书籍",android.view.ViewGroup,,"[44,2327][523,2356]",true,false,false
+weread-26-categories,,"政治军事, 8712 本书籍",android.view.ViewGroup,,"[558,2327][1036,2356]",true,false,false
+weread-26-categories,,返回,android.widget.ImageButton,com.tencent.weread:id/qmui_topbar_item_left_back,"[0,96][132,250]",true,false,false
+weread-26-categories,分类,分类,android.view.View,,"[496,143][584,202]",false,false,false
+weread-27-ranking,,"1, 时势：周期波动下的国家、社会和个人, 小 Lin, 推荐值 80.5%, 3137",android.view.ViewGroup,,"[198,325][1080,635]",true,false,false
+weread-27-ranking,1,,android.widget.TextView,,"[221,460][236,496]",false,false,false
+weread-27-ranking,时势：周期波动下的国家、社会和个人,,android.widget.TextView,,"[468,357][907,479]",false,false,false
+weread-27-ranking,3137,,android.widget.TextView,,"[982,355][1040,389]",false,false,false
+weread-27-ranking,小 Lin,,android.widget.TextView,,"[468,496][907,535]",false,false,false
+weread-27-ranking,推荐值 80.5%,,android.widget.TextView,,"[468,551][664,598]",false,false,false
+weread-27-ranking,,"2, 天子谋（朱正廷、李兰迪主演电视剧《苏记》原著）, 青垚, 推荐值 78.2%, 718",android.view.ViewGroup,,"[198,635][1080,946]",true,false,false
+weread-27-ranking,2,,android.widget.TextView,,"[220,774][237,810]",false,false,false
+weread-27-ranking,天子谋（朱正廷、李兰迪主演电视剧《苏记》原著）,,android.widget.TextView,,"[468,671][922,793]",false,false,false
+weread-27-ranking,718,,android.widget.TextView,,"[997,673][1040,707]",false,false,false
+weread-27-ranking,青垚,,android.widget.TextView,,"[468,810][922,849]",false,false,false
+weread-27-ranking,推荐值 78.2%,,android.widget.TextView,,"[468,865][664,911]",false,false,false
+weread-27-ranking,,"3, 杜甫的红衣（全网活人感历史小说的神来之作）, 翟俊, 推荐值 90%, 968",android.view.ViewGroup,,"[198,946][1080,1257]",true,false,false
+weread-27-ranking,3,,android.widget.TextView,,"[220,1085][237,1121]",false,false,false
+weread-27-ranking,杜甫的红衣（全网活人感历史小说的神来之作）,,android.widget.TextView,,"[468,982][920,1104]",false,false,false
+weread-27-ranking,968,,android.widget.TextView,,"[995,984][1040,1018]",false,false,false
+weread-27-ranking,翟俊,,android.widget.TextView,,"[468,1121][920,1160]",false,false,false
+weread-27-ranking,推荐值 90%,,android.widget.TextView,,"[468,1176][638,1223]",false,false,false
+weread-27-ranking,,"4, 鄙视, 阿尔贝托·莫拉维亚, 推荐值 76.5%, 517",android.view.ViewGroup,,"[198,1257][1080,1568]",true,false,false
+weread-27-ranking,4,,android.widget.TextView,,"[220,1396][237,1432]",false,false,false
+weread-27-ranking,鄙视,,android.widget.TextView,,"[468,1324][922,1385]",false,false,false
+weread-27-ranking,517,,android.widget.TextView,,"[997,1295][1040,1329]",false,false,false
+weread-27-ranking,阿尔贝托·莫拉维亚,,android.widget.TextView,,"[468,1402][922,1441]",false,false,false
+weread-27-ranking,推荐值 76.5%,,android.widget.TextView,,"[468,1457][664,1503]",false,false,false
+weread-27-ranking,,"5, 玉簟秋（同名影视原著|《良辰好景知几何》姐妹篇）, 灵希, 推荐值 68.4%, 2844",android.view.ViewGroup,,"[198,1568][1080,1878]",true,false,false
+weread-27-ranking,5,,android.widget.TextView,,"[220,1707][237,1743]",false,false,false
+weread-27-ranking,玉簟秋（同名影视原著|《良辰好景知几何》姐妹篇）,,android.widget.TextView,,"[468,1604][905,1726]",false,false,false
+weread-27-ranking,2844,,android.widget.TextView,,"[980,1606][1040,1640]",false,false,false
+weread-27-ranking,灵希,,android.widget.TextView,,"[468,1743][905,1782]",false,false,false
+weread-27-ranking,推荐值 68.4%,,android.widget.TextView,,"[468,1798][664,1845]",false,false,false
+weread-27-ranking,,"6, 爱的姿态：情书里的民国, 邵子岐, 推荐值 92.3%, 414",android.view.ViewGroup,,"[198,1878][1080,2189]",true,false,false
+weread-27-ranking,6,,android.widget.TextView,,"[220,2017][237,2053]",false,false,false
+weread-27-ranking,爱的姿态：情书里的民国,,android.widget.TextView,,"[468,1945][922,2006]",false,false,false
+weread-27-ranking,414,,android.widget.TextView,,"[997,1916][1040,1950]",false,false,false
+weread-27-ranking,邵子岐,,android.widget.TextView,,"[468,2023][922,2062]",false,false,false
+weread-27-ranking,推荐值 92.3%,,android.widget.TextView,,"[468,2078][664,2125]",false,false,false
+weread-27-ranking,,"7, 天之下, 三弦, 推荐值 87.9%, 4553",android.view.ViewGroup,,"[198,2189][1080,2356]",true,false,false
+weread-27-ranking,7,,android.widget.TextView,,"[220,2328][237,2356]",false,false,false
+weread-27-ranking,天之下,,android.widget.TextView,,"[468,2256][905,2317]",false,false,false
+weread-27-ranking,4553,,android.widget.TextView,,"[980,2227][1040,2261]",false,false,false
+weread-27-ranking,三弦,,android.widget.TextView,,"[468,2334][905,2356]",false,false,false
+weread-27-ranking,# 微信读书用户近期热读的书籍,,android.widget.TextView,,"[110,198][573,248]",false,false,false
+weread-29-search,,返回按钮,android.view.ViewGroup,id_navigation_bar_back_button,"[0,105][209,226]",true,false,false
+weread-29-search,我的阿勒泰,,android.widget.EditText,id_searchTextInput,"[209,116][937,215]",true,false,false
+weread-29-search,热搜榜,,android.widget.TextView,,"[94,295][211,378]",false,false,false
+weread-29-search,,更多榜单,android.view.ViewGroup,,"[812,309][987,364]",true,false,false
+weread-29-search,更多榜单,,android.widget.TextView,,"[834,317][946,356]",false,false,false
+weread-29-search,,"1, 住小房子的女人, 2.4 万人在搜, 推荐值 89.4%",android.view.ViewGroup,,"[44,397][1036,645]",true,false,false
+weread-29-search,1,,android.widget.TextView,,"[88,495][157,547]",false,false,false
+weread-29-search,住小房子的女人,,android.widget.TextView,,"[322,431][691,492]",false,false,false
+weread-29-search,2.4 万人在搜,,android.widget.TextView,,"[322,503][691,550]",false,false,false
+weread-29-search,推荐值 89.4%,,android.widget.TextView,,"[322,564][518,611]",false,false,false
+weread-29-search,,"2, 玉簟秋（同名影视原著|《良辰好景知几何》姐妹篇）, 1.2 万人在搜, 推荐值 68.4%",android.view.ViewGroup,,"[44,644][1036,891]",true,false,false
+weread-29-search,2,,android.widget.TextView,,"[88,742][157,794]",false,false,false
+weread-29-search,玉簟秋（同名影视原著|《良辰好景知几何》姐妹篇）,,android.widget.TextView,,"[322,678][992,739]",false,false,false
+weread-29-search,1.2 万人在搜,,android.widget.TextView,,"[322,750][992,797]",false,false,false
+weread-29-search,推荐值 68.4%,,android.widget.TextView,,"[322,811][518,858]",false,false,false
+weread-29-search,,"3, 时势：周期波动下的国家、社会和个人, 1.1 万人在搜, 推荐值 80.5%",android.view.ViewGroup,,"[44,892][1036,1140]",true,false,false
+weread-29-search,3,,android.widget.TextView,,"[88,990][157,1042]",false,false,false
+weread-29-search,时势：周期波动下的国家、社会和个人,,android.widget.TextView,,"[322,926][992,987]",false,false,false
+weread-29-search,1.1 万人在搜,,android.widget.TextView,,"[322,998][992,1045]",false,false,false
+weread-29-search,推荐值 80.5%,,android.widget.TextView,,"[322,1059][518,1106]",false,false,false
+weread-29-search,,"4, 我才不想做家务（全网剖析隐形家务最彻底的一本书！）, 5147 人在搜, 推荐值 91%",android.view.ViewGroup,,"[44,1139][1036,1386]",true,false,false
+weread-29-search,4,,android.widget.TextView,,"[88,1237][157,1289]",false,false,false
+weread-29-search,我才不想做家务（全网剖析隐形家务最彻底的一本书！）,,android.widget.TextView,,"[322,1173][992,1234]",false,false,false
+weread-29-search,5147 人在搜,,android.widget.TextView,,"[322,1245][992,1292]",false,false,false
+weread-29-search,推荐值 91%,,android.widget.TextView,,"[322,1306][490,1353]",false,false,false
+weread-29-search,,"5, 第一性原理：普通人的人生高效手册, 4450 人在搜, 推荐值 82.8%",android.view.ViewGroup,,"[44,1387][1036,1532]",true,false,false
+weread-29-search,5,,android.widget.TextView,,"[88,1485][157,1532]",false,false,false
+weread-29-search,第一性原理：普通人的人生高效手册,,android.widget.TextView,,"[322,1421][984,1482]",false,false,false
+weread-29-search,4450 人在搜,,android.widget.TextView,,"[322,1493][984,1532]",false,false,false
+weread-30-audiobooks,,"台大傅佩荣《哲学与人生》, 台大傅佩荣《哲学与人生》",android.view.ViewGroup,,"[55,239][1025,338]",true,false,false
+weread-30-audiobooks,台大傅佩荣《哲学与人生》,,android.widget.TextView,,"[157,261][847,316]",false,false,false
+weread-30-audiobooks,,分类,android.view.ViewGroup,,"[847,263][1025,315]",true,false,false
+weread-30-audiobooks,分类,,android.widget.TextView,,"[894,263][972,315]",false,false,false
+weread-30-audiobooks,为你推荐,,android.widget.TextView,,"[55,412][540,495]",false,false,false
+weread-30-audiobooks,,王小敏说历史牛人,android.view.ViewGroup,,"[55,531][349,899]",true,false,false
+weread-30-audiobooks,王小敏说历史牛人,,android.widget.TextView,,"[55,853][349,899]",false,false,false
+weread-30-audiobooks,,收脚印的人,android.view.ViewGroup,,"[393,531][540,899]",true,false,false
+weread-30-audiobooks,收脚印的人,,android.widget.TextView,,"[393,853][540,899]",false,false,false
+weread-30-audiobooks,,幽默脱口而出 | 用段子零距离制胜，做受欢迎的人,android.view.ViewGroup,,"[731,531][540,899]",true,false,false
+weread-30-audiobooks,幽默脱口而出 | 用段子零距离制胜，做受欢迎的人,,android.widget.TextView,,"[731,853][540,899]",false,false,false
+weread-30-audiobooks,,做个会表达的女人,android.view.ViewGroup,,"[55,955][349,1323]",true,false,false
+weread-30-audiobooks,做个会表达的女人,,android.widget.TextView,,"[55,1277][349,1323]",false,false,false
+weread-30-audiobooks,,朗读者,android.view.ViewGroup,,"[393,955][540,1323]",true,false,false
+weread-30-audiobooks,朗读者,,android.widget.TextView,,"[393,1277][540,1323]",false,false,false
+weread-30-audiobooks,,2小时构建终生阅读系统,android.view.ViewGroup,,"[731,955][540,1323]",true,false,false
+weread-30-audiobooks,2小时构建终生阅读系统,,android.widget.TextView,,"[731,1277][540,1323]",false,false,false
+weread-30-audiobooks,,换一批,android.view.ViewGroup,,"[55,1378][540,1499]",true,false,false
+weread-30-audiobooks,换一批,,android.widget.TextView,,"[482,1411][540,1466]",false,false,false
+weread-30-audiobooks,热听榜,,android.widget.TextView,,"[55,1606][540,1689]",false,false,false
+weread-30-audiobooks,,老梁故事会：笑侃四大名著,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-0,"[55,1698][540,1951]",true,false,false
+weread-30-audiobooks,1,,android.widget.TextView,,"[292,1737][312,1911]",false,false,false
+weread-30-audiobooks,老梁故事会：笑侃四大名著,,android.widget.TextView,,"[334,1737][540,1798]",false,false,false
+weread-30-audiobooks,好听值 99.2%,,android.widget.TextView,,"[334,1806][540,1856]",false,false,false
+weread-30-audiobooks,5.2 万次收听,,android.widget.TextView,,"[334,1865][540,1912]",false,false,false
+weread-30-audiobooks,,汴京春深（多人有声剧）,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-3,"[943,1698][540,1951]",true,false,false
+weread-30-audiobooks,,小王子（多人有声）,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-1,"[55,1951][540,2204]",true,false,false
+weread-30-audiobooks,2,,android.widget.TextView,,"[292,1990][319,2164]",false,false,false
+weread-30-audiobooks,小王子（多人有声）,,android.widget.TextView,,"[341,1990][540,2051]",false,false,false
+weread-30-audiobooks,好听值 98.4%,,android.widget.TextView,,"[341,2059][540,2109]",false,false,false
+weread-30-audiobooks,2.3 万次收听,,android.widget.TextView,,"[341,2118][540,2165]",false,false,false
+weread-30-audiobooks,,许倬云说历史：大国霸业的兴废,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-4,"[943,1951][540,2204]",true,false,false
+weread-30-audiobooks,,高性价比人生指南,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-2,"[55,2204][540,2235]",true,false,false
+weread-30-audiobooks,,潜规则（吴思历史经典三部曲）,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-5,"[943,2204][540,2235]",true,false,false
+weread-30-audiobooks,为你推荐,,android.widget.TextView,,"[540,412][1025,495]",false,false,false
+weread-30-audiobooks,,王小敏说历史牛人,android.view.ViewGroup,,"[540,531][349,899]",true,false,false
+weread-30-audiobooks,王小敏说历史牛人,,android.widget.TextView,,"[540,853][349,899]",false,false,false
+weread-30-audiobooks,,收脚印的人,android.view.ViewGroup,,"[540,531][687,899]",true,false,false
+weread-30-audiobooks,收脚印的人,,android.widget.TextView,,"[540,853][687,899]",false,false,false
+weread-30-audiobooks,,幽默脱口而出 | 用段子零距离制胜，做受欢迎的人,android.view.ViewGroup,,"[731,531][1025,899]",true,false,false
+weread-30-audiobooks,幽默脱口而出 | 用段子零距离制胜，做受欢迎的人,,android.widget.TextView,,"[731,853][1025,899]",false,false,false
+weread-30-audiobooks,,做个会表达的女人,android.view.ViewGroup,,"[540,955][349,1323]",true,false,false
+weread-30-audiobooks,做个会表达的女人,,android.widget.TextView,,"[540,1277][349,1323]",false,false,false
+weread-30-audiobooks,,朗读者,android.view.ViewGroup,,"[540,955][687,1323]",true,false,false
+weread-30-audiobooks,朗读者,,android.widget.TextView,,"[540,1277][687,1323]",false,false,false
+weread-30-audiobooks,,2小时构建终生阅读系统,android.view.ViewGroup,,"[731,955][1025,1323]",true,false,false
+weread-30-audiobooks,2小时构建终生阅读系统,,android.widget.TextView,,"[731,1277][1025,1323]",false,false,false
+weread-30-audiobooks,,换一批,android.view.ViewGroup,,"[540,1378][1025,1499]",true,false,false
+weread-30-audiobooks,换一批,,android.widget.TextView,,"[540,1411][599,1466]",false,false,false
+weread-30-audiobooks,热听榜,,android.widget.TextView,,"[540,1606][1025,1689]",false,false,false
+weread-30-audiobooks,,老梁故事会：笑侃四大名著,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-0,"[540,1698][899,1951]",true,false,false
+weread-30-audiobooks,1,,android.widget.TextView,,"[540,1737][312,1911]",false,false,false
+weread-30-audiobooks,老梁故事会：笑侃四大名著,,android.widget.TextView,,"[540,1737][899,1798]",false,false,false
+weread-30-audiobooks,好听值 99.2%,,android.widget.TextView,,"[540,1806][899,1856]",false,false,false
+weread-30-audiobooks,5.2 万次收听,,android.widget.TextView,,"[540,1865][899,1912]",false,false,false
+weread-30-audiobooks,,汴京春深（多人有声剧）,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-3,"[943,1698][1025,1951]",true,false,false
+weread-30-audiobooks,,小王子（多人有声）,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-1,"[540,1951][899,2204]",true,false,false
+weread-30-audiobooks,2,,android.widget.TextView,,"[540,1990][319,2164]",false,false,false
+weread-30-audiobooks,小王子（多人有声）,,android.widget.TextView,,"[540,1990][899,2051]",false,false,false
+weread-30-audiobooks,好听值 98.4%,,android.widget.TextView,,"[540,2059][899,2109]",false,false,false
+weread-30-audiobooks,2.3 万次收听,,android.widget.TextView,,"[540,2118][899,2165]",false,false,false
+weread-30-audiobooks,,许倬云说历史：大国霸业的兴废,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-4,"[943,1951][1025,2204]",true,false,false
+weread-30-audiobooks,,高性价比人生指南,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-2,"[540,2204][899,2235]",true,false,false
+weread-30-audiobooks,,潜规则（吴思历史经典三部曲）,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-5,"[943,2204][1025,2235]",true,false,false
+weread-30-audiobooks,,有声书,android.widget.FrameLayout,com.tencent.weread:id/browse_top_wehear,"[382,96][529,217]",false,true,false
+weread-30-audiobooks,,书友,android.widget.FrameLayout,com.tencent.weread:id/browse_top_book_friend,"[600,96][698,217]",false,false,false
+weread-30-audiobooks,阅读,,android.widget.TextView,,"[107,2304][163,2342]",false,false,false
+weread-30-audiobooks,,书架,android.widget.RelativeLayout,com.tencent.weread:id/home_tab_shelf,"[270,2202][540,2356]",false,false,false
+weread-30-audiobooks,书架,,android.widget.TextView,,"[377,2304][433,2342]",false,false,false
+weread-30-audiobooks,有声书,,android.widget.TextView,com.tencent.weread:id/home_tab_timeline_text,"[633,2304][717,2342]",false,true,false
+weread-30-audiobooks,我,,android.widget.TextView,,"[931,2304][959,2342]",false,false,false
+weread-31-audiobook-detail,,专辑封面,android.widget.Button,ViewID_PlayerAlbumCoverButton,"[187,305][893,1093]",true,false,false
+weread-31-audiobook-detail,,《小王子》献给莱昂·维特,android.view.ViewGroup,,"[77,1093][1003,1170]",true,false,false
+weread-31-audiobook-detail,《小王子》献给莱昂·维特,,android.widget.TextView,,"[231,1093][849,1170]",false,false,false
+weread-31-audiobook-detail,,主播信息,android.widget.Button,,"[395,1176][685,1226]",true,false,false
+weread-31-audiobook-detail,主播 · 曙光视点,,android.widget.TextView,,"[395,1176][658,1226]",false,false,false
+weread-31-audiobook-detail,,定时关闭,android.widget.Button,ViewID_PlayerToolBarSetTime,"[77,1335][215,1451]",true,false,false
+weread-31-audiobook-detail,定时关闭,,android.widget.TextView,,"[90,1412][202,1451]",false,false,false
+weread-31-audiobook-detail,,语速设置,android.widget.Button,ViewID_PlayerToolBarSetSpeed,"[471,1335][609,1451]",true,false,false
+weread-31-audiobook-detail,语速 1.0x,,android.widget.TextView,,"[482,1412][597,1451]",false,false,false
+weread-31-audiobook-detail,,订阅,android.widget.Button,ViewID_PlayerToolBarSubscribe,"[866,1335][1003,1451]",true,false,false
+weread-31-audiobook-detail,加入书架,,android.widget.TextView,,"[879,1412][991,1451]",false,false,false
+weread-31-audiobook-detail,,后退,android.widget.Button,ViewID_PlayerToolBarBack,"[107,1575][184,1652]",true,false,false
+weread-31-audiobook-detail,00:00 / 01:06,,android.widget.TextView,,"[240,1596][381,1627]",false,false,false
+weread-31-audiobook-detail,,前进,android.widget.Button,ViewID_PlayerToolBarAhead,"[896,1575][973,1652]",true,false,false
+weread-31-audiobook-detail,,文稿,android.widget.Button,ViewID_PlayerToolBarLyric,"[77,1799][215,1918]",true,false,false
+weread-31-audiobook-detail,文稿,,android.widget.TextView,,"[118,1879][174,1918]",false,false,false
+weread-31-audiobook-detail,,上一首,android.widget.Button,ViewID_PlayerToolBarPrev,"[298,1820][375,1897]",true,false,false
+weread-31-audiobook-detail,,播放,android.widget.Button,ViewID_PlayerToolBarPlay,"[458,1776][623,1941]",true,false,false
+weread-31-audiobook-detail,,下一首,android.widget.Button,ViewID_PlayerToolBarNext,"[706,1820][783,1897]",true,false,false
+weread-31-audiobook-detail,,目录,android.widget.Button,ViewID_PlayerToolBarCatalog,"[866,1799][1003,1918]",true,false,false
+weread-31-audiobook-detail,10 集,,android.widget.TextView,,"[866,1879][1003,1918]",false,false,false
+weread-31-audiobook-detail,,收听,android.widget.Button,WRUI_Pressable_DetailInfoBlock,"[55,2142][540,2282]",true,false,false
+weread-31-audiobook-detail,收听,,android.widget.TextView,,"[266,2149][328,2188]",false,false,false
+weread-31-audiobook-detail,2.2,,android.widget.TextView,,"[226,2199][310,2265]",false,false,false
+weread-31-audiobook-detail,万次,,android.widget.TextView,,"[313,2222][369,2260]",false,false,false
+weread-31-audiobook-detail,,好听值,android.widget.Button,WRUI_Pressable_DetailInfoBlock,"[541,2142][1025,2282]",true,false,false
+weread-31-audiobook-detail,好听值,,android.widget.TextView,,"[737,2149][830,2188]",false,false,false
+weread-31-audiobook-detail,98.4,,android.widget.TextView,,"[710,2199][833,2265]",false,false,false
+weread-31-audiobook-detail,%,,android.widget.TextView,,"[833,2222][857,2265]",false,false,false
+weread-31-audiobook-detail,,"《小王子》3D动画奇幻电影中文配音版在中国上映！这是一部足以让人长保童心的创世经典，被亿万读者誉为最值得收藏的书。主人公是来自外星球的小王子。书中以一位飞行员作为故事叙述者，讲述了小王子从自己星球出发前往地球的过程中，所经历的各种历险。作者以小王子的孩子式的眼光，透视出成人的空虚、盲目，愚妄和死板教条，用浅显天真的语言写出了人类的孤独寂寞、没有根基随风流浪的命运。同时，也表达出作者对金钱关系的批判，对真善美的讴歌。, 《小王子》3D动画奇幻电影中文配音版在中国上映！这是一部足以让人长保童心的创世经典，被亿万读者誉为最值得收藏的书。主人公是来自外星球的小王子。书中以一位飞行员作为故事叙述者，讲述了小王子从自己星球出发前往地球的过程中，所经历的各种历险。作者以小王子的孩子式的眼光，透视出成人的空虚、盲目，愚妄和死板教条，用浅显天真的语言写出了人类的孤独寂寞、没有根基随风流浪的命运。同时，也表达出作者对金钱关系的批判，对真善美的讴歌。",android.view.ViewGroup,,"[110,2335][970,2356]",true,false,false
+weread-31-audiobook-detail,《小王子》3D动画奇幻电影中文配音版在中国上映！这是一部足以让人长保童心的创世经典，被亿万读者誉为最值得收藏的书。主人公是来自外星球的小王子。书中以一位飞行员作为故事叙述者，讲述了小王子从自己星球出发前往地球的过程中，所经历的各种历险。作者以小王子的孩子式的眼光，透视出成人的空虚、盲目，愚妄和死板教条，用浅显天真的语言写出了人类的孤独寂寞、没有根基随风流浪的命运。同时，也表达出作者对金钱关系的批判，对真善美的讴歌。,,android.widget.TextView,,"[110,2335][970,2356]",false,false,false
+weread-31-audiobook-detail,,返回,android.widget.Button,ViewID_PlayerNavBarBackItem,"[0,157][143,190]",true,false,false
+weread-31-audiobook-detail,,有声书,android.widget.Button,ViewID_SegmentedControlItem,"[304,140][540,206]",true,false,false
+weread-31-audiobook-detail,有声书,,android.widget.TextView,,"[373,151][472,198]",false,false,false
+weread-31-audiobook-detail,,延展收听,android.widget.Button,ViewID_SegmentedControlItem,"[540,140][777,206]",true,false,false
+weread-31-audiobook-detail,延展收听,,android.widget.TextView,,"[617,151][749,198]",false,false,false
+weread-31-audiobook-detail,,分享,android.widget.Button,ViewID_PlayerNavBarShareItem,"[871,140][937,206]",true,false,false
+weread-34-audio-speed,语速设置,,android.widget.TextView,,"[88,2030][617,2089]",false,false,false
+weread-34-audio-speed,仅应用到当前专辑,,android.widget.TextView,,"[617,2037][879,2082]",false,false,false
+weread-34-audio-speed,慢,,android.widget.TextView,,"[129,2167][164,2216]",false,false,false
+weread-34-audio-speed,快,,android.widget.TextView,,"[916,2167][951,2216]",false,false,false
+weread-34-audio-speed,2.0,,android.widget.TextView,,"[645,2166][700,2216]",false,false,false
+weread-34-audio-speed,1.0,,android.widget.TextView,,"[380,2164][436,2218]",false,false,false
+weread-35-audio-timer,定时关闭,,android.widget.TextView,,"[88,1826][992,1885]",false,false,false
+weread-35-audio-timer,30,,android.widget.TextView,,"[386,1962][430,2012]",false,false,false
+weread-35-audio-timer,60,,android.widget.TextView,,"[650,1962][694,2012]",false,false,false
+weread-35-audio-timer,90,,android.widget.TextView,,"[915,1962][959,2012]",false,false,false
+weread-35-audio-timer,关,,android.widget.TextView,,"[126,1963][161,2012]",false,false,false
+weread-35-audio-timer,本集结束后关闭,,android.widget.TextView,,"[407,2149][673,2201]",false,false,false
+weread-35-audio-timer,1 分钟,,android.widget.TextView,,"[504,2201][577,2238]",false,false,false
+weread-37-audio-catalog,小王子（多人有声）,小王子（多人有声）,android.view.View,,"[242,251][1025,310]",false,false,false
+weread-37-audio-catalog,共 10 集 · 已完结,共 10 集 · 已完结,android.view.View,,"[242,321][1025,366]",false,false,false
+weread-37-audio-catalog,,下载,android.view.View,,"[113,446][179,512]",false,false,false
+weread-37-audio-catalog,下载,,android.widget.TextView,,"[122,515][170,547]",false,false,false
+weread-37-audio-catalog,,向下播,android.widget.ImageView,,"[360,446][426,512]",false,false,false
+weread-37-audio-catalog,向下播,,android.widget.TextView,,"[357,515][429,548]",false,false,false
+weread-37-audio-catalog,,向上播,android.widget.ImageView,,"[608,446][674,512]",false,false,false
+weread-37-audio-catalog,向上播,,android.widget.TextView,,"[605,515][677,548]",false,false,false
+weread-37-audio-catalog,,单曲循环,android.widget.ImageView,,"[857,446][923,512]",false,false,false
+weread-37-audio-catalog,单曲循环,,android.widget.TextView,,"[842,515][938,548]",false,false,false
+weread-37-audio-catalog,《小王子》献给莱昂·维特,,android.widget.TextView,,"[77,649][990,705]",false,false,false
+weread-37-audio-catalog,上次播放到,,android.widget.TextView,,"[77,721][227,762]",false,false,false
+weread-37-audio-catalog,00:28 / 01:06,,android.widget.TextView,,"[243,723][412,761]",false,false,false
+weread-37-audio-catalog,《小王子》 第1集,,android.widget.TextView,,"[77,825][990,881]",false,false,false
+weread-37-audio-catalog,试听,,android.widget.TextView,,"[77,897][148,935]",false,false,false
+weread-37-audio-catalog,[icon]下一首播放,,android.widget.TextView,,"[175,897][363,938]",false,false,false
+weread-37-audio-catalog,[icon]10:41,,android.widget.TextView,,"[390,899][497,936]",false,false,false
+weread-37-audio-catalog,《小王子》 第2集,,android.widget.TextView,,"[77,1001][990,1057]",false,false,false
+weread-37-audio-catalog,试听,,android.widget.TextView,,"[77,1073][148,1111]",false,false,false
+weread-37-audio-catalog,[icon]11:33,,android.widget.TextView,,"[175,1075][282,1112]",false,false,false
+weread-37-audio-catalog,《小王子》 第3集,,android.widget.TextView,,"[77,1177][990,1233]",false,false,false
+weread-37-audio-catalog,试听,,android.widget.TextView,,"[77,1249][148,1287]",false,false,false
+weread-37-audio-catalog,[icon]09:43,,android.widget.TextView,,"[175,1251][286,1288]",false,false,false
+weread-37-audio-catalog,《小王子》 第4集,,android.widget.TextView,,"[77,1353][990,1409]",false,false,false
+weread-37-audio-catalog,试听,,android.widget.TextView,,"[77,1425][148,1463]",false,false,false
+weread-37-audio-catalog,[icon]11:13,,android.widget.TextView,,"[175,1427][280,1464]",false,false,false
+weread-37-audio-catalog,《小王子》 第5集,,android.widget.TextView,,"[77,1529][960,1585]",false,false,false
+weread-37-audio-catalog,[icon]13:20,,android.widget.TextView,,"[77,1603][186,1640]",false,false,false
+weread-37-audio-catalog,《小王子》 第6集,,android.widget.TextView,,"[77,1705][960,1761]",false,false,false
+weread-37-audio-catalog,[icon]12:58,,android.widget.TextView,,"[77,1779][186,1816]",false,false,false
+weread-37-audio-catalog,《小王子》 第7集,,android.widget.TextView,,"[77,1881][960,1937]",false,false,false
+weread-37-audio-catalog,[icon]10:38,,android.widget.TextView,,"[77,1955][186,1992]",false,false,false
+weread-37-audio-catalog,《小王子》 第8集,,android.widget.TextView,,"[77,2057][960,2113]",false,false,false
+weread-37-audio-catalog,[icon]11:54,,android.widget.TextView,,"[77,2131][184,2168]",false,false,false
+weread-37-audio-catalog,《小王子》 第9集（完）,,android.widget.TextView,,"[77,2233][960,2289]",false,false,false
+weread-37-audio-catalog,[icon]13:03,,android.widget.TextView,,"[77,2307][186,2344]",false,false,false
+weread-37-audio-catalog,去底部,,android.widget.TextView,,"[515,2192][620,2241]",false,false,false
+weread-38-audio-transcript,,返回,android.widget.ImageButton,,"[11,96][160,250]",true,false,false
+weread-38-audio-transcript,《小王子》献给莱昂·维特,,android.widget.TextView,,"[341,305][981,361]",false,false,false
+weread-38-audio-transcript,小王子（多人有声）,,android.widget.TextView,,"[341,378][622,423]",false,false,false
+weread-38-audio-transcript,主播: 曙光视点,,android.widget.TextView,,"[341,440][539,481]",false,false,false
+weread-38-audio-transcript,本文稿由AI语音转文稿技术自动生成,,android.widget.TextView,,"[277,569][803,614]",false,false,false
+weread-39-audio-more,,"小王子（多人有声）, 《小王子》3D动画奇幻电影中文配音版在中国上映！这是一部足以让人长保童心的创世经典，被亿万读者誉为最值得收藏的书。主人公是来自外星球的小王子。书中以一位飞行员作为故事叙述者，讲述了小王子从自己星球出发前往地球的过程中，所经历的各种历险。作者以小王子的孩子式的眼光，透视出成人的空虚、盲目，愚妄和死板教条，用浅显天真的语言写出了人类的孤独寂寞、没有根基随风流浪的命运。同时，也表达出作者对金钱关系的批判，对真善美的讴歌。",android.view.ViewGroup,,"[0,888][1080,1998]",false,false,false
+weread-39-audio-more,小王子（多人有声）,,android.widget.TextView,,"[253,937][1025,999]",false,false,false
+weread-39-audio-more,,1 小时 46 分钟,android.view.ViewGroup,,"[253,1010][1025,1060]",true,false,false
+weread-39-audio-more,1 小时 46 分钟,,android.widget.TextView,,"[253,1010][460,1060]",false,false,false
+weread-39-audio-more,,"主播, 曙光视点",android.view.ViewGroup,,"[0,1131][297,1351]",true,false,false
+weread-39-audio-more,主播,,android.widget.TextView,,"[118,1175][180,1214]",false,false,false
+weread-39-audio-more,曙光视点,,android.widget.TextView,,"[61,1219][237,1302]",false,false,false
+weread-39-audio-more,,"专辑, 1, 0, 集",android.view.ViewGroup,,"[297,1131][594,1351]",true,false,false
+weread-39-audio-more,专辑,,android.widget.TextView,,"[415,1175][477,1214]",false,false,false
+weread-39-audio-more,1,,android.widget.TextView,,"[403,1222][430,1299]",false,false,false
+weread-39-audio-more,0,,android.widget.TextView,,"[430,1222][461,1299]",false,false,false
+weread-39-audio-more,集,,android.widget.TextView,,"[461,1241][489,1299]",false,false,false
+weread-39-audio-more,,"收听, 2, ., 2, 万, 次",android.view.ViewGroup,,"[594,1131][891,1351]",true,false,false
+weread-39-audio-more,收听,,android.widget.TextView,,"[712,1175][774,1214]",false,false,false
+weread-39-audio-more,2,,android.widget.TextView,,"[676,1222][707,1299]",false,false,false
+weread-39-audio-more,.,,android.widget.TextView,,"[707,1222][723,1299]",false,false,false
+weread-39-audio-more,2,,android.widget.TextView,,"[723,1222][754,1299]",false,false,false
+weread-39-audio-more,万,,android.widget.TextView,,"[754,1241][782,1299]",false,false,false
+weread-39-audio-more,次,,android.widget.TextView,,"[782,1241][810,1299]",false,false,false
+weread-39-audio-more,,"好听值, 9, 8, ., 4, %",android.view.ViewGroup,,"[891,1131][1080,1351]",true,false,false
+weread-39-audio-more,好听值,,android.widget.TextView,,"[993,1175][1080,1214]",false,false,false
+weread-39-audio-more,9,,android.widget.TextView,,"[974,1222][1005,1299]",false,false,false
+weread-39-audio-more,8,,android.widget.TextView,,"[1005,1222][1036,1299]",false,false,false
+weread-39-audio-more,.,,android.widget.TextView,,"[1036,1222][1052,1299]",false,false,false
+weread-39-audio-more,4,,android.widget.TextView,,"[1052,1222][1080,1299]",false,false,false
+weread-39-audio-more,《小王子》3D动画奇幻电影中文配音版在中国上映！这是一部足以让人长保童心的创世经典，被亿万读者誉为最值得收藏的书。主人公是来自外星球的小王子。书中以一位飞行员作为故事叙述者，讲述了小王子从自己星球出发前往地球的过程中，所经历的各种历险。作者以小王子的孩子式的眼光，透视出成人的空虚、盲目，愚妄和死板教条，用浅显天真的语言写出了人类的孤独寂寞、没有根基随风流浪的命运。同时，也表达出作者对金钱关系的批判，对真善美的讴歌。,,android.widget.TextView,,"[55,1404][1025,1998]",false,false,false
+weread-39-audio-more,,"会员卡可听, 升级会员",android.view.ViewGroup,,"[55,2020][289,2356]",true,false,false
+weread-39-audio-more,会员卡可听,,android.widget.TextView,,"[102,2229][242,2268]",false,false,false
+weread-39-audio-more,升级会员,,android.widget.TextView,,"[122,2268][222,2301]",false,false,false
+weread-39-audio-more,,"下载到本地,  ",android.view.ViewGroup,,"[289,2020][524,2356]",true,false,false
+weread-39-audio-more,下载到本地,,android.widget.TextView,,"[336,2229][476,2268]",false,false,false
+weread-39-audio-more, ,,android.widget.TextView,,"[403,2268][410,2301]",false,false,false
+weread-39-audio-more,,"私密收听,  ",android.view.ViewGroup,,"[524,2020][758,2356]",true,false,false
+weread-39-audio-more,私密收听,,android.widget.TextView,,"[585,2229][697,2268]",false,false,false
+weread-39-audio-more, ,,android.widget.TextView,,"[638,2268][645,2301]",false,false,false
+weread-39-audio-more,,"去除背景音,  ",android.view.ViewGroup,,"[758,2020][992,2356]",true,false,false
+weread-39-audio-more,去除背景音,,android.widget.TextView,,"[805,2229][945,2268]",false,false,false
+weread-39-audio-more, ,,android.widget.TextView,,"[872,2268][879,2301]",false,false,false
+weread-39-audio-more,,"跳过片头片尾, 已开启",android.view.ViewGroup,,"[992,2020][1080,2356]",true,false,false
+weread-39-audio-more,跳过片头片尾,,android.widget.TextView,,"[1025,2229][1080,2268]",false,false,false
+weread-39-audio-more,已开启,,android.widget.TextView,,"[1072,2268][1080,2301]",false,false,false
+weread-40-audio-mini,,"叶曼精讲《西藏生死书》, 叶曼精讲《西藏生死书》",android.view.ViewGroup,,"[55,239][1025,338]",true,false,false
+weread-40-audio-mini,叶曼精讲《西藏生死书》,,android.widget.TextView,,"[157,261][847,316]",false,false,false
+weread-40-audio-mini,,分类,android.view.ViewGroup,,"[847,263][1025,315]",true,false,false
+weread-40-audio-mini,分类,,android.widget.TextView,,"[894,263][972,315]",false,false,false
+weread-40-audio-mini,为你推荐,,android.widget.TextView,,"[55,412][540,495]",false,false,false
+weread-40-audio-mini,,王小敏说历史牛人,android.view.ViewGroup,,"[55,531][349,899]",true,false,false
+weread-40-audio-mini,王小敏说历史牛人,,android.widget.TextView,,"[55,853][349,899]",false,false,false
+weread-40-audio-mini,,收脚印的人,android.view.ViewGroup,,"[393,531][540,899]",true,false,false
+weread-40-audio-mini,收脚印的人,,android.widget.TextView,,"[393,853][540,899]",false,false,false
+weread-40-audio-mini,,幽默脱口而出 | 用段子零距离制胜，做受欢迎的人,android.view.ViewGroup,,"[731,531][540,899]",true,false,false
+weread-40-audio-mini,幽默脱口而出 | 用段子零距离制胜，做受欢迎的人,,android.widget.TextView,,"[731,853][540,899]",false,false,false
+weread-40-audio-mini,,做个会表达的女人,android.view.ViewGroup,,"[55,955][349,1323]",true,false,false
+weread-40-audio-mini,做个会表达的女人,,android.widget.TextView,,"[55,1277][349,1323]",false,false,false
+weread-40-audio-mini,,朗读者,android.view.ViewGroup,,"[393,955][540,1323]",true,false,false
+weread-40-audio-mini,朗读者,,android.widget.TextView,,"[393,1277][540,1323]",false,false,false
+weread-40-audio-mini,,2小时构建终生阅读系统,android.view.ViewGroup,,"[731,955][540,1323]",true,false,false
+weread-40-audio-mini,2小时构建终生阅读系统,,android.widget.TextView,,"[731,1277][540,1323]",false,false,false
+weread-40-audio-mini,,换一批,android.view.ViewGroup,,"[55,1378][540,1499]",true,false,false
+weread-40-audio-mini,换一批,,android.widget.TextView,,"[482,1411][540,1466]",false,false,false
+weread-40-audio-mini,热听榜,,android.widget.TextView,,"[55,1606][540,1689]",false,false,false
+weread-40-audio-mini,,老梁故事会：笑侃四大名著,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-0,"[55,1698][540,1951]",true,false,false
+weread-40-audio-mini,1,,android.widget.TextView,,"[292,1737][312,1911]",false,false,false
+weread-40-audio-mini,老梁故事会：笑侃四大名著,,android.widget.TextView,,"[334,1737][540,1798]",false,false,false
+weread-40-audio-mini,好听值 99.2%,,android.widget.TextView,,"[334,1806][540,1856]",false,false,false
+weread-40-audio-mini,5.2 万次收听,,android.widget.TextView,,"[334,1865][540,1912]",false,false,false
+weread-40-audio-mini,,汴京春深（多人有声剧）,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-3,"[943,1698][540,1951]",true,false,false
+weread-40-audio-mini,,小王子（多人有声）,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-1,"[55,1951][540,2204]",true,false,false
+weread-40-audio-mini,2,,android.widget.TextView,,"[292,1990][319,2164]",false,false,false
+weread-40-audio-mini,小王子（多人有声）,,android.widget.TextView,,"[341,1990][540,2051]",false,false,false
+weread-40-audio-mini,好听值 98.4%,,android.widget.TextView,,"[341,2059][540,2109]",false,false,false
+weread-40-audio-mini,2.3 万次收听,,android.widget.TextView,,"[341,2118][540,2165]",false,false,false
+weread-40-audio-mini,,许倬云说历史：大国霸业的兴废,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-4,"[943,1951][540,2204]",true,false,false
+weread-40-audio-mini,,高性价比人生指南,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-2,"[55,2204][540,2235]",true,false,false
+weread-40-audio-mini,,潜规则（吴思历史经典三部曲）,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-5,"[943,2204][540,2235]",true,false,false
+weread-40-audio-mini,为你推荐,,android.widget.TextView,,"[540,412][1025,495]",false,false,false
+weread-40-audio-mini,,王小敏说历史牛人,android.view.ViewGroup,,"[540,531][349,899]",true,false,false
+weread-40-audio-mini,王小敏说历史牛人,,android.widget.TextView,,"[540,853][349,899]",false,false,false
+weread-40-audio-mini,,收脚印的人,android.view.ViewGroup,,"[540,531][687,899]",true,false,false
+weread-40-audio-mini,收脚印的人,,android.widget.TextView,,"[540,853][687,899]",false,false,false
+weread-40-audio-mini,,幽默脱口而出 | 用段子零距离制胜，做受欢迎的人,android.view.ViewGroup,,"[731,531][1025,899]",true,false,false
+weread-40-audio-mini,幽默脱口而出 | 用段子零距离制胜，做受欢迎的人,,android.widget.TextView,,"[731,853][1025,899]",false,false,false
+weread-40-audio-mini,,做个会表达的女人,android.view.ViewGroup,,"[540,955][349,1323]",true,false,false
+weread-40-audio-mini,做个会表达的女人,,android.widget.TextView,,"[540,1277][349,1323]",false,false,false
+weread-40-audio-mini,,朗读者,android.view.ViewGroup,,"[540,955][687,1323]",true,false,false
+weread-40-audio-mini,朗读者,,android.widget.TextView,,"[540,1277][687,1323]",false,false,false
+weread-40-audio-mini,,2小时构建终生阅读系统,android.view.ViewGroup,,"[731,955][1025,1323]",true,false,false
+weread-40-audio-mini,2小时构建终生阅读系统,,android.widget.TextView,,"[731,1277][1025,1323]",false,false,false
+weread-40-audio-mini,,换一批,android.view.ViewGroup,,"[540,1378][1025,1499]",true,false,false
+weread-40-audio-mini,换一批,,android.widget.TextView,,"[540,1411][599,1466]",false,false,false
+weread-40-audio-mini,热听榜,,android.widget.TextView,,"[540,1606][1025,1689]",false,false,false
+weread-40-audio-mini,,老梁故事会：笑侃四大名著,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-0,"[540,1698][899,1951]",true,false,false
+weread-40-audio-mini,1,,android.widget.TextView,,"[540,1737][312,1911]",false,false,false
+weread-40-audio-mini,老梁故事会：笑侃四大名著,,android.widget.TextView,,"[540,1737][899,1798]",false,false,false
+weread-40-audio-mini,好听值 99.2%,,android.widget.TextView,,"[540,1806][899,1856]",false,false,false
+weread-40-audio-mini,5.2 万次收听,,android.widget.TextView,,"[540,1865][899,1912]",false,false,false
+weread-40-audio-mini,,汴京春深（多人有声剧）,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-3,"[943,1698][1025,1951]",true,false,false
+weread-40-audio-mini,,小王子（多人有声）,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-1,"[540,1951][899,2204]",true,false,false
+weread-40-audio-mini,2,,android.widget.TextView,,"[540,1990][319,2164]",false,false,false
+weread-40-audio-mini,小王子（多人有声）,,android.widget.TextView,,"[540,1990][899,2051]",false,false,false
+weread-40-audio-mini,好听值 98.4%,,android.widget.TextView,,"[540,2059][899,2109]",false,false,false
+weread-40-audio-mini,2.3 万次收听,,android.widget.TextView,,"[540,2118][899,2165]",false,false,false
+weread-40-audio-mini,,许倬云说历史：大国霸业的兴废,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-4,"[943,1951][1025,2204]",true,false,false
+weread-40-audio-mini,,高性价比人生指南,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-2,"[540,2204][899,2235]",true,false,false
+weread-40-audio-mini,,潜规则（吴思历史经典三部曲）,android.widget.Button,WRUI_Pressable_HeaderRankList-Album-5,"[943,2204][1025,2235]",true,false,false
+weread-40-audio-mini,,有声书,android.widget.FrameLayout,com.tencent.weread:id/browse_top_wehear,"[382,96][529,217]",false,true,false
+weread-40-audio-mini,,书友,android.widget.FrameLayout,com.tencent.weread:id/browse_top_book_friend,"[600,96][698,217]",false,false,false
+weread-40-audio-mini,00:28 / 01:06,,android.widget.TextView,com.tencent.weread:id/toolbar_player_tv_duration,"[193,2134][828,2171]",false,false,false
+weread-40-audio-mini,,开始播放,android.view.View,com.tencent.weread:id/player_bar_play,"[872,2090][943,2161]",true,false,false
+weread-40-audio-mini,,关闭播放器,android.view.View,com.tencent.weread:id/player_bar_close,"[981,2095][1030,2155]",true,false,false
+weread-40-audio-mini,阅读,,android.widget.TextView,,"[107,2304][163,2342]",false,false,false
+weread-40-audio-mini,,书架,android.widget.RelativeLayout,com.tencent.weread:id/home_tab_shelf,"[270,2202][540,2356]",false,false,false
+weread-40-audio-mini,书架,,android.widget.TextView,,"[377,2304][433,2342]",false,false,false
+weread-40-audio-mini,有声书,,android.widget.TextView,com.tencent.weread:id/home_tab_timeline_text,"[633,2304][717,2342]",false,true,false
+weread-40-audio-mini,我,,android.widget.TextView,,"[931,2304][959,2342]",false,false,false
+weread-41-book-listen-entry,,"露，阶柳庭花，亦未有妨我之襟怀笔墨者。虽我未学，下笔无文，又何妨用假语村言，敷演[7]出一段故事来，亦可使闺阁昭传，复可悦世之目，破人愁闷，不亦宜乎？”故曰“贾雨村”云云。
+
+此回中凡用“梦”用“幻”等字，是提醒阅者眼目，亦是此书立意本旨。[8]
+
+列位看官：你道此书从何而来？说起根由虽近荒唐，细按则深有趣味。待在下将此来历注明，方使阅者了然不惑。
+
+原来女娲氏炼石补天[9]之时，于大荒山无稽崖[10]炼成高经十二丈、方经二十四丈顽石三万六千五百零一块。娲皇氏只用了三万六千五百块，只单单剩了一块未用，便弃在此山青埂峰下。谁知此石自经煅炼之后，灵性已通，因见众石俱得补天，独自己无材不堪入选，遂自怨自叹，日夜悲号惭愧。
+
+一日，正当嗟悼之际，俄见一僧一道远远而来，生得骨格不凡，丰神迥异，说",android.widget.FrameLayout,,"[0,0][1080,2356]",false,false,false
+weread-41-book-listen-entry,,返回,android.widget.ImageButton,com.tencent.weread:id/reader_top_backbutton,"[11,107][149,228]",true,false,false
+weread-41-book-listen-entry,,购买,android.widget.ImageButton,com.tencent.weread:id/reader_top_buy,"[295,107][433,228]",true,false,false
+weread-41-book-listen-entry,加入书架,加入书架,android.widget.TextView,com.tencent.weread:id/reader_top_bookshelf,"[458,107][680,228]",true,false,false
+weread-41-book-listen-entry,,今天一起阅读本书的人,android.widget.ImageButton,com.tencent.weread:id/reader_top_read_today,"[694,107][832,228]",true,false,false
+weread-41-book-listen-entry,6498,,android.widget.TextView,com.tencent.weread:id/reader_top_read_today_number,"[785,137][837,168]",false,false,false
+weread-41-book-listen-entry,,分享,android.widget.ImageButton,com.tencent.weread:id/reader_top_share,"[832,107][970,228]",true,false,false
+weread-41-book-listen-entry,,更多,android.widget.ImageButton,com.tencent.weread:id/reader_top_more,"[970,107][1069,228]",true,false,false
+weread-41-book-listen-entry,,听书,android.widget.FrameLayout,com.tencent.weread:id/reader_bottom_lecture,"[893,2024][1025,2156]",true,false,false
+weread-41-book-listen-entry,,目录,android.widget.ImageView,com.tencent.weread:id/reader_chapter,"[0,2214][215,2356]",true,false,false
+weread-41-book-listen-entry,,笔记,android.view.ViewGroup,com.tencent.weread:id/reader_note,"[215,2214][431,2356]",true,false,false
+weread-41-book-listen-entry,,进度,android.widget.ImageView,com.tencent.weread:id/reader_progress,"[431,2214][647,2356]",true,false,false
+weread-41-book-listen-entry,,亮度,android.widget.ImageView,com.tencent.weread:id/reader_bright,"[647,2214][864,2356]",true,false,false
+weread-41-book-listen-entry,,文字,android.widget.ImageView,com.tencent.weread:id/reader_font,"[864,2214][1080,2356]",true,false,false
+weread-43-tts-voices,,AI男声2025A,android.widget.Button,WRUI_Pressable_tts_valle,"[0,1212][1080,1388]",true,false,false
+weread-43-tts-voices,AI男声2025A,,android.widget.TextView,,"[209,1273][458,1328]",false,false,false
+weread-43-tts-voices,,AI男声2025B,android.widget.Button,WRUI_Pressable_tts_valle_m468_19_0718,"[0,1388][1080,1564]",true,false,false
+weread-43-tts-voices,AI男声2025B,,android.widget.TextView,,"[209,1449][456,1504]",false,false,false
+weread-43-tts-voices,,AI女声2025A,android.widget.Button,WRUI_Pressable_tts_valle_caiyu515,"[0,1564][1080,1740]",true,false,false
+weread-43-tts-voices,AI女声2025A,,android.widget.TextView,,"[209,1625][458,1680]",false,false,false
+weread-43-tts-voices,,AI女声2025B,android.widget.Button,WRUI_Pressable_tts_valle_10373_f561_0619,"[0,1740][1080,1916]",true,false,false
+weread-43-tts-voices,AI女声2025B,,android.widget.TextView,,"[209,1801][456,1856]",false,false,false
+weread-43-tts-voices,,李诞,android.widget.Button,WRUI_Pressable_tts_valle_lidan,"[0,1916][1080,2092]",true,false,false
+weread-43-tts-voices,李诞,,android.widget.TextView,,"[209,1977][293,2032]",false,false,false
+weread-44-tts-voices-more,,AI男声2025A,android.widget.Button,WRUI_Pressable_tts_valle,"[0,728][1080,904]",true,false,false
+weread-44-tts-voices-more,AI男声2025A,,android.widget.TextView,,"[209,789][458,844]",false,false,false
+weread-44-tts-voices-more,,AI男声2025B,android.widget.Button,WRUI_Pressable_tts_valle_m468_19_0718,"[0,904][1080,1080]",true,false,false
+weread-44-tts-voices-more,AI男声2025B,,android.widget.TextView,,"[209,965][456,1020]",false,false,false
+weread-44-tts-voices-more,,AI女声2025A,android.widget.Button,WRUI_Pressable_tts_valle_caiyu515,"[0,1080][1080,1256]",true,false,false
+weread-44-tts-voices-more,AI女声2025A,,android.widget.TextView,,"[209,1141][458,1196]",false,false,false
+weread-44-tts-voices-more,,AI女声2025B,android.widget.Button,WRUI_Pressable_tts_valle_10373_f561_0619,"[0,1256][1080,1432]",true,false,false
+weread-44-tts-voices-more,AI女声2025B,,android.widget.TextView,,"[209,1317][456,1372]",false,false,false
+weread-44-tts-voices-more,,李诞,android.widget.Button,WRUI_Pressable_tts_valle_lidan,"[0,1432][1080,1608]",true,false,false
+weread-44-tts-voices-more,李诞,,android.widget.TextView,,"[209,1493][293,1548]",false,false,false
+weread-44-tts-voices-more,,AI男声2024,android.widget.Button,WRUI_Pressable_chensheng256_vitsb_cn,"[0,1608][1080,1784]",true,false,false
+weread-44-tts-voices-more,AI男声2024,,android.widget.TextView,,"[209,1669][430,1724]",false,false,false
+weread-44-tts-voices-more,,AI女声2024,android.widget.Button,WRUI_Pressable_zhaoyun256_vitsb_cn,"[0,1784][1080,1960]",true,false,false
+weread-44-tts-voices-more,AI女声2024,,android.widget.TextView,,"[209,1845][430,1900]",false,false,false
+weread-44-tts-voices-more,,AI男声2022,android.widget.Button,WRUI_Pressable_talkmale,"[0,1960][1080,2136]",true,false,false
+weread-44-tts-voices-more,AI男声2022,,android.widget.TextView,,"[209,2021][429,2076]",false,false,false
+weread-44-tts-voices-more,,AI女声2022,android.widget.Button,WRUI_Pressable_female3,"[0,2136][1080,2312]",true,false,false
+weread-44-tts-voices-more,AI女声2022,,android.widget.TextView,,"[209,2197][429,2252]",false,false,false
+weread-44-tts-voices-more,,AI中年男声,android.widget.Button,WRUI_Pressable_pdb,"[0,2312][1080,2312]",true,false,false
+weread-45-tts-original,,"露，阶柳庭花，亦未有妨我之襟怀笔墨者。虽我未学，下笔无文，又何妨用假语村言，敷演[7]出一段故事来，亦可使闺阁昭传，复可悦世之目，破人愁闷，不亦宜乎？”故曰“贾雨村”云云。
+
+此回中凡用“梦”用“幻”等字，是提醒阅者眼目，亦是此书立意本旨。[8]
+
+列位看官：你道此书从何而来？说起根由虽近荒唐，细按则深有趣味。待在下将此来历注明，方使阅者了然不惑。
+
+原来女娲氏炼石补天[9]之时，于大荒山无稽崖[10]炼成高经十二丈、方经二十四丈顽石三万六千五百零一块。娲皇氏只用了三万六千五百块，只单单剩了一块未用，便弃在此山青埂峰下。谁知此石自经煅炼之后，灵性已通，因见众石俱得补天，独自己无材不堪入选，遂自怨自叹，日夜悲号惭愧。
+
+一日，正当嗟悼之际，俄见一僧一道远远而来，生得骨格不凡，丰神迥异，说",android.widget.FrameLayout,,"[0,0][1080,2356]",false,false,false
+weread-45-tts-original,,返回,android.widget.ImageButton,com.tencent.weread:id/reader_top_backbutton,"[11,107][149,228]",true,false,false
+weread-45-tts-original,,购买,android.widget.ImageButton,com.tencent.weread:id/reader_top_buy,"[295,107][433,228]",true,false,false
+weread-45-tts-original,加入书架,加入书架,android.widget.TextView,com.tencent.weread:id/reader_top_bookshelf,"[458,107][680,228]",true,false,false
+weread-45-tts-original,,今天一起阅读本书的人,android.widget.ImageButton,com.tencent.weread:id/reader_top_read_today,"[694,107][832,228]",true,false,false
+weread-45-tts-original,6498,,android.widget.TextView,com.tencent.weread:id/reader_top_read_today_number,"[785,137][837,168]",false,false,false
+weread-45-tts-original,,分享,android.widget.ImageButton,com.tencent.weread:id/reader_top_share,"[832,107][970,228]",true,false,false
+weread-45-tts-original,,更多,android.widget.ImageButton,com.tencent.weread:id/reader_top_more,"[970,107][1069,228]",true,false,false
+weread-45-tts-original,,听书,android.widget.FrameLayout,com.tencent.weread:id/reader_bottom_lecture,"[893,2024][1025,2156]",true,false,false
+weread-45-tts-original,,目录,android.widget.ImageView,com.tencent.weread:id/reader_chapter,"[0,2214][215,2356]",true,false,false
+weread-45-tts-original,,笔记,android.view.ViewGroup,com.tencent.weread:id/reader_note,"[215,2214][431,2356]",true,false,false
+weread-45-tts-original,,进度,android.widget.ImageView,com.tencent.weread:id/reader_progress,"[431,2214][647,2356]",true,false,false
+weread-45-tts-original,,亮度,android.widget.ImageView,com.tencent.weread:id/reader_bright,"[647,2214][864,2356]",true,false,false
+weread-45-tts-original,,文字,android.widget.ImageView,com.tencent.weread:id/reader_font,"[864,2214][1080,2356]",true,false,false
+weread-47-settings-lower,,返回,android.widget.ImageButton,com.tencent.weread:id/qmui_topbar_item_left_back,"[0,96][132,250]",true,false,false
+weread-47-settings-lower,设置,设置,android.view.View,,"[494,142][586,204]",false,false,false
+weread-47-settings-lower,翻页方式,,android.widget.TextView,com.tencent.weread:id/group_list_item_textView,"[94,250][270,284]",false,false,false
+weread-47-settings-lower,左右滑动,,android.widget.TextView,com.tencent.weread:id/group_list_item_detailTextView,"[815,250][947,277]",false,false,false
+weread-47-settings-lower,深色模式,,android.widget.TextView,com.tencent.weread:id/group_list_item_textView,"[94,380][270,438]",false,false,false
+weread-47-settings-lower,跟随系统,,android.widget.TextView,com.tencent.weread:id/group_list_item_detailTextView,"[815,388][947,431]",false,false,false
+weread-47-settings-lower,微信读书 Skill,,android.widget.TextView,com.tencent.weread:id/group_list_item_textView,"[94,589][368,647]",false,false,false
+weread-47-settings-lower,隐私,,android.widget.TextView,com.tencent.weread:id/group_list_item_textView,"[94,754][182,812]",false,false,false
+weread-47-settings-lower,认证学生身份,,android.widget.TextView,com.tencent.weread:id/group_list_item_textView,"[94,908][358,966]",false,false,false
+weread-47-settings-lower,获赠专属勋章和付费会员,,android.widget.TextView,com.tencent.weread:id/group_list_item_detailTextView,"[584,916][947,959]",false,false,false
+weread-47-settings-lower,青少年模式,,android.widget.TextView,com.tencent.weread:id/group_list_item_textView,"[94,1062][314,1120]",false,false,false
+weread-47-settings-lower,未开启,,android.widget.TextView,com.tencent.weread:id/group_list_item_detailTextView,"[848,1070][947,1113]",false,false,false
+weread-47-settings-lower,通知,,android.widget.TextView,com.tencent.weread:id/group_list_item_textView,"[94,1216][182,1274]",false,false,false
+weread-47-settings-lower,清理缓存,,android.widget.TextView,com.tencent.weread:id/group_list_item_textView,"[94,1370][270,1428]",false,false,false
+weread-47-settings-lower,上架微信读书,,android.widget.TextView,com.tencent.weread:id/group_list_item_textView,"[94,1557][358,1615]",false,false,false
+weread-47-settings-lower,投稿征文,,android.widget.TextView,com.tencent.weread:id/group_list_item_detailTextView,"[815,1565][947,1608]",false,false,false
+weread-47-settings-lower,商务合作,,android.widget.TextView,com.tencent.weread:id/group_list_item_textView,"[94,1711][270,1769]",false,false,false
+weread-47-settings-lower,关于微信读书,,android.widget.TextView,com.tencent.weread:id/group_list_item_textView,"[94,1909][358,1967]",false,false,false
+weread-47-settings-lower,关注微信公众号,,android.widget.TextView,com.tencent.weread:id/group_list_item_textView,"[94,2063][402,2121]",false,false,false
+weread-47-settings-lower,帮助与反馈,,android.widget.TextView,com.tencent.weread:id/group_list_item_textView,"[94,2217][314,2275]",false,false,false

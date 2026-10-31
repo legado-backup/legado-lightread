@@ -1,0 +1,66 @@
+{
+  "device": {
+    "model": "Redmi K30 Pro",
+    "android": "12",
+    "pixels": [
+      1080,
+      2400
+    ],
+    "density_dpi": 440
+  },
+  "versions": {
+    "com.tencent.weread": "10.2.2",
+    "com.jd.app.reader": "4.70.7",
+    "com.cliff": "9.0.1",
+    "com.qq.reader": "8.5.6.888"
+  },
+  "scope": "Only directly accessible guest/local features; login-gated flows excluded at user request. Screenshots restarted after prior capture batch was deleted.",
+  "jd_audio": {
+    "fixture": "Original lightread-ui-research.txt, imported using ordinary local import UI",
+    "initial_voice": "经典男声",
+    "initial_rate": 1.0,
+    "initial_timer": "不开启",
+    "observed": [
+      "首次后台运行提示有去设置/不再提示/取消；选择取消仍可播放",
+      "暂停后进度02:38保持，15分钟定时仍倒计时",
+      "切换经典女声后从暂停变为播放，按钮变为暂停图标",
+      "原文入口回到正文，当前阅读文字蓝色底高亮",
+      "连续两次返回可退出正文到书架；首次返回提示再按一次返回",
+      "书架左下角迷你播放器含关闭/封面/播放暂停",
+      "已观察到自动进入第二章",
+      "媒体会话实测state=3播放；KEYCODE_MEDIA_PAUSE后state=2暂停",
+      "关闭迷你播放器后媒体会话中不再有JD会话"
+    ],
+    "voice_labels_seen": [
+      "经典男声",
+      "经典女声",
+      "沉稳男声",
+      "温柔淑女",
+      "磁性男声",
+      "成熟女声",
+      "醇厚低音",
+      "清亮女声"
+    ],
+    "timer_options": [
+      "不开启",
+      "15分钟",
+      "30分钟",
+      "60分钟",
+      "90分钟",
+      "播放完本集"
+    ],
+    "limits": [
+      "未听辨真实音频音质",
+      "未做长时间锁屏稳定性测试",
+      "未验证定时到点执行，仅观察倒计时",
+      "商城图书被登录安全拦截，听书结论仅适用于本地TXT样本"
+    ],
+    "cleanup": "经典男声已重新选择；定时恢复不开启；迷你播放器已关闭；自行导入的样本已通过书架删除并截图验证为空。"
+  },
+  "cleanup": {
+    "device_media": "Sent KEYCODE_MEDIA_PAUSE after research",
+    "research_fixture": "Deleted only the original lightread-ui-research.txt and own temporary XML/PNG files from device",
+    "login_gates": "Returned immediately; blocked-page screenshots removed",
+    "state_limit": "Reading/listening progress naturally advanced during inspection; not claimed fully unchanged"
+  }
+}

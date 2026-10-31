@@ -1,0 +1,17 @@
+{
+  "behavior_assertions": 55,
+  "all_passed": true,
+  "unwired_actions": 0,
+  "horizontal_overflow": 0,
+  "browser_errors": 0,
+  "viewport_widths": [
+    320,
+    375,
+    414,
+    768,
+    1440
+  ],
+  "research_screenshots": 93,
+  "prototype_controls_rows": 2477,
+  "prototype_sha256": "02c332d253408595c717a49d874c193fe83d418f42e7801c7f1af9222e1e4444"
+}

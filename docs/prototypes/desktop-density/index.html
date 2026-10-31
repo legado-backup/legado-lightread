@@ -1,0 +1,18 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>轻阅桌面密度收敛 · 原型对比</title>
+<style>body{margin:0;padding:32px 48px 64px;font:14px/1.6 -apple-system,'PingFang SC','Noto Sans SC',sans-serif;background:#f3f4f6;color:#1f2329}
+h1{font-size:28px;font-weight:600;margin:0 0 4px}.lead{color:#5b636e;margin:0 0 24px;max-width:860px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(560px,1fr));gap:24px}
+.v{display:flex;flex-direction:column;background:#fff;border-radius:12px;overflow:hidden;color:inherit;text-decoration:none;box-shadow:0 1px 2px rgba(0,0,0,.06);transition:box-shadow .18s}
+.v:hover{box-shadow:0 8px 28px rgba(0,0,0,.12)}.v img{width:100%;display:block;border-bottom:1px solid #eceef1}
+.v div{padding:16px 20px 20px}.v b{font-size:16px}.v span{margin-left:8px;color:#8a919c;font-size:13px}.v p{margin:4px 0 0;color:#4e5661}
+.cur{opacity:.92}.rules{background:#fff;border-radius:12px;padding:16px 20px;margin-bottom:24px;max-width:860px}.rules li{margin:2px 0}</style></head><body>
+<h1>桌面藏书页 · 密度收敛原型</h1>
+<p class="lead">四个原型共用同一套收敛档位（字号 6 档 · 圆角 4 档 · 阴影 3 档 · 间距 4/8/12/16/24/32/48），只在风格和布局上不同。点卡片进入可交互原型，顶部黑条可切换「藏书 / 设置」。</p>
+<ol class="rules"><li>封面上不常驻任何标签；格式、大小放进「⋯」菜单顶部或列表列。</li><li>悬停只出现一个「⋯」，替代原来竖排的 5 个按钮。</li><li>页面标题下不再有说明句；书单从独立卡片并入筛选。</li><li>设置项一行一件事，说明只在必要时保留一行。</li></ol>
+<div class="grid">
+<a class="v" href="shots/current-library.png"><img src="shots/current-library.png" alt=""><div><b>现状</b><span>对照基准</span><p>格式标签常驻封面，悬停出 5 个按钮；页头三层（工具栏 / 说明 / 书单卡）。</p></div></a>
+<a class="v" href="A-封面墙.html"><img src="shots/A-library.png" alt=""><div><b>A · 封面墙</b><span>参考：Apple 图书 / Kindle</span><p>最克制：书架只有封面。书名在封面上就能看到，下方只留进度和「⋯」。</p></div></a>
+<a class="v" href="B-书桌.html"><img src="shots/B-library.png" alt=""><div><b>B · 书桌</b><span>参考：微信读书 / 轻阅 App</span><p>与手机 App 同一套书卡（短书名 + 「进度 · 作者」）。顶部一张「继续阅读」，今日时长并入其中。</p></div></a>
+<a class="v" href="C-工具感.html"><img src="shots/C-library.png" alt=""><div><b>C · 工具感</b><span>参考：Linear / Notion / Calibre 新式</span><p>信息多但有序：默认列表视图，格式、大小、时间都进表格列，封面上一个字都不放。可切到网格。</p></div></a>
+<a class="v" href="D-纸感.html"><img src="shots/D-library.png" alt=""><div><b>D · 纸感</b><span>参考：Readest / Kobo / 杂志排版</span><p>温暖的纸色与衬线标题，按「正在读 / 全部」分区。留白最多，像一张安静的书桌。</p></div></a>
+</div></body></html>

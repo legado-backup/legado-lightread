@@ -1,0 +1,262 @@
+{
+ "at": "2026-10-18T00:29:07.660Z",
+ "pass": 51,
+ "total": 51,
+ "checks": [
+  {
+   "name": "导入 TXT 并按章节拆分",
+   "pass": true,
+   "detail": "lightread-v4-fixture"
+  },
+  {
+   "name": "导入的书可以翻页（跨到第二章）",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "字号与边距真实作用于正文",
+   "pass": true,
+   "detail": "21px"
+  },
+  {
+   "name": "调整后保持在原段落附近",
+   "pass": true,
+   "detail": "1.-1.0 → 1.-1.0"
+  },
+  {
+   "name": "字体切换为内置宋体",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "正文配色切到米黄",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "刷新后再进入：位置恢复",
+   "pass": true,
+   "detail": "1.3.2"
+  },
+  {
+   "name": "刷新后再进入：排版与配色恢复",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "想法已保存",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "从笔记定位回正文",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "删除笔记",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "撤销删除",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "夜读 + 大字可叠加",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "护眼与夜读互斥（开护眼自动关夜读）",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "退出场景后恢复原配色和字号",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "带读「auto」开始、暂停、继续、退出",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "带读「tw」开始、暂停、继续、退出",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "带读「lyric」开始、暂停、继续、退出",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "歌词退出后恢复左右翻页",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "没有系统语音时给出说明与恢复入口",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "节奏演示明确标注无声并推进",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "播放中改语速保持播放",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "暂停时改语速保持暂停",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "手动翻页不改变听书位置，显示偏离提示",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "回到听书处",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "改听这一页",
+   "pass": true,
+   "detail": "2.-1.0"
+  },
+  {
+   "name": "定时到点真实停止",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "再听 15 分钟",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "离开阅读器后显示迷你播放条",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "迷你条暂停",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "同步未配置的引导",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "验证码错误给出说明",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "同步阶段推进",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "同步成功",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "同步失败状态",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "失败后重试成功",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "密码与密钥同步需单独确认",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "取消后保持关闭",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "论文助手为标注的预置回答",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "书源错误可重试",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "重试后出现结果",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "阅读记录来自真实计时",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "删除书籍可撤销",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "外观深色不改变显式选择的正文配色",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "重置只清除 v4，保留 v3 存储",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "控制台无错误",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "320px：无横向溢出，工具可达",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "375px：无横向溢出，工具可达",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "414px：无横向溢出，工具可达",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "768px：无横向溢出，工具可达",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "name": "1440px：无横向溢出，工具可达",
+   "pass": true,
+   "detail": ""
+  }
+ ]
+}

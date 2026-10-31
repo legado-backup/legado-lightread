@@ -1,0 +1,159 @@
+{
+  "checks": [
+    {
+      "name": "分页生成多页",
+      "pass": true
+    },
+    {
+      "name": "左右翻页改变页码",
+      "pass": true
+    },
+    {
+      "name": "字号应用到正文",
+      "pass": true
+    },
+    {
+      "name": "宋体实际应用",
+      "pass": true
+    },
+    {
+      "name": "夜间正文",
+      "pass": true
+    },
+    {
+      "name": "连续滚动含三个章节",
+      "pass": true
+    },
+    {
+      "name": "滚动保存位置",
+      "pass": true
+    },
+    {
+      "name": "退出大字恢复字号",
+      "pass": true
+    },
+    {
+      "name": "auto启动",
+      "pass": true
+    },
+    {
+      "name": "auto暂停",
+      "pass": true
+    },
+    {
+      "name": "auto退出恢复正文",
+      "pass": true
+    },
+    {
+      "name": "typewriter启动",
+      "pass": true
+    },
+    {
+      "name": "typewriter暂停",
+      "pass": true
+    },
+    {
+      "name": "typewriter退出恢复正文",
+      "pass": true
+    },
+    {
+      "name": "lyric启动",
+      "pass": true
+    },
+    {
+      "name": "lyric暂停",
+      "pass": true
+    },
+    {
+      "name": "lyric退出恢复正文",
+      "pass": true
+    },
+    {
+      "name": "书签保存",
+      "pass": true
+    },
+    {
+      "name": "笔记保存并回看",
+      "pass": true
+    },
+    {
+      "name": "听书播放状态",
+      "pass": true
+    },
+    {
+      "name": "暂停时调整语速保持暂停",
+      "pass": true
+    },
+    {
+      "name": "定时真实到点停止",
+      "pass": true
+    },
+    {
+      "name": "迷你播放器出现",
+      "pass": true
+    },
+    {
+      "name": "返回原文保留听书句",
+      "pass": true
+    },
+    {
+      "name": "阅读与听书分离恢复入口",
+      "pass": true
+    },
+    {
+      "name": "改听当前页",
+      "pass": true
+    },
+    {
+      "name": "新建书单持久保存",
+      "pass": true
+    },
+    {
+      "name": "书单归类",
+      "pass": true
+    },
+    {
+      "name": "删除书籍",
+      "pass": true
+    },
+    {
+      "name": "撤销删除",
+      "pass": true
+    },
+    {
+      "name": "TXT实际导入和分章",
+      "pass": true
+    },
+    {
+      "name": "WebDAV空值校验",
+      "pass": true
+    },
+    {
+      "name": "同步演示完成状态",
+      "pass": true
+    },
+    {
+      "name": "同步错误可见",
+      "pass": true
+    },
+    {
+      "name": "同步错误重试恢复",
+      "pass": true
+    },
+    {
+      "name": "密钥同步二次确认",
+      "pass": true
+    },
+    {
+      "name": "论文笔记回看",
+      "pass": true
+    },
+    {
+      "name": "刷新保留笔记、书单、导入和字号",
+      "pass": true
+    }
+  ],
+  "unwired": [],
+  "overflow": [],
+  "errors": []
+}

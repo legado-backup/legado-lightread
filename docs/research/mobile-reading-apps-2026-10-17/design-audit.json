@@ -1,0 +1,16 @@
+{
+  "skill": "hallmark",
+  "route": "studied-DNA",
+  "source": "K30 WeRead and JD screenshots",
+  "scores": {
+    "philosophy": 4,
+    "hierarchy": 4,
+    "execution": 4,
+    "specificity": 5,
+    "restraint": 5,
+    "variety": 4
+  },
+  "is_self_assessment": true,
+  "code_scope": "Standalone prototype and research artifacts only",
+  "validation": "55 behavior assertions, sheet action traversal, 5 viewport widths, K30 device rendering"
+}

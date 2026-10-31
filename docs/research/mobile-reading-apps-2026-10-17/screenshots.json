@@ -1,0 +1,932 @@
+[
+  {
+    "file": "cang-01-profile.png",
+    "title": "我的",
+    "app": "cang",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T17:03:40.531517+00:00",
+    "focus": [
+      "mCurrentFocus=Window{6b427af u0 com.cliff/com.cliff.ui.main.MainActivity}"
+    ]
+  },
+  {
+    "file": "cang-02-desk.png",
+    "title": "书桌空状态",
+    "app": "cang",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T17:03:45.313662+00:00",
+    "focus": [
+      "mCurrentFocus=Window{6b427af u0 com.cliff/com.cliff.ui.main.MainActivity}"
+    ]
+  },
+  {
+    "file": "cang-03-discover.png",
+    "title": "找书精选",
+    "app": "cang",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T17:04:04.404101+00:00",
+    "focus": [
+      "mCurrentFocus=Window{6b427af u0 com.cliff/com.cliff.ui.main.MainActivity}"
+    ]
+  },
+  {
+    "file": "cang-04-book-detail.png",
+    "title": "图书详情 · 付费入口",
+    "app": "cang",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T17:04:40.312599+00:00",
+    "focus": [
+      "mCurrentFocus=Window{aa4c61e u0 com.cliff/com.cliff.ui.book.BookDetailActivity}"
+    ]
+  },
+  {
+    "file": "cang-05-audio-home.png",
+    "title": "讲书首页",
+    "app": "cang",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T17:04:54.112283+00:00",
+    "focus": [
+      "mCurrentFocus=Window{6b427af u0 com.cliff/com.cliff.ui.main.MainActivity}"
+    ]
+  },
+  {
+    "file": "cang-06-audio-topic.png",
+    "title": "讲书主题与视频入口",
+    "app": "cang",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T17:05:51.488958+00:00",
+    "focus": [
+      "mCurrentFocus=Window{83c16f5 u0 com.cliff/com.cliff.ui.main.CourselistDetailActivity}"
+    ]
+  },
+  {
+    "file": "jd-01-start.png",
+    "title": "书城精选",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:29:06.878027+00:00",
+    "focus": [
+      "mCurrentFocus=Window{ed317b5 u0 com.jd.app.reader/com.jingdong.app.reader.main.ui.JdMainActivity}"
+    ]
+  },
+  {
+    "file": "jd-02-bookshelf.png",
+    "title": "书架空状态",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:29:35.666906+00:00",
+    "focus": [
+      "mCurrentFocus=Window{ed317b5 u0 com.jd.app.reader/com.jingdong.app.reader.main.ui.JdMainActivity}"
+    ]
+  },
+  {
+    "file": "jd-03-bookshelf-filter.png",
+    "title": "书架筛选",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:29:48.661999+00:00",
+    "focus": [
+      "mCurrentFocus=Window{ed317b5 u0 com.jd.app.reader/com.jingdong.app.reader.main.ui.JdMainActivity}"
+    ]
+  },
+  {
+    "file": "jd-04-search.png",
+    "title": "促销秒杀页",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:29:59.184420+00:00",
+    "focus": [
+      "mCurrentFocus=Window{e0e8a0d u0 com.jd.app.reader/com.jd.app.reader.webview.JdWebViewActivity}"
+    ]
+  },
+  {
+    "file": "jd-05-search.png",
+    "title": "搜索与热搜榜",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:30:16.786625+00:00",
+    "focus": [
+      "mCurrentFocus=Window{49fb3fa u0 com.jd.app.reader/com.jd.app.reader.bookstore.search.BookStoreSearchActivityToC}"
+    ]
+  },
+  {
+    "file": "jd-08-bookshelf-menu.png",
+    "title": "书架更多菜单",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:33:04.900197+00:00",
+    "focus": [
+      "mCurrentFocus=Window{3f11514 u0 PopupWindow:50ae811}"
+    ]
+  },
+  {
+    "file": "jd-09-local-import.png",
+    "title": "阅读手势引导",
+    "app": "jd",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:34:19.833433+00:00",
+    "focus": [
+      "mCurrentFocus=Window{b3809a1 u0 com.jd.app.reader/com.jd.read.engine.activity.EngineReaderActivity}"
+    ]
+  },
+  {
+    "file": "jd-10-reader.png",
+    "title": "本地 TXT 正文",
+    "app": "jd",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:34:32.867849+00:00",
+    "focus": [
+      "mCurrentFocus=Window{b3809a1 u0 com.jd.app.reader/com.jd.read.engine.activity.EngineReaderActivity}"
+    ]
+  },
+  {
+    "file": "jd-11-reader-toolbar.png",
+    "title": "阅读工具栏",
+    "app": "jd",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:35:28.404731+00:00",
+    "focus": [
+      "mCurrentFocus=Window{b3809a1 u0 com.jd.app.reader/com.jd.read.engine.activity.EngineReaderActivity}"
+    ]
+  },
+  {
+    "file": "jd-12-typography.png",
+    "title": "字体段落",
+    "app": "jd",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:35:34.596095+00:00",
+    "focus": [
+      "mCurrentFocus=Window{b3809a1 u0 com.jd.app.reader/com.jd.read.engine.activity.EngineReaderActivity}"
+    ]
+  },
+  {
+    "file": "jd-13-layout-details.png",
+    "title": "排版调节",
+    "app": "jd",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:35:51.790009+00:00",
+    "focus": [
+      "mCurrentFocus=Window{b3809a1 u0 com.jd.app.reader/com.jd.read.engine.activity.EngineReaderActivity}"
+    ]
+  },
+  {
+    "file": "jd-14-brightness-themes.png",
+    "title": "亮度与背景",
+    "app": "jd",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:36:06.075716+00:00",
+    "focus": [
+      "mCurrentFocus=Window{b3809a1 u0 com.jd.app.reader/com.jd.read.engine.activity.EngineReaderActivity}"
+    ]
+  },
+  {
+    "file": "jd-15-toc.png",
+    "title": "目录侧栏",
+    "app": "jd",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:36:18.706958+00:00",
+    "focus": [
+      "mCurrentFocus=Window{b3809a1 u0 com.jd.app.reader/com.jd.read.engine.activity.EngineReaderActivity}"
+    ]
+  },
+  {
+    "file": "jd-17-reader-more.png",
+    "title": "阅读更多菜单",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:37:13.339740+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a2c6a1 u0 com.jd.app.reader/com.jd.read.engine.activity.EngineReaderActivity}"
+    ]
+  },
+  {
+    "file": "jd-18-reader-settings.png",
+    "title": "阅读更多设置",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:37:23.487788+00:00",
+    "focus": [
+      "mCurrentFocus=Window{b3809a1 u0 com.jd.app.reader/com.jd.read.engine.activity.EngineReaderActivity}"
+    ]
+  },
+  {
+    "file": "jd-19-listen-entry.png",
+    "title": "听书后台运行提示",
+    "app": "jd",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:37:58.818197+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7aaf9f5 u0 com.jd.app.reader/com.jd.app.reader.audioplayer.ui.BookPlayerActivity}"
+    ]
+  },
+  {
+    "file": "jd-20-listen-player.png",
+    "title": "听书播放中",
+    "app": "jd",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:38:12.017949+00:00",
+    "focus": [
+      "mCurrentFocus=Window{f17ce18 u0 com.jd.app.reader/com.jd.app.reader.audioplayer.ui.BookPlayerActivity}"
+    ]
+  },
+  {
+    "file": "jd-21-listen-paused.png",
+    "title": "听书已暂停",
+    "app": "jd",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:38:37.941593+00:00",
+    "focus": [
+      "mCurrentFocus=Window{f17ce18 u0 com.jd.app.reader/com.jd.app.reader.audioplayer.ui.BookPlayerActivity}"
+    ]
+  },
+  {
+    "file": "jd-22-listen-speed.png",
+    "title": "语速设置",
+    "app": "jd",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:38:41.139620+00:00",
+    "focus": [
+      "mCurrentFocus=Window{f17ce18 u0 com.jd.app.reader/com.jd.app.reader.audioplayer.ui.BookPlayerActivity}"
+    ]
+  },
+  {
+    "file": "jd-23-listen-timer.png",
+    "title": "定时关闭选项",
+    "app": "jd",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:38:54.552397+00:00",
+    "focus": [
+      "mCurrentFocus=Window{f17ce18 u0 com.jd.app.reader/com.jd.app.reader.audioplayer.ui.BookPlayerActivity}"
+    ]
+  },
+  {
+    "file": "jd-24-listen-timer-active.png",
+    "title": "定时倒计时",
+    "app": "jd",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:39:44.899078+00:00",
+    "focus": [
+      "mCurrentFocus=Window{f17ce18 u0 com.jd.app.reader/com.jd.app.reader.audioplayer.ui.BookPlayerActivity}"
+    ]
+  },
+  {
+    "file": "jd-25-listen-voices.png",
+    "title": "讲书人选择",
+    "app": "jd",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:39:48.425818+00:00",
+    "focus": [
+      "mCurrentFocus=Window{f17ce18 u0 com.jd.app.reader/com.jd.app.reader.audioplayer.ui.BookPlayerActivity}"
+    ]
+  },
+  {
+    "file": "jd-26-listen-voice-changed.png",
+    "title": "切换女声后播放",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:40:15.998071+00:00",
+    "focus": [
+      "mCurrentFocus=Window{f17ce18 u0 com.jd.app.reader/com.jd.app.reader.audioplayer.ui.BookPlayerActivity}"
+    ]
+  },
+  {
+    "file": "jd-27-listen-original-text.png",
+    "title": "听书返回原文",
+    "app": "jd",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:40:21.380714+00:00",
+    "focus": [
+      "mCurrentFocus=Window{b3809a1 u0 com.jd.app.reader/com.jd.read.engine.activity.EngineReaderActivity}"
+    ]
+  },
+  {
+    "file": "jd-28-listen-mini-player.png",
+    "title": "再次返回提示",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:41:01.347169+00:00",
+    "focus": [
+      "mCurrentFocus=Window{b3809a1 u0 com.jd.app.reader/com.jd.read.engine.activity.EngineReaderActivity}"
+    ]
+  },
+  {
+    "file": "jd-29-listen-bookshelf-mini.png",
+    "title": "书架迷你播放器",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:41:23.074563+00:00",
+    "focus": [
+      "mCurrentFocus=Window{c0735da u0 com.jd.app.reader/com.jingdong.app.reader.main.ui.JdMainActivity}"
+    ]
+  },
+  {
+    "file": "jd-30-listen-restored-paused.png",
+    "title": "暂停与取消定时",
+    "app": "jd",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:42:03.084760+00:00",
+    "focus": [
+      "mCurrentFocus=Window{31cf5b u0 com.jd.app.reader/com.jd.app.reader.audioplayer.ui.BookPlayerActivity}"
+    ]
+  },
+  {
+    "file": "jd-31-listen-voices-more.png",
+    "title": "更多讲书人",
+    "app": "jd",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:42:30.298376+00:00",
+    "focus": [
+      "mCurrentFocus=Window{31cf5b u0 com.jd.app.reader/com.jd.app.reader.audioplayer.ui.BookPlayerActivity}"
+    ]
+  },
+  {
+    "file": "jd-32-profile.png",
+    "title": "我的",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:43:08.644116+00:00",
+    "focus": [
+      "mCurrentFocus=Window{c0735da u0 com.jd.app.reader/com.jingdong.app.reader.main.ui.JdMainActivity}"
+    ]
+  },
+  {
+    "file": "jd-33-settings.png",
+    "title": "全局设置",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:43:22.228094+00:00",
+    "focus": [
+      "mCurrentFocus=Window{a2043c7 u0 com.jd.app.reader/com.jingdong.app.reader.psersonalcenter.setting.SettingActivity}"
+    ]
+  },
+  {
+    "file": "jd-34-community.png",
+    "title": "社区",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:44:10.756242+00:00",
+    "focus": [
+      "mCurrentFocus=Window{c0735da u0 com.jd.app.reader/com.jingdong.app.reader.main.ui.JdMainActivity}"
+    ]
+  },
+  {
+    "file": "jd-35-categories.png",
+    "title": "书城分类",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:44:31.905709+00:00",
+    "focus": [
+      "mCurrentFocus=Window{d8e6ca3 u0 com.jd.app.reader/com.jd.app.reader.bookstore.sort.main.ReadSortActivity}"
+    ]
+  },
+  {
+    "file": "jd-36-audiobook-store.png",
+    "title": "有声书城",
+    "app": "jd",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:44:54.919625+00:00",
+    "focus": [
+      "mCurrentFocus=Window{c0735da u0 com.jd.app.reader/com.jingdong.app.reader.main.ui.JdMainActivity}"
+    ]
+  },
+  {
+    "file": "jd-37-bookshelf-selection.png",
+    "title": "书架选中状态",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:45:21.996764+00:00",
+    "focus": [
+      "mCurrentFocus=Window{c0735da u0 com.jd.app.reader/com.jingdong.app.reader.main.ui.JdMainActivity}"
+    ]
+  },
+  {
+    "file": "jd-38-delete-confirm.png",
+    "title": "删除样本确认",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:45:26.465514+00:00",
+    "focus": [
+      "mCurrentFocus=Window{837c63d u0 com.jd.app.reader/com.jingdong.app.reader.main.ui.JdMainActivity}"
+    ]
+  },
+  {
+    "file": "jd-39-bookshelf-cleaned.png",
+    "title": "样本删除后空书架",
+    "app": "jd",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:45:48.156312+00:00",
+    "focus": [
+      "mCurrentFocus=Window{c0735da u0 com.jd.app.reader/com.jingdong.app.reader.main.ui.JdMainActivity}"
+    ]
+  },
+  {
+    "file": "qq-01-store.png",
+    "title": "书城精选",
+    "app": "qq",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T17:06:38.717769+00:00",
+    "focus": [
+      "mCurrentFocus=Window{4c6002d u0 com.qq.reader/com.qq.reader.activity.MainFlutterActivity}"
+    ]
+  },
+  {
+    "file": "qq-02-bookshelf.png",
+    "title": "书架空状态",
+    "app": "qq",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T17:06:45.347047+00:00",
+    "focus": [
+      "mCurrentFocus=Window{4c6002d u0 com.qq.reader/com.qq.reader.activity.MainFlutterActivity}"
+    ]
+  },
+  {
+    "file": "qq-03-publication.png",
+    "title": "出版图书",
+    "app": "qq",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T17:07:17.333824+00:00",
+    "focus": [
+      "mCurrentFocus=Window{4c6002d u0 com.qq.reader/com.qq.reader.activity.MainFlutterActivity}"
+    ]
+  },
+  {
+    "file": "qq-04-book-detail.png",
+    "title": "图书详情 · 试读入口",
+    "app": "qq",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T17:16:47.886700+00:00",
+    "focus": [
+      "mCurrentFocus=Window{69a4afd u0 com.qq.reader/com.qq.reader.activity.flutter.BookDetailActivity}"
+    ]
+  },
+  {
+    "file": "qq-05-audio-home.png",
+    "title": "听书首页",
+    "app": "qq",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T17:21:51.473243+00:00",
+    "focus": [
+      "mCurrentFocus=Window{4c6002d u0 com.qq.reader/com.qq.reader.activity.MainFlutterActivity}"
+    ]
+  },
+  {
+    "file": "qq-06-profile.png",
+    "title": "我的",
+    "app": "qq",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T17:22:04.892645+00:00",
+    "focus": [
+      "mCurrentFocus=Window{4c6002d u0 com.qq.reader/com.qq.reader.activity.MainFlutterActivity}"
+    ]
+  },
+  {
+    "file": "qq-07-settings.png",
+    "title": "设置",
+    "app": "qq",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T17:27:47.875091+00:00",
+    "focus": [
+      "mCurrentFocus=Window{c12bae7 u0 com.qq.reader/com.qq.reader.activity.ProfileSettingActivity}"
+    ]
+  },
+  {
+    "file": "weread-01-start.png",
+    "title": "我 · 游客主页",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:22:13.086093+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a4346c u0 com.tencent.weread/com.tencent.weread.WeReadFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-02-bookshelf-empty.png",
+    "title": "书架空状态",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:22:21.031721+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a4346c u0 com.tencent.weread/com.tencent.weread.WeReadFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-04-discover.png",
+    "title": "阅读首页",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:22:40.969338+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a4346c u0 com.tencent.weread/com.tencent.weread.WeReadFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-05-book-detail.png",
+    "title": "电子书封面与信息",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:23:04.781426+00:00",
+    "focus": [
+      "mCurrentFocus=Window{4917592 u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-06-reader.png",
+    "title": "图书开篇与操作提示",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:23:08.908030+00:00",
+    "focus": [
+      "mCurrentFocus=Window{4917592 u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-07-reader-toolbar.png",
+    "title": "阅读工具栏",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:24:40.664389+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-08-typography.png",
+    "title": "文字设置 · 封面页",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:24:46.548426+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-09-page-turn-options.png",
+    "title": "翻页方式",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:25:17.088990+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-10-toc.png",
+    "title": "目录与书内搜索入口",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:25:28.923138+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-11-reading-text.png",
+    "title": "首章正文",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:25:41.946393+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-12-brightness-themes.png",
+    "title": "亮度与主题",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:25:50.256931+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-13-dark-theme.png",
+    "title": "夜间阅读与深色面板",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:26:03.494667+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-14-typography-text.png",
+    "title": "文字设置 · 正文页",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:26:11.298165+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-15-font-picker.png",
+    "title": "字体选择",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:26:16.689858+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-16-progress.png",
+    "title": "阅读进度",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:26:31.427571+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-17-notes.png",
+    "title": "热门划线",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:26:37.473747+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-18-my-notes-empty.png",
+    "title": "笔记空状态",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:26:49.736060+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-19-auto-reading.png",
+    "title": "已开启自动翻页提示",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:26:58.737971+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-20-auto-reading-controls.png",
+    "title": "自动翻页控制",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:27:10.444008+00:00",
+    "focus": [
+      "mCurrentFocus=Window{16ba40a u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-21-selection-menu.png",
+    "title": "选中文字动作条",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:27:28.010296+00:00",
+    "focus": [
+      "mCurrentFocus=Window{35e701b u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-23-settings.png",
+    "title": "全局设置 · 上半部",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:28:24.176751+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a4346c u0 com.tencent.weread/com.tencent.weread.WeReadFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-24-reading-stats.png",
+    "title": "我的阅读 · 周统计",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:28:37.395924+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a4346c u0 com.tencent.weread/com.tencent.weread.WeReadFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-25-home-revisit.png",
+    "title": "阅读首页复访",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:46:28.197221+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a4346c u0 com.tencent.weread/com.tencent.weread.WeReadFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-26-categories.png",
+    "title": "图书分类",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:46:38.564998+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a4346c u0 com.tencent.weread/com.tencent.weread.WeReadFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-27-ranking.png",
+    "title": "排行榜",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:47:03.626372+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a4346c u0 com.tencent.weread/com.tencent.weread.WeReadFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-28-booklists.png",
+    "title": "书单",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:47:27.704479+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a4346c u0 com.tencent.weread/com.tencent.weread.WeReadFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-29-search.png",
+    "title": "搜索与热搜",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T16:47:36.535038+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a4346c u0 com.tencent.weread/com.tencent.weread.WeReadFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-30-audiobooks.png",
+    "title": "有声书首页",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:48:16.845916+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a4346c u0 com.tencent.weread/com.tencent.weread.WeReadFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-31-audiobook-detail.png",
+    "title": "有声书播放器 · 初始",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:48:39.825106+00:00",
+    "focus": [
+      "mCurrentFocus=Window{9ad5abc u0 com.tencent.weread/com.tencent.weread.weHear.combo.panel.PanelFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-32-audio-playing.png",
+    "title": "有声书播放中",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:49:25.096647+00:00",
+    "focus": [
+      "mCurrentFocus=Window{9ad5abc u0 com.tencent.weread/com.tencent.weread.weHear.combo.panel.PanelFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-33-audio-paused.png",
+    "title": "有声书已暂停",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:49:37.204436+00:00",
+    "focus": [
+      "mCurrentFocus=Window{9ad5abc u0 com.tencent.weread/com.tencent.weread.weHear.combo.panel.PanelFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-34-audio-speed.png",
+    "title": "有声书语速设置",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:49:46.223361+00:00",
+    "focus": [
+      "mCurrentFocus=Window{c6e0280 u0 com.tencent.weread/com.tencent.weread.weHear.combo.panel.PanelFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-35-audio-timer.png",
+    "title": "有声书定时选项",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:50:15.168734+00:00",
+    "focus": [
+      "mCurrentFocus=Window{78fc71b u0 com.tencent.weread/com.tencent.weread.weHear.combo.panel.PanelFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-36-audio-timer-active.png",
+    "title": "有声书定时倒计时",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:50:47.646446+00:00",
+    "focus": [
+      "mCurrentFocus=Window{9ad5abc u0 com.tencent.weread/com.tencent.weread.weHear.combo.panel.PanelFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-37-audio-catalog.png",
+    "title": "有声书目录与播放顺序",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:50:55.684509+00:00",
+    "focus": [
+      "mCurrentFocus=Window{56c7e7d u0 com.tencent.weread/com.tencent.weread.weHear.combo.panel.PanelFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-38-audio-transcript.png",
+    "title": "AI 生成文稿与当前句",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:55:23.612948+00:00",
+    "focus": [
+      "mCurrentFocus=Window{9ad5abc u0 com.tencent.weread/com.tencent.weread.weHear.combo.panel.PanelFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-39-audio-more.png",
+    "title": "有声书详情与更多",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:55:48.385252+00:00",
+    "focus": [
+      "mCurrentFocus=Window{ddee9ad u0 com.tencent.weread/com.tencent.weread.weHear.combo.panel.PanelFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-40-audio-mini.png",
+    "title": "有声书迷你播放器",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:56:12.153326+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a4346c u0 com.tencent.weread/com.tencent.weread.WeReadFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-41-book-listen-entry.png",
+    "title": "阅读工具栏复访",
+    "app": "weread",
+    "module": "阅读",
+    "captured_at_utc": "2026-10-17T16:57:08.524041+00:00",
+    "focus": [
+      "mCurrentFocus=Window{907d019 u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-42-book-tts.png",
+    "title": "电子书 AI 阅读播放器",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:58:57.748696+00:00",
+    "focus": [
+      "mCurrentFocus=Window{19fe66b u0 com.tencent.weread/com.tencent.weread.weHear.combo.panel.PanelFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-43-tts-voices.png",
+    "title": "AI 阅读常用声音",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:59:21.942159+00:00",
+    "focus": [
+      "mCurrentFocus=Window{e1c7018 u0 com.tencent.weread/com.tencent.weread.weHear.combo.panel.PanelFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-44-tts-voices-more.png",
+    "title": "AI 阅读更多声音",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T16:59:50.632757+00:00",
+    "focus": [
+      "mCurrentFocus=Window{e1c7018 u0 com.tencent.weread/com.tencent.weread.weHear.combo.panel.PanelFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-45-tts-original.png",
+    "title": "AI 阅读返回原文",
+    "app": "weread",
+    "module": "听书",
+    "captured_at_utc": "2026-10-17T17:00:12.192251+00:00",
+    "focus": [
+      "mCurrentFocus=Window{907d019 u0 com.tencent.weread/com.tencent.weread.ReaderFragmentActivity}"
+    ]
+  },
+  {
+    "file": "weread-47-settings-lower.png",
+    "title": "全局设置 · 下半部",
+    "app": "weread",
+    "module": "应用结构",
+    "captured_at_utc": "2026-10-17T17:01:15.699812+00:00",
+    "focus": [
+      "mCurrentFocus=Window{7a4346c u0 com.tencent.weread/com.tencent.weread.WeReadFragmentActivity}"
+    ]
+  }
+]
