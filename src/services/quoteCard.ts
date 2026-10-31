@@ -33,9 +33,10 @@
 export type CardTemplate =
   | 'paper' | 'glass' | 'notebook' | 'marker' | 'calendar' | 'vertical' | 'minimal'
   | 'memo' | 'magazine' | 'poster' | 'aurora' | 'night' | 'manuscript' | 'page' | 'swiss'
+/** 版式顺序 (2026-10-31 用户指定前六个: 弥散、毛玻璃、大字报、稿纸、手账、纸卡); 对话框默认取第一个 */
 export const CARD_TEMPLATES: CardTemplate[] = [
-  'paper', 'page', 'vertical', 'minimal', 'swiss', 'magazine', 'glass', 'notebook', 'marker', 'calendar',
-  'memo', 'poster', 'aurora', 'night', 'manuscript',
+  'aurora', 'glass', 'poster', 'manuscript', 'notebook', 'paper',
+  'vertical', 'page', 'minimal', 'swiss', 'magazine', 'marker', 'night', 'calendar', 'memo',
 ]
 
 export type CardSize = 'sm' | 'md' | 'lg'

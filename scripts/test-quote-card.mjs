@@ -146,3 +146,7 @@ test('card titles drop trailing bracket notes, authors keep the first name', () 
   assert.equal(cardAuthor('柏拉图; 郭斌和 译'), '柏拉图')
   assert.equal(cardAuthor('  '), undefined)
 })
+
+test('layout order: the six user-picked layouts come first', () => {
+  assert.deepEqual(CARD_TEMPLATES.slice(0, 6), ['aurora', 'glass', 'poster', 'manuscript', 'notebook', 'paper'])
+})

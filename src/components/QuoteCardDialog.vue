@@ -47,7 +47,7 @@ async function prepareFont(f: CardFont) {
 const STORE_KEY = 'lightread-quote-card'
 function loadStyle(): QuoteCardStyle & { fontKey: string } {
   const base = {
-    template: 'paper' as CardTemplate, background: TEMPLATE_DEFAULT_BG.paper, font: '', fontKey: TEMPLATE_DEFAULT_FONT.paper,
+    template: CARD_TEMPLATES[0], background: TEMPLATE_DEFAULT_BG[CARD_TEMPLATES[0]], font: '', fontKey: TEMPLATE_DEFAULT_FONT[CARD_TEMPLATES[0]],
     size: 'md' as CardSize, ratio: '3:4' as CardRatio,
     showBook: true, showChapter: true, showNote: true, showDate: true, showBrand: true,
   }

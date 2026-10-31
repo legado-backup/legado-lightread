@@ -193,7 +193,9 @@ try {
     const dlg = p.locator('.app-modal')
     await dlg.locator('.qc-preview').waitFor()
     await p.waitForFunction(() => document.querySelectorAll('.qc-thumb img').length === 15, null, { timeout: 60000 })
-    const names = ['纸卡', '毛玻璃', '手账', '划线', '日历', '竖排', '留白', '备忘录', '杂志', '大字报', '弥散', '星夜', '稿纸']
+    const names = ['弥散', '毛玻璃', '大字报', '稿纸', '手账', '纸卡', '竖排', '书页', '留白', '克莱因', '杂志', '划线', '星夜', '日历', '备忘录']
+    // 版式条顺序与 CARD_TEMPLATES 一致, 前六个按用户指定
+    assert.deepEqual(await dlg.locator('.qc-tpl').allInnerTexts().then(a => a.map(x => x.trim())), names)
     for (const [i, name] of names.entries()) {
       await dlg.locator('.qc-tpl').filter({ hasText: name }).click()
       await p.waitForFunction(() => !document.querySelector('.qc-stage.busy'))
